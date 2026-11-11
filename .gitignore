@@ -18,6 +18,17 @@ documents/
 install.lock
 conf.php
 
+# --- Database dumps and backups (real customer data: never commit) ---
+*.sql
+*.sql.gz
+*.sql.zst
+*.dump
+*.tgz
+*.tar
+*.tar.gz
+*.bak
+dumps/
+
 # --- Secrets and local config ---
 .env
 .env.*

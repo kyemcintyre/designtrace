@@ -27,6 +27,11 @@ services:
       DOLI_URL_ROOT: "http://localhost:8080"
       DOLI_ADMIN_LOGIN: admin
       DOLI_ADMIN_PASSWORD: admin
+      # Key Dolibarr encrypts stored secrets with (SMTP password, module API
+      # keys). Fixed so they survive container rebuilds. To rehearse on a copy
+      # of production, put production's $dolibarr_main_instance_unique_id in
+      # .devcontainer/.env (gitignored) as DOLI_INSTANCE_UNIQUE_ID=...
+      DOLI_INSTANCE_UNIQUE_ID: ${DOLI_INSTANCE_UNIQUE_ID:-designtrace-dev}
       PHP_INI_DATE_TIMEZONE: Australia/Sydney
       WWW_USER_ID: "1000"
       WWW_GROUP_ID: "1000"
