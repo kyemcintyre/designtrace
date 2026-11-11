@@ -33,6 +33,13 @@ each step before the next, and wants **whole files** shown when a file changes, 
   PHP 8.1-compatible).
 - **Never commit** CAD files, database dumps or real customer data; `.gitignore` blocks
   `*.FCStd`, `*.step`, `*.sql`, `*.tgz` etc. (test fixtures only under `tests/fixtures/`).
+  The module's own `designtrace/sql/*.sql` is allowed back in; Module Builder `*.back` files
+  are ignored.
+- Inside the container Apache answers on **http://localhost** (port 80); 8080 is only the
+  host mapping. CLI scripts run as `www-data` (`su -s /bin/sh www-data -c php < script.php`)
+  and include `/var/www/html/master.inc.php`; wrap test data in `$db->begin()` /
+  `$db->rollback()`. PHP errors from Apache go to the container's stderr, so replay a page
+  through the CLI to see a fatal error.
 
 ## Data model (agreed)
 
@@ -74,17 +81,53 @@ portfolio consent, opening STEP/3MF in the portal's 3D viewer.
 
 ## Build phases
 
-1. Core objects (Design, Component, ComponentRevision), workflow, numbering. **← next**
-2. Files: roles, hashing, read-only released revisions.
+1. Core objects (Design, Component, ComponentRevision), workflow, numbering. **Done.**
+2. Files: roles, hashing, read-only released revisions. **← next**
 3. Links and flagging.
 4. Dolibarr links (quotes, orders, invoices, projects, BOMs, tickets).
 5. Client visibility, Web portal section, REST API, download log.
 6. ECOs and licence templates.
 7. Workshop features (proof approval, reorder, time tracking, ownership, portfolio, viewer).
 
-Phase 1 starts in Module Builder (Objects tab): Design first, with `ref` (auto-numbered,
-unique), `label`, `fk_soc` (Societe), `fk_project` (Project), `description`, notes, `status`
-(0 Draft, 1 Active, 9 Archived) and the audit fields; drop the sample `amount`/`qty`.
+## Phase 1 as built
+
+All three objects have `entity` (multicompany) and extrafields, and ref unique per entity.
+
+- **Design** (`llx_designtrace_design`): label, fk_soc, fk_project, description, notes.
+  Draft (0) → Active (1, by Validate, which assigns `DSN-0001`) → Archived (9), reactivatable.
+  Drafts are `(PROVn)`. Cannot be deleted while it has components. Card lists its components.
+- **Component** (`llx_designtrace_component`): fk_design (FK), type 0 part / 1 assembly /
+  2 drawing, drawing_type 1 concept / 2 proof / 3 TDS (required for drawings only), label,
+  fk_product. **Numbered and Active at creation** (files are named after the number), status
+  Active (1) / Obsolete (9), no draft. Type cannot change once numbered. One global sequence
+  per type (`mod_component_standard`). Card lists its revisions.
+- **ComponentRevision** (`llx_designtrace_componentrevision`): fk_component (FK), rev
+  (default next letter A…Z, AA; unique per component), ref = component ref + `-` + rev
+  (`PRT-0001-A`, no numbering module), change notes (description), material, process,
+  machine, date_release, fk_user_release. Draft (0) ⇄ In review (1) → Released (2) →
+  Obsolete (9, undoable). Release needs the separate `componentrevision release` right and
+  fires `DESIGNTRACE_COMPONENTREVISION_RELEASE` (hook for phase 3 flagging). Released is
+  read-only and undeletable. One draft/in-review revision per component at a time. "New
+  revision from this one" (clone) copies notes and material/process/machine.
+- Not yet: ECO and customer approval on revisions (phases 6–7), per-type prefix settings
+  (prefixes are fixed in the standard rules; the generated "advanced" mask rules ignore type).
+
+## Module Builder pitfalls (24.0.2)
+
+New objects can be generated without the GUI by POSTing Module Builder's `initobject` form
+(see git history). After generating, always:
+
+- Fix the parse error from "No generate lines": it leaves the tail of the nested lines block
+  (an orphan `}`) after `dol_get_fiche_end()` in `*_card.php`.
+- Set `$enablepermissioncheck = 1` in every page: by default rights are only checked when
+  `DESIGNTRACE_ENABLE_PERMISSION_CHECK` is set, i.e. anyone logged in can do anything.
+  Also uncomment the `$user->socid > 0` guard.
+- Edit `$fields` and the SQL files by hand together (no amount/qty; ref `default` `(PROV)`
+  if numbered on validation; status `visible` 2 so it is not on the create form).
+- Fix `\file` headers (`designtracefoo.php` → `designtrace/foo.php`), menu titles (use lang
+  keys) and the setup page's `includerefgeneration` flag.
+- Re-run module activation to create tables and rights; `modDesignTrace` is reachable via
+  `activateModule('modDesignTrace')` from the CLI.
 
 ## Conventions
 
