@@ -10,7 +10,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        DOLIBARR_VERSION: "21.0.2"
+        DOLIBARR_VERSION: "24.0.2-php8.2"
     depends_on:
       mariadb:
         condition: service_healthy

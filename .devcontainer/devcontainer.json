@@ -1,10 +1,10 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the
 // README at: https://containers.dev/features
 //
-// DesignTrace devcontainer: Dolibarr 21.0.2 (PHP + Apache) from the official
+// DesignTrace devcontainer: Dolibarr 24.0.2 (PHP 8.2 + Apache) from the official
 // image, plus MariaDB, Adminer and Mailpit via docker-compose.yml.
 {
-	"name": "DesignTrace (Dolibarr 21.0.2)",
+	"name": "DesignTrace (Dolibarr 24.0.2)",
 	"dockerComposeFile": "docker-compose.yml",
 	"service": "dolibarr",
 	"workspaceFolder": "/workspaces/designtrace",

@@ -14,7 +14,7 @@ It is CAD-agnostic: FreeCAD, Fusion, SolidWorks or plain PDFs all work.
 
 ## Requirements
 
-- Dolibarr 21.0+
+- Dolibarr 24.0+
 - PHP 8.1+
 - MariaDB 10.3+ / MySQL 5.7.7+
 
@@ -25,7 +25,7 @@ then enable **DesignTrace** in Home → Setup → Modules.
 
 ## Development
 
-The repo includes a devcontainer with Dolibarr 21.0.2, MariaDB 11.4,
+The repo includes a devcontainer with Dolibarr 24.0.2 (PHP 8.2), MariaDB 11.4,
 Adminer, Mailpit and Xdebug.
 
 1. Open the repo in VS Code and run **Dev Containers: Reopen in Container**.

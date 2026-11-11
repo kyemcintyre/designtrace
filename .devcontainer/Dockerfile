@@ -1,10 +1,11 @@
 # DesignTrace dev image: official Dolibarr image + dev tooling
-ARG DOLIBARR_VERSION=21.0.2
+ARG DOLIBARR_VERSION=24.0.2-php8.2
 FROM dolibarr/dolibarr:${DOLIBARR_VERSION}
 
-# The Dolibarr 21.x image is based on Debian 11 (bullseye), which is end of
+# Older Dolibarr images (21.x) are based on Debian 11 (bullseye), which is end of
 # life and has moved to archive.debian.org. Point apt there so this step and
-# the devcontainer features (Node, GitHub CLI) can install packages.
+# the devcontainer features (Node, GitHub CLI) can install packages. Newer
+# images skip this step.
 RUN . /etc/os-release \
     && if [ "$VERSION_CODENAME" = "bullseye" ]; then \
         rm -f /etc/apt/sources.list.d/*; \
