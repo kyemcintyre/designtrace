@@ -28,6 +28,11 @@ conf.php
 *.tar.gz
 *.bak
 dumps/
+# ...but the module's own schema files are source code
+!designtrace/sql/*.sql
+
+# --- Module Builder backups ---
+*.back
 
 # --- Secrets and local config ---
 .env
@@ -37,7 +42,7 @@ dumps/
 # --- Dependencies and build output ---
 vendor/
 node_modules/
-build/
+/build/
 dist/
 *.zip
 
