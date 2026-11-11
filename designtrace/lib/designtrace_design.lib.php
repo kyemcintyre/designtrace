@@ -17,7 +17,7 @@
  */
 
 /**
- * \file    designtracelib/designtrace_design.lib.php
+ * \file    designtrace/lib/designtrace_design.lib.php
  * \ingroup designtrace
  * \brief   Library files with common functions for Design
  */

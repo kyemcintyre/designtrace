@@ -18,7 +18,7 @@
  */
 
 /**
- * \file        designtraceclass/design.class.php
+ * \file        designtrace/class/design.class.php
  * \ingroup     designtrace
  * \brief       This file is a CRUD class file for Design (Create/Read/Update/Delete)
  */
@@ -75,6 +75,11 @@ class Design extends CommonObject
 	 */
 	public $ismultientitymanaged = 1;
 
+
+	/**
+	 * @var array<string,array{name:string,fk_element:string}>	Tables whose rows block deleting a design
+	 */
+	protected $childtables = array('designtrace_component' => array('name' => 'Component', 'fk_element' => 'fk_design'));
 
 	const STATUS_DRAFT = 0;
 	const STATUS_VALIDATED = 1;

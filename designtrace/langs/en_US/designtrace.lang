@@ -54,3 +54,31 @@ DesignStatusArchived = Archived
 DesignArchive = Archive
 DesignReactivate = Reactivate
 DesignTraceNumRefModelDesc = Returns a number of the form %s, one sequence that never resets
+
+#
+# Component
+#
+Component = Component
+Components = Components
+NewComponent = New component
+ListOfComponents = List of components
+DeleteComponent = Delete component
+ComponentType = Type
+ComponentTypeHelp = Part, assembly or drawing. It sets the number prefix (PRT-, ASM-, DRW-) and cannot be changed afterwards.
+ComponentTypePart = Part
+ComponentTypeAssembly = Assembly
+ComponentTypeDrawing = Drawing
+DrawingType = Drawing type
+DrawingTypeHelp = Only for drawings: concept, proof or technical data sheet (TDS).
+DrawingTypeConcept = Concept
+DrawingTypeProof = Proof
+DrawingTypeTDS = TDS
+ComponentProductHelp = Optional link to the product sold from this component
+ComponentStatusActive = Active
+ComponentStatusObsolete = Obsolete
+ComponentMakeObsolete = Make obsolete
+ComponentNumRefModelDesc = Returns a number per type of the form %s, each type one sequence shared by all designs that never resets
+ErrorComponentTypeCannotChange = The type of a component cannot be changed once it has a number. Create a new component instead.
+ErrorDrawingTypeOnlyForDrawings = Only drawings can have a drawing type.
+ErrorComponentHasNoDraftStatus = Components have no draft status.
+ErrorComponentNumberingFailed = Could not generate the component number.

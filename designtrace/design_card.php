@@ -544,6 +544,53 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 			print $formfile->showdocuments('designtrace:Design', $object->element.'/'.$objref, $filedir, $urlsource, $genallowed, $delallowed, $object->model_pdf, 1, 0, 0, 28, 0, '', '', '', $langs->defaultlang);
 		}
 
+		// Components owned by this design
+		if ($user->hasRight('designtrace', 'component', 'read')) {
+			dol_include_once('/designtrace/class/component.class.php');
+
+			$morehtmlright = '';
+			if ($user->hasRight('designtrace', 'component', 'write') && $object->status != $object::STATUS_CANCELED) {
+				$urlnew = dol_buildpath('/designtrace/component_card.php', 1).'?action=create&fk_design='.((int) $object->id);
+				$urlnew .= '&backtopage='.urlencode($_SERVER['PHP_SELF'].'?id='.((int) $object->id));
+				$morehtmlright = dolGetButtonTitle($langs->trans('NewComponent'), '', 'fa fa-plus-circle', $urlnew);
+			}
+			print '<br>';
+			print load_fiche_titre($langs->trans('Components'), $morehtmlright, 'fa-cube');
+
+			$staticcomponent = new Component($db);
+			$components = $staticcomponent->fetchAll('ASC', 't.ref', 0, 0, '(t.fk_design:=:'.((int) $object->id).')');
+
+			print '<div class="div-table-responsive-no-min">';
+			print '<table class="noborder centpercent">';
+			print '<tr class="liste_titre">';
+			print '<td>'.$langs->trans('Ref').'</td>';
+			print '<td>'.$langs->trans('ComponentType').'</td>';
+			print '<td>'.$langs->trans('Label').'</td>';
+			print '<td class="right">'.$langs->trans('Status').'</td>';
+			print '</tr>';
+			if (is_array($components) && count($components) > 0) {
+				foreach ($components as $component) {
+					$typelabel = $component->fields['type']['arrayofkeyval'][$component->type] ?? '';
+					if ($component->type == Component::TYPE_DRAWING && !empty($component->drawing_type)) {
+						$typelabel .= ' ('.($component->fields['drawing_type']['arrayofkeyval'][$component->drawing_type] ?? '').')';
+					}
+					print '<tr class="oddeven">';
+					print '<td class="nowraponall">'.$component->getNomUrl(1).'</td>';
+					print '<td>'.dol_escape_htmltag($typelabel).'</td>';
+					print '<td class="tdoverflowmax200" title="'.dol_escape_htmltag($component->label).'">'.dol_escape_htmltag($component->label).'</td>';
+					print '<td class="right nowraponall">'.$component->getLibStatut(5).'</td>';
+					print '</tr>';
+				}
+			} elseif (!is_array($components)) {
+				print '<tr><td colspan="4">'.dol_escape_htmltag($staticcomponent->error).'</td></tr>';
+			} else {
+				print '<tr><td colspan="4"><span class="opacitymedium">'.$langs->trans('None').'</span></td></tr>';
+			}
+			print '</table>';
+			print '</div>';
+			print '<br>';
+		}
+
 		// Show links to link elements
 		$tmparray = $form->showLinkToObjectBlock($object, array(), array('design'), 1);
 		if (is_array($tmparray)) {

@@ -323,6 +323,21 @@ class modDesignTrace extends DolibarrModules
 		$this->rights[$r][4] = 'design';
 		$this->rights[$r][5] = 'delete';
 		$r++;
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (1 * 10) + 0 + 1);
+		$this->rights[$r][1] = 'Read Component object of DesignTrace';
+		$this->rights[$r][4] = 'component';
+		$this->rights[$r][5] = 'read';
+		$r++;
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (1 * 10) + 1 + 1);
+		$this->rights[$r][1] = 'Create/Update Component object of DesignTrace';
+		$this->rights[$r][4] = 'component';
+		$this->rights[$r][5] = 'write';
+		$r++;
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (1 * 10) + 2 + 1);
+		$this->rights[$r][1] = 'Delete Component object of DesignTrace';
+		$this->rights[$r][4] = 'component';
+		$this->rights[$r][5] = 'delete';
+		$r++;
 
 		/* END MODULEBUILDER PERMISSIONS */
 
@@ -397,6 +412,54 @@ class modDesignTrace extends DolibarrModules
 			'object' => 'Design'
 		);
 		/* END MODULEBUILDER LEFTMENU DESIGN */
+		/* BEGIN MODULEBUILDER LEFTMENU COMPONENT */
+		$this->menu[$r++] = array(
+			'fk_menu' => 'fk_mainmenu=designtrace',
+			'type' => 'left',
+			'titre' => 'Components',
+			'prefix' => img_picto('', $this->picto, 'class="paddingright pictofixedwidth valignmiddle"'),
+			'mainmenu' => 'designtrace',
+			'leftmenu' => 'component',
+			'url' => '/designtrace/component_list.php',
+			'langs' => 'designtrace@designtrace',
+			'position' => 1000 + $r,
+			'enabled' => 'isModEnabled("designtrace")',
+			'perms' => '$user->hasRight("designtrace", "component", "read")',
+			'target' => '',
+			'user' => 2,
+			'object' => 'Component'
+		);
+		$this->menu[$r++] = array(
+			'fk_menu' => 'fk_mainmenu=designtrace,fk_leftmenu=component',
+			'type' => 'left',
+			'titre' => 'ListOfComponents',
+			'mainmenu' => 'designtrace',
+			'leftmenu' => 'designtrace_component_list',
+			'url' => '/designtrace/component_list.php',
+			'langs' => 'designtrace@designtrace',
+			'position' => 1000 + $r,
+			'enabled' => 'isModEnabled("designtrace")',
+			'perms' => '$user->hasRight("designtrace", "component", "read")',
+			'target' => '',
+			'user' => 2,
+			'object' => 'Component'
+		);
+		$this->menu[$r++] = array(
+			'fk_menu' => 'fk_mainmenu=designtrace,fk_leftmenu=component',
+			'type' => 'left',
+			'titre' => 'NewComponent',
+			'mainmenu' => 'designtrace',
+			'leftmenu' => 'designtrace_component_new',
+			'url' => '/designtrace/component_card.php?action=create',
+			'langs' => 'designtrace@designtrace',
+			'position' => 1000 + $r,
+			'enabled' => 'isModEnabled("designtrace")',
+			'perms' => '$user->hasRight("designtrace", "component", "write")',
+			'target' => '',
+			'user' => 2,
+			'object' => 'Component'
+		);
+		/* END MODULEBUILDER LEFTMENU COMPONENT */
 		/* BEGIN MODULEBUILDER LEFTMENU MYOBJECT */
 		/*
 		$this->menu[$r++]=array(

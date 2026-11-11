@@ -192,7 +192,8 @@ $dirmodels = array_merge(array('/'), (array) $conf->modules_parts['models']);
 $moduledir = 'designtrace';
 $myTmpObjects = array();
 // TODO Scan list of objects to fill this array
-$myTmpObjects['design'] = array('label' => 'Design', 'includerefgeneration' => 0, 'includedocgeneration' => 0, 'class' => 'Design');
+$myTmpObjects['design'] = array('label' => 'Design', 'includerefgeneration' => 1, 'includedocgeneration' => 0, 'class' => 'Design');
+$myTmpObjects['component'] = array('label' => 'Component', 'includerefgeneration' => 1, 'includedocgeneration' => 0, 'class' => 'Component');
 
 $tmpobjectkey = GETPOST('object', 'aZ09');
 if ($tmpobjectkey && !array_key_exists($tmpobjectkey, $myTmpObjects)) {
