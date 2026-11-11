@@ -2,6 +2,19 @@
 ARG DOLIBARR_VERSION=21.0.2
 FROM dolibarr/dolibarr:${DOLIBARR_VERSION}
 
+# The Dolibarr 21.x image is based on Debian 11 (bullseye), which is end of
+# life and has moved to archive.debian.org. Point apt there so this step and
+# the devcontainer features (Node, GitHub CLI) can install packages.
+RUN . /etc/os-release \
+    && if [ "$VERSION_CODENAME" = "bullseye" ]; then \
+        rm -f /etc/apt/sources.list.d/*; \
+        { \
+            echo "deb http://archive.debian.org/debian bullseye main"; \
+            echo "deb http://archive.debian.org/debian-security bullseye-security main"; \
+        } > /etc/apt/sources.list; \
+        echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99archive; \
+    fi
+
 # Basic tools for working inside the container
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git unzip less nano \
