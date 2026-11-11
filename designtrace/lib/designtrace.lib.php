@@ -33,7 +33,7 @@ function designtraceAdminPrepareHead()
 
 	// global $db;
 	// $extrafields = new ExtraFields($db);
-	// $extrafields->fetch_name_optionals_label('myobject');
+	// $extrafields->fetch_name_optionals_label('design');
 
 	$langs->load("designtrace@designtrace");
 
@@ -46,22 +46,22 @@ function designtraceAdminPrepareHead()
 	$h++;
 
 	/*
-	$head[$h][0] = dolBuildUrl(dol_buildpath("/designtrace/admin/myobject_extrafields.php", 1));
+	$head[$h][0] = dolBuildUrl(dol_buildpath("/designtrace/admin/design_extrafields.php", 1));
 	$head[$h][1] = $langs->trans("ExtraFields");
-	$nbExtrafields = (isset($extrafields->attributes['myobject']['label']) && is_countable($extrafields->attributes['myobject']['label'])) ? count($extrafields->attributes['myobject']['label']) : 0;
+	$nbExtrafields = (isset($extrafields->attributes['design']['label']) && is_countable($extrafields->attributes['design']['label'])) ? count($extrafields->attributes['design']['label']) : 0;
 	if ($nbExtrafields > 0) {
 		$head[$h][1] .= '<span class="badge marginleftonlyshort">' . $nbExtrafields . '</span>';
 	}
-	$head[$h][2] = 'myobject_extrafields';
+	$head[$h][2] = 'design_extrafields';
 	$h++;
 
-	$head[$h][0] = dolBuildUrl(dol_buildpath("/designtrace/admin/myobjectline_extrafields.php", 1));
+	$head[$h][0] = dolBuildUrl(dol_buildpath("/designtrace/admin/designline_extrafields.php", 1));
 	$head[$h][1] = $langs->trans("ExtraFieldsLines");
-	$nbExtrafields = (isset($extrafields->attributes['myobjectline']['label']) && is_countable($extrafields->attributes['myobjectline']['label'])) ? count($extrafields->attributes['myobject']['label']) : 0;
+	$nbExtrafields = (isset($extrafields->attributes['designline']['label']) && is_countable($extrafields->attributes['designline']['label'])) ? count($extrafields->attributes['design']['label']) : 0;
 	if ($nbExtrafields > 0) {
 		$head[$h][1] .= '<span class="badge marginleftonlyshort">' . $nbExtrafields . '</span>';
 	}
-	$head[$h][2] = 'myobject_extrafieldsline';
+	$head[$h][2] = 'design_extrafieldsline';
 	$h++;
 	*/
 

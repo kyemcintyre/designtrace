@@ -95,10 +95,10 @@ if (!empty($user->socid) && $user->socid > 0) {
 //if (!isModEnabled('designtrace')) {
 //	accessforbidden('Module not enabled');
 //}
-//if (! $user->hasRight('designtrace', 'myobject', 'read')) {
+//if (! $user->hasRight('designtrace', 'design', 'read')) {
 //	accessforbidden();
 //}
-//restrictedArea($user, 'designtrace', 0, 'designtrace_myobject', 'myobject', '', 'rowid');
+//restrictedArea($user, 'designtrace', 0, 'designtrace_design', 'design', '', 'rowid');
 //if (empty($user->admin)) {
 //	accessforbidden('Must be admin');
 //}
@@ -125,8 +125,8 @@ print load_fiche_titre($langs->trans("DesignTraceArea"), '', 'designtrace.png@de
 print '<div class="fichecenter"><div class="fichethirdleft">';
 
 
-/* BEGIN MODULEBUILDER DRAFT MYOBJECT
-// Draft MyObject
+/* BEGIN MODULEBUILDER DRAFT DESIGN
+// Draft Design
 if (isModEnabled('designtrace') && $user->hasRight('designtrace', 'read')) {
 	$langs->load("orders");
 
@@ -147,7 +147,7 @@ if (isModEnabled('designtrace') && $user->hasRight('designtrace', 'read')) {
 
 		print '<table class="noborder centpercent">';
 		print '<tr class="liste_titre">';
-		print '<th colspan="3">'.$langs->trans("DraftMyObjects").($num?'<span class="badge marginleftonlyshort">'.$num.'</span>':'').'</th></tr>';
+		print '<th colspan="3">'.$langs->trans("DraftDesigns").($num?'<span class="badge marginleftonlyshort">'.$num.'</span>':'').'</th></tr>';
 
 		$var = true;
 		if ($num > 0)
@@ -159,14 +159,14 @@ if (isModEnabled('designtrace') && $user->hasRight('designtrace', 'read')) {
 				$obj = $db->fetch_object($resql);
 				print '<tr class="oddeven"><td class="nowrap">';
 
-				$myobjectstatic->id=$obj->rowid;
-				$myobjectstatic->ref=$obj->ref;
-				$myobjectstatic->ref_client=$obj->ref_client;
-				$myobjectstatic->total_ht = $obj->total_ht;
-				$myobjectstatic->total_tva = $obj->total_tva;
-				$myobjectstatic->total_ttc = $obj->total_ttc;
+				$designstatic->id=$obj->rowid;
+				$designstatic->ref=$obj->ref;
+				$designstatic->ref_client=$obj->ref_client;
+				$designstatic->total_ht = $obj->total_ht;
+				$designstatic->total_tva = $obj->total_tva;
+				$designstatic->total_ttc = $obj->total_ttc;
 
-				print $myobjectstatic->getNomUrl(1);
+				print $designstatic->getNomUrl(1);
 				print '</td>';
 				print '<td class="nowrap">';
 				print '</td>';
@@ -194,18 +194,18 @@ if (isModEnabled('designtrace') && $user->hasRight('designtrace', 'read')) {
 		dol_print_error($db);
 	}
 }
-END MODULEBUILDER DRAFT MYOBJECT */
+END MODULEBUILDER DRAFT DESIGN */
 
 
 print '</div><div class="fichetwothirdright">';
 
 
-/* BEGIN MODULEBUILDER LASTMODIFIED MYOBJECT
-// Last modified myobject
+/* BEGIN MODULEBUILDER LASTMODIFIED DESIGN
+// Last modified design
 if (isModEnabled('designtrace') && $user->hasRight('designtrace', 'read')) {
 	$sql = "SELECT s.rowid, s.ref, s.label, s.date_creation, s.tms";
-	$sql.= " FROM ".$db->prefix()."designtrace_myobject as s";
-	$sql.= " WHERE s.entity IN (".getEntity($myobjectstatic->element).")";
+	$sql.= " FROM ".$db->prefix()."designtrace_design as s";
+	$sql.= " WHERE s.entity IN (".getEntity($designstatic->element).")";
 	//if ($socid)	$sql.= " AND s.rowid = $socid";
 	$sql .= " ORDER BY s.tms DESC";
 	$sql .= $db->plimit($max, 0);
@@ -219,7 +219,7 @@ if (isModEnabled('designtrace') && $user->hasRight('designtrace', 'read')) {
 		print '<table class="noborder centpercent">';
 		print '<tr class="liste_titre">';
 		print '<th colspan="2">';
-		print $langs->trans("BoxTitleLatestModifiedMyObjects", $max);
+		print $langs->trans("BoxTitleLatestModifiedDesigns", $max);
 		print '</th>';
 		print '<th class="right">'.$langs->trans("DateModificationShort").'</th>';
 		print '</tr>';
@@ -229,13 +229,13 @@ if (isModEnabled('designtrace') && $user->hasRight('designtrace', 'read')) {
 			{
 				$objp = $db->fetch_object($resql);
 
-				$myobjectstatic->id=$objp->rowid;
-				$myobjectstatic->ref=$objp->ref;
-				$myobjectstatic->label=$objp->label;
-				$myobjectstatic->status = $objp->status;
+				$designstatic->id=$objp->rowid;
+				$designstatic->ref=$objp->ref;
+				$designstatic->label=$objp->label;
+				$designstatic->status = $objp->status;
 
 				print '<tr class="oddeven">';
-				print '<td class="nowrap">'.$myobjectstatic->getNomUrl(1).'</td>';
+				print '<td class="nowrap">'.$designstatic->getNomUrl(1).'</td>';
 				print '<td class="right nowrap">';
 				print "</td>";
 				print '<td class="right nowrap">'.dol_print_date($db->jdate($objp->tms), 'day')."</td>";

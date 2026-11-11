@@ -120,7 +120,7 @@ class modDesignTrace extends DolibarrModules
 			// Set this to 1 if module has its own barcode directory (core/modules/barcode)
 			'barcode' => 0,
 			// Set this to 1 if module has its own models directory (core/modules/xxx)
-			'models' => 0,
+			'models' => 1,
 			// Set this to 1 if module has its own printing directory (core/modules/printing)
 			'printing' => 0,
 			// Set this to 1 if module has its own theme directory (theme)
@@ -206,7 +206,7 @@ class modDesignTrace extends DolibarrModules
 		/* END MODULEBUILDER TABS */
 		// Example:
 		// To add a new tab identified by code tabname1
-		// $this->tabs[] = array('data' => 'objecttype:+tabname1:Title1:mylangfile@designtrace:$user->hasRight('designtrace', 'myobject', 'read'):/designtrace/mynewtab1.php?id=__ID__');
+		// $this->tabs[] = array('data' => 'objecttype:+tabname1:Title1:mylangfile@designtrace:$user->hasRight('designtrace', 'design', 'read'):/designtrace/mynewtab1.php?id=__ID__');
 		// To add another new tab identified by code tabname2. Label will be result of calling all substitution functions on 'Title2' key.
 		// $this->tabs[] = array('data' => 'objecttype:+tabname2:SUBSTITUTION_Title2:mylangfile@designtrace:$user->hasRight('othermodule', 'otherobject', 'read'):/designtrace/mynewtab2.php?id=__ID__',
 		// To remove an existing tab identified by code tabname
@@ -285,8 +285,8 @@ class modDesignTrace extends DolibarrModules
 			//  0 => array(
 			//      'label' => 'MyJob label',
 			//      'jobtype' => 'method',
-			//      'class' => '/designtrace/class/myobject.class.php',
-			//      'objectname' => 'MyObject',
+			//      'class' => '/designtrace/class/design.class.php',
+			//      'objectname' => 'Design',
 			//      'method' => 'doScheduledJob',
 			//      'parameters' => '',
 			//      'comment' => 'Comment',
@@ -308,24 +308,22 @@ class modDesignTrace extends DolibarrModules
 		$r = 0;
 		// Add here entries to declare new permissions
 		/* BEGIN MODULEBUILDER PERMISSIONS */
-		/*
-		$o = 1;
-		$this->rights[$r][0] = $this->numero . sprintf("%02d", ($o * 10) + 1); // Permission id (must not be already used)
-		$this->rights[$r][1] = 'Read objects of DesignTrace'; // Permission label
-		$this->rights[$r][4] = 'myobject';
-		$this->rights[$r][5] = 'read'; // In php code, permission will be checked by test if ($user->hasRight('designtrace', 'myobject', 'read'))
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (0 * 10) + 0 + 1);
+		$this->rights[$r][1] = 'Read Design object of DesignTrace';
+		$this->rights[$r][4] = 'design';
+		$this->rights[$r][5] = 'read';
 		$r++;
-		$this->rights[$r][0] = $this->numero . sprintf("%02d", ($o * 10) + 2); // Permission id (must not be already used)
-		$this->rights[$r][1] = 'Create/Update objects of DesignTrace'; // Permission label
-		$this->rights[$r][4] = 'myobject';
-		$this->rights[$r][5] = 'write'; // In php code, permission will be checked by test if ($user->hasRight('designtrace', 'myobject', 'write'))
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (0 * 10) + 1 + 1);
+		$this->rights[$r][1] = 'Create/Update Design object of DesignTrace';
+		$this->rights[$r][4] = 'design';
+		$this->rights[$r][5] = 'write';
 		$r++;
-		$this->rights[$r][0] = $this->numero . sprintf("%02d", ($o * 10) + 3); // Permission id (must not be already used)
-		$this->rights[$r][1] = 'Delete objects of DesignTrace'; // Permission label
-		$this->rights[$r][4] = 'myobject';
-		$this->rights[$r][5] = 'delete'; // In php code, permission will be checked by test if ($user->hasRight('designtrace', 'myobject', 'delete'))
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (0 * 10) + 2 + 1);
+		$this->rights[$r][1] = 'Delete Design object of DesignTrace';
+		$this->rights[$r][4] = 'design';
+		$this->rights[$r][5] = 'delete';
 		$r++;
-		*/
+
 		/* END MODULEBUILDER PERMISSIONS */
 
 
@@ -345,59 +343,107 @@ class modDesignTrace extends DolibarrModules
 			'langs' => 'designtrace@designtrace', // Lang file to use (without .lang) by module. File must be in langs/code_CODE/ directory.
 			'position' => 1000 + $r,
 			'enabled' => "isModEnabled('designtrace')", // Define condition to show or hide menu entry. Use "isModEnabled('designtrace')" if entry must be visible if module is enabled (those quote marks are importants).
-			'perms' => '1', // Use 'perms'=>'$user->hasRight("designtrace", "myobject", "read")' if you want your menu with a permission rules
+			'perms' => '1', // Use 'perms'=>'$user->hasRight("designtrace", "design", "read")' if you want your menu with a permission rules
 			'target' => '',
 			'user' => 2, // 0=Menu for internal users, 1=external users, 2=both
 		);
 		/* END MODULEBUILDER TOPMENU */
 
+		/* BEGIN MODULEBUILDER LEFTMENU DESIGN */
+		$this->menu[$r++] = array(
+			'fk_menu' => 'fk_mainmenu=designtrace',
+			'type' => 'left',
+			'titre' => 'Designs',
+			'prefix' => img_picto('', $this->picto, 'class="paddingright pictofixedwidth valignmiddle"'),
+			'mainmenu' => 'designtrace',
+			'leftmenu' => 'design',
+			'url' => '/designtrace/design_list.php',
+			'langs' => 'designtrace@designtrace',
+			'position' => 1000 + $r,
+			'enabled' => 'isModEnabled("designtrace")',
+			'perms' => '$user->hasRight("designtrace", "design", "read")',
+			'target' => '',
+			'user' => 2,
+			'object' => 'Design'
+		);
+		$this->menu[$r++] = array(
+			'fk_menu' => 'fk_mainmenu=designtrace,fk_leftmenu=design',
+			'type' => 'left',
+			'titre' => 'ListOfDesigns',
+			'mainmenu' => 'designtrace',
+			'leftmenu' => 'designtrace_design_list',
+			'url' => '/designtrace/design_list.php',
+			'langs' => 'designtrace@designtrace',
+			'position' => 1000 + $r,
+			'enabled' => 'isModEnabled("designtrace")',
+			'perms' => '$user->hasRight("designtrace", "design", "read")',
+			'target' => '',
+			'user' => 2,
+			'object' => 'Design'
+		);
+		$this->menu[$r++] = array(
+			'fk_menu' => 'fk_mainmenu=designtrace,fk_leftmenu=design',
+			'type' => 'left',
+			'titre' => 'NewDesign',
+			'mainmenu' => 'designtrace',
+			'leftmenu' => 'designtrace_design_new',
+			'url' => '/designtrace/design_card.php?action=create',
+			'langs' => 'designtrace@designtrace',
+			'position' => 1000 + $r,
+			'enabled' => 'isModEnabled("designtrace")',
+			'perms' => '$user->hasRight("designtrace", "design", "write")',
+			'target' => '',
+			'user' => 2,
+			'object' => 'Design'
+		);
+		/* END MODULEBUILDER LEFTMENU DESIGN */
 		/* BEGIN MODULEBUILDER LEFTMENU MYOBJECT */
 		/*
 		$this->menu[$r++]=array(
 			'fk_menu' => 'fk_mainmenu=designtrace',      // '' if this is a top menu. For left menu, use 'fk_mainmenu=xxx' or 'fk_mainmenu=xxx,fk_leftmenu=yyy' where xxx is mainmenucode and yyy is a leftmenucode
 			'type' => 'left',                          // This is a Left menu entry
-			'titre' => 'MyObject',
+			'titre' => 'Design',
 			'prefix' => img_picto('', $this->picto, 'class="pictofixedwidth valignmiddle paddingright"'),
 			'mainmenu' => 'designtrace',
-			'leftmenu' => 'myobject',
+			'leftmenu' => 'design',
 			'url' => '/designtrace/designtraceindex.php',
 			'langs' => 'designtrace@designtrace',	        // Lang file to use (without .lang) by module. File must be in langs/code_CODE/ directory.
 			'position' => 1000 + $r,
 			'enabled' => "isModEnabled('designtrace')", // Define condition to show or hide menu entry. Use isModEnabled("designtrace") if entry must be visible if module is enabled.
-			'perms' => '$user->hasRight("designtrace", "myobject", "read")',
+			'perms' => '$user->hasRight("designtrace", "design", "read")',
 			'target' => '',
 			'user' => 2,				                // 0=Menu for internal users, 1=external users, 2=both
-			'object' => 'MyObject'
+			'object' => 'Design'
 		);
 		$this->menu[$r++]=array(
-			'fk_menu' => 'fk_mainmenu=designtrace,fk_leftmenu=myobject',	    // '' if this is a top menu. For left menu, use 'fk_mainmenu=xxx' or 'fk_mainmenu=xxx,fk_leftmenu=yyy' where xxx is mainmenucode and yyy is a leftmenucode
+			'fk_menu' => 'fk_mainmenu=designtrace,fk_leftmenu=design',	    // '' if this is a top menu. For left menu, use 'fk_mainmenu=xxx' or 'fk_mainmenu=xxx,fk_leftmenu=yyy' where xxx is mainmenucode and yyy is a leftmenucode
 			'type' => 'left',			                // This is a Left menu entry
-			'titre' => 'New_MyObject',
+			'titre' => 'New_Design',
 			'mainmenu' => 'designtrace',
-			'leftmenu' => 'designtrace_myobject_new',
-			'url' => '/designtrace/myobject_card.php?action=create',
+			'leftmenu' => 'designtrace_design_new',
+			'url' => '/designtrace/design_card.php?action=create',
 			'langs' => 'designtrace@designtrace',	        // Lang file to use (without .lang) by module. File must be in langs/code_CODE/ directory.
 			'position' => 1000 + $r,
 			'enabled' => "isModEnabled('designtrace')", // Define condition to show or hide menu entry. Use isModEnabled("designtrace") if entry must be visible if module is enabled. Use '$leftmenu==\'system\'' to show if leftmenu system is selected.
-			'perms' => '$user->hasRight("designtrace", "myobject", "write")'
+			'perms' => '$user->hasRight("designtrace", "design", "write")'
 			'target' => '',
 			'user' => 2,				                // 0=Menu for internal users, 1=external users, 2=both
-			'object' => 'MyObject'
+			'object' => 'Design'
 		);
 		$this->menu[$r++]=array(
-			'fk_menu' => 'fk_mainmenu=designtrace,fk_leftmenu=myobject',	    // '' if this is a top menu. For left menu, use 'fk_mainmenu=xxx' or 'fk_mainmenu=xxx,fk_leftmenu=yyy' where xxx is mainmenucode and yyy is a leftmenucode
+			'fk_menu' => 'fk_mainmenu=designtrace,fk_leftmenu=design',	    // '' if this is a top menu. For left menu, use 'fk_mainmenu=xxx' or 'fk_mainmenu=xxx,fk_leftmenu=yyy' where xxx is mainmenucode and yyy is a leftmenucode
 			'type' => 'left',			                // This is a Left menu entry
-			'titre' => 'List_MyObject',
+			'titre' => 'List_Design',
 			'mainmenu' => 'designtrace',
-			'leftmenu' => 'designtrace_myobject_list',
-			'url' => '/designtrace/myobject_list.php',
+			'leftmenu' => 'designtrace_design_list',
+			'url' => '/designtrace/design_list.php',
 			'langs' => 'designtrace@designtrace',	        // Lang file to use (without .lang) by module. File must be in langs/code_CODE/ directory.
 			'position' => 1000 + $r,
 			'enabled' => "isModEnabled('designtrace')", // Define condition to show or hide menu entry. Use isModEnabled("designtrace") if entry must be visible if module is enabled.
-			'perms' => '$user->hasRight("designtrace", "myobject", "read")'
+			'perms' => '$user->hasRight("designtrace", "design", "read")'
 			'target' => '',
 			'user' => 2,				                // 0=Menu for internal users, 1=external users, 2=both
-			'object' => 'MyObject'
+			'object' => 'Design'
 		);
 		*/
 		/* END MODULEBUILDER LEFTMENU MYOBJECT */
@@ -409,28 +455,28 @@ class modDesignTrace extends DolibarrModules
 		/*
 		$langs->load("designtrace@designtrace");
 		$this->export_code[$r] = $this->rights_class.'_'.$r;
-		$this->export_label[$r] = 'MyObjectLines';	// Translation key (used only if key ExportDataset_xxx_z not found)
+		$this->export_label[$r] = 'DesignLines';	// Translation key (used only if key ExportDataset_xxx_z not found)
 		$this->export_icon[$r] = $this->picto;
 		// Define $this->export_fields_array, $this->export_TypeFields_array and $this->export_entities_array
-		$keyforclass = 'MyObject'; $keyforclassfile='/designtrace/class/myobject.class.php'; $keyforelement='myobject@designtrace';
+		$keyforclass = 'Design'; $keyforclassfile='/designtrace/class/design.class.php'; $keyforelement='design@designtrace';
 		include DOL_DOCUMENT_ROOT.'/core/commonfieldsinexport.inc.php';
 		//$this->export_fields_array[$r]['t.fieldtoadd']='FieldToAdd'; $this->export_TypeFields_array[$r]['t.fieldtoadd']='Text';
 		//unset($this->export_fields_array[$r]['t.fieldtoremove']);
-		//$keyforclass = 'MyObjectLine'; $keyforclassfile='/designtrace/class/myobject.class.php'; $keyforelement='myobjectline@designtrace'; $keyforalias='tl';
+		//$keyforclass = 'DesignLine'; $keyforclassfile='/designtrace/class/design.class.php'; $keyforelement='designline@designtrace'; $keyforalias='tl';
 		//include DOL_DOCUMENT_ROOT.'/core/commonfieldsinexport.inc.php';
-		$keyforselect='myobject'; $keyforaliasextra='extra'; $keyforelement='myobject@designtrace';
+		$keyforselect='design'; $keyforaliasextra='extra'; $keyforelement='design@designtrace';
 		include DOL_DOCUMENT_ROOT.'/core/extrafieldsinexport.inc.php';
-		//$keyforselect='myobjectline'; $keyforaliasextra='extraline'; $keyforelement='myobjectline@designtrace';
+		//$keyforselect='designline'; $keyforaliasextra='extraline'; $keyforelement='designline@designtrace';
 		//include DOL_DOCUMENT_ROOT.'/core/extrafieldsinexport.inc.php';
-		//$this->export_dependencies_array[$r] = array('myobjectline' => array('tl.rowid','tl.ref')); // To force to activate one or several fields if we select some fields that need same (like to select a unique key if we ask a field of a child to avoid the DISTINCT to discard them, or for computed field than need several other fields)
+		//$this->export_dependencies_array[$r] = array('designline' => array('tl.rowid','tl.ref')); // To force to activate one or several fields if we select some fields that need same (like to select a unique key if we ask a field of a child to avoid the DISTINCT to discard them, or for computed field than need several other fields)
 		//$this->export_special_array[$r] = array('t.field' => '...');
 		//$this->export_examplevalues_array[$r] = array('t.field' => 'Example');
 		//$this->export_help_array[$r] = array('t.field' => 'FieldDescHelp');
 		$this->export_sql_start[$r]='SELECT DISTINCT ';
-		$this->export_sql_end[$r]  =' FROM '.$this->db->prefix().'designtrace_myobject as t';
-		//$this->export_sql_end[$r]  .=' LEFT JOIN '.$this->db->prefix().'designtrace_myobject_line as tl ON tl.fk_myobject = t.rowid';
+		$this->export_sql_end[$r]  =' FROM '.$this->db->prefix().'designtrace_design as t';
+		//$this->export_sql_end[$r]  .=' LEFT JOIN '.$this->db->prefix().'designtrace_design_line as tl ON tl.fk_design = t.rowid';
 		$this->export_sql_end[$r] .=' WHERE 1 = 1';
-		$this->export_sql_end[$r] .=' AND t.entity IN ('.getEntity('myobject').')';
+		$this->export_sql_end[$r] .=' AND t.entity IN ('.getEntity('design').')';
 		$r++; */
 		/* END MODULEBUILDER EXPORT MYOBJECT */
 
@@ -440,27 +486,27 @@ class modDesignTrace extends DolibarrModules
 		/*
 		$langs->load("designtrace@designtrace");
 		$this->import_code[$r] = $this->rights_class.'_'.$r;
-		$this->import_label[$r] = 'MyObjectLines';	// Translation key (used only if key ExportDataset_xxx_z not found)
+		$this->import_label[$r] = 'DesignLines';	// Translation key (used only if key ExportDataset_xxx_z not found)
 		$this->import_icon[$r] = $this->picto;
-		$this->import_tables_array[$r] = array('t' => $this->db->prefix().'designtrace_myobject', 'extra' => $this->db->prefix().'designtrace_myobject_extrafields');
+		$this->import_tables_array[$r] = array('t' => $this->db->prefix().'designtrace_design', 'extra' => $this->db->prefix().'designtrace_design_extrafields');
 		$this->import_tables_creator_array[$r] = array('t' => 'fk_user_author'); // Fields to store import user id
 		$import_sample = array();
-		$keyforclass = 'MyObject'; $keyforclassfile='/designtrace/class/myobject.class.php'; $keyforelement='myobject@designtrace';
+		$keyforclass = 'Design'; $keyforclassfile='/designtrace/class/design.class.php'; $keyforelement='design@designtrace';
 		include DOL_DOCUMENT_ROOT.'/core/commonfieldsinimport.inc.php';
 		$import_extrafield_sample = array();
-		$keyforselect='myobject'; $keyforaliasextra='extra'; $keyforelement='myobject@designtrace';
+		$keyforselect='design'; $keyforaliasextra='extra'; $keyforelement='design@designtrace';
 		include DOL_DOCUMENT_ROOT.'/core/extrafieldsinimport.inc.php';
-		$this->import_fieldshidden_array[$r] = array('extra.fk_object' => 'lastrowid-'.$this->db->prefix().'designtrace_myobject');
+		$this->import_fieldshidden_array[$r] = array('extra.fk_object' => 'lastrowid-'.$this->db->prefix().'designtrace_design');
 		$this->import_regex_array[$r] = array();
 		$this->import_examplevalues_array[$r] = array_merge($import_sample, $import_extrafield_sample);
 		$this->import_updatekeys_array[$r] = array('t.ref' => 'Ref');
 		$this->import_convertvalue_array[$r] = array(
 			't.ref' => array(
 				'rule'=>'getrefifauto',
-				'class'=>(!getDolGlobalString('DESIGNTRACE_MYOBJECT_ADDON') ? 'mod_myobject_standard' : getDolGlobalString('DESIGNTRACE_MYOBJECT_ADDON')),
-				'path'=>"/core/modules/designtrace/".(!getDolGlobalString('DESIGNTRACE_MYOBJECT_ADDON') ? 'mod_myobject_standard' : getDolGlobalString('DESIGNTRACE_MYOBJECT_ADDON')).'.php',
-				'classobject'=>'MyObject',
-				'pathobject'=>'/designtrace/class/myobject.class.php',
+				'class'=>(!getDolGlobalString('DESIGNTRACE_DESIGN_ADDON') ? 'mod_design_standard' : getDolGlobalString('DESIGNTRACE_DESIGN_ADDON')),
+				'path'=>"/core/modules/designtrace/".(!getDolGlobalString('DESIGNTRACE_DESIGN_ADDON') ? 'mod_design_standard' : getDolGlobalString('DESIGNTRACE_DESIGN_ADDON')).'.php',
+				'classobject'=>'Design',
+				'pathobject'=>'/designtrace/class/design.class.php',
 			),
 			't.fk_soc' => array('rule' => 'fetchidfromref', 'file' => '/societe/class/societe.class.php', 'class' => 'Societe', 'method' => 'fetch', 'element' => 'ThirdParty'),
 			't.fk_user_valid' => array('rule' => 'fetchidfromref', 'file' => '/user/class/user.class.php', 'class' => 'User', 'method' => 'fetch', 'element' => 'user'),
@@ -508,13 +554,13 @@ class modDesignTrace extends DolibarrModules
 		// Document templates
 		$moduledir = dol_sanitizeFileName('designtrace');
 		$myTmpObjects = array();
-		$myTmpObjects['MyObject'] = array('includerefgeneration' => 0, 'includedocgeneration' => 0);
+		$myTmpObjects['Design'] = array('includerefgeneration' => 0, 'includedocgeneration' => 0);
 
 		foreach ($myTmpObjects as $myTmpObjectKey => $myTmpObjectArray) {
 			if ($myTmpObjectArray['includerefgeneration']) {
-				$src = DOL_DOCUMENT_ROOT.'/install/doctemplates/'.$moduledir.'/template_myobjects.odt';
+				$src = DOL_DOCUMENT_ROOT.'/install/doctemplates/'.$moduledir.'/template_designs.odt';
 				$dirodt = DOL_DATA_ROOT.($conf->entity > 1 ? '/'.$conf->entity : '').'/doctemplates/'.$moduledir;
-				$dest = $dirodt.'/template_myobjects.odt';
+				$dest = $dirodt.'/template_designs.odt';
 
 				if (file_exists($src) && !file_exists($dest)) {
 					require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';

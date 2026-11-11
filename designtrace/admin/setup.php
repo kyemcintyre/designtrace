@@ -83,7 +83,7 @@ $modulepart = GETPOST('modulepart', 'aZ09');	// Used by actions_setmoduleoptions
 $value = GETPOST('value', 'alpha');
 $label = GETPOST('label', 'alpha');
 $scandir = GETPOST('scan_dir', 'alpha');
-$type = 'myobject';
+$type = 'design';
 
 $error = 0;
 $setupnotempty = 0;
@@ -192,7 +192,7 @@ $dirmodels = array_merge(array('/'), (array) $conf->modules_parts['models']);
 $moduledir = 'designtrace';
 $myTmpObjects = array();
 // TODO Scan list of objects to fill this array
-$myTmpObjects['myobject'] = array('label' => 'MyObject', 'includerefgeneration' => 0, 'includedocgeneration' => 0, 'class' => 'MyObject');
+$myTmpObjects['design'] = array('label' => 'Design', 'includerefgeneration' => 0, 'includedocgeneration' => 0, 'class' => 'Design');
 
 $tmpobjectkey = GETPOST('object', 'aZ09');
 if ($tmpobjectkey && !array_key_exists($tmpobjectkey, $myTmpObjects)) {
@@ -232,7 +232,7 @@ if ($action == 'updateMask') {
 
 	$className = $myTmpObjects[$tmpobjectkey]['class'];
 	$tmpobject = new $className($db);
-	'@phan-var-force MyObject $tmpobject';
+	'@phan-var-force Design $tmpobject';
 	$tmpobject->initAsSpecimen();
 
 	// Search template files
@@ -251,9 +251,9 @@ if ($action == 'updateMask') {
 		require_once $file;
 
 		$module = new $className($db);
-		'@phan-var-force ModelePDFMyObject $module';
+		'@phan-var-force ModelePDFDesign $module';
 
-		'@phan-var-force ModelePDFMyObject $module';
+		'@phan-var-force ModelePDFDesign $module';
 
 		if ($module->write_file($tmpobject, $langs) > 0) {
 			header("Location: ".DOL_URL_ROOT."/document.php?modulepart=designtrace-".strtolower($tmpobjectkey)."&file=SPECIMEN.pdf");
@@ -412,7 +412,7 @@ if (!empty($refGenerationObjects)) {
 				require_once $dir.'/'.$file.'.php';
 
 				$module = new $file($db);
-				'@phan-var-force ModeleNumRefMyObject $module';
+				'@phan-var-force ModeleNumRefDesign $module';
 
 				if ($module->version == 'development' && getDolGlobalInt('MAIN_FEATURES_LEVEL') < 2) {
 					continue;
@@ -458,7 +458,7 @@ if (!empty($refGenerationObjects)) {
 
 				$className = $myTmpObjectArray['class'];
 				$mytmpinstance = new $className($db);
-				'@phan-var-force MyObject $mytmpinstance';
+				'@phan-var-force Design $mytmpinstance';
 				$mytmpinstance->initAsSpecimen();
 
 				$htmltooltip = '';
@@ -584,7 +584,7 @@ if (!empty($docGenerationObjects)) {
 					require_once $dir.'/'.$file;
 
 					$module = new $className($db);
-					'@phan-var-force ModelePDFMyObject $module';
+					'@phan-var-force ModelePDFDesign $module';
 
 					$modulequalified = 1;
 					if ($module->version == 'development' && getDolGlobalInt('MAIN_FEATURES_LEVEL') < 2) {

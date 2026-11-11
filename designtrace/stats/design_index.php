@@ -23,7 +23,7 @@
  */
 
 /**
- *	    \file       designtrace/stats/myobject_index.php
+ *	    \file       designtrace/stats/design_index.php
  *      \ingroup    order
  *		\brief      Page with statistics
  */
@@ -71,9 +71,9 @@ if (!$res) {
  */
 require_once DOL_DOCUMENT_ROOT.'/categories/class/categorie.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/class/dolgraph.class.php';
-dol_include_once('/designtrace/class/myobject.class.php');
-dol_include_once('/designtrace/class/myobjectstats.class.php');
-dol_include_once('/designtrace/lib/designtrace_myobject.lib.php');
+dol_include_once('/designtrace/class/design.class.php');
+dol_include_once('/designtrace/class/designstats.class.php');
+dol_include_once('/designtrace/lib/designtrace_design.lib.php');
 
 $WIDTH = DolGraph::getDefaultGraphSizeForStats('width');
 $HEIGHT = DolGraph::getDefaultGraphSizeForStats('height');
@@ -83,10 +83,10 @@ $mode = GETPOSTISSET("mode") ? GETPOST("mode", 'aZ09') : 'statistics';
 $userid = GETPOSTINT('userid');
 $categ_id = GETPOSTINT('categ_id');
 
-$hookmanager->initHooks(array('designtracestats', 'myobjectstats', 'globalcard'));
+$hookmanager->initHooks(array('designtracestats', 'designstats', 'globalcard'));
 
-$objecttype = 'myobject';
-$object = new MyObject($db);
+$objecttype = 'design';
+$object = new Design($db);
 
 // List of object we want to manage statistics
 $usercanreadstatistic = 1;
@@ -138,13 +138,13 @@ llxHeader('', $title, '', '', 0, 0, '', '', '', 'mod-order page-stats');
 $permissiontoadd = 1;
 $param = '';
 $newcardbutton = '';
-$newcardbutton .= dolGetButtonTitle($langs->trans('ViewList'), '', 'fa fa-bars imgforviewmode', dol_buildpath('/designtrace/myobject_list.php', 1).'?mode=common'.preg_replace('/(&|\?)*(mode|groupby)=[^&]+/', '', $param), '', ((empty($mode) || $mode == 'common') ? 2 : 1), array('morecss' => 'reposition'));
-$newcardbutton .= dolGetButtonTitle($langs->trans('ViewKanban'), '', 'fa fa-th-list imgforviewmode', dol_buildpath('/designtrace/myobject_list.php', 1).'?mode=kanban'.preg_replace('/(&|\?)*(mode|groupby)=[^&]+/', '', $param), '', ($mode == 'kanban' ? 2 : 1), array('morecss' => 'reposition'));
+$newcardbutton .= dolGetButtonTitle($langs->trans('ViewList'), '', 'fa fa-bars imgforviewmode', dol_buildpath('/designtrace/design_list.php', 1).'?mode=common'.preg_replace('/(&|\?)*(mode|groupby)=[^&]+/', '', $param), '', ((empty($mode) || $mode == 'common') ? 2 : 1), array('morecss' => 'reposition'));
+$newcardbutton .= dolGetButtonTitle($langs->trans('ViewKanban'), '', 'fa fa-th-list imgforviewmode', dol_buildpath('/designtrace/design_list.php', 1).'?mode=kanban'.preg_replace('/(&|\?)*(mode|groupby)=[^&]+/', '', $param), '', ($mode == 'kanban' ? 2 : 1), array('morecss' => 'reposition'));
 //$newcardbutton .= dolGetButtonTitle($langs->trans('ViewKanbanGroupBy'), '', 'fa fa-grip-vertical imgforviewmode', dol_buildpath('/designtrace/aaa_index.php', 1).'?mode=kanbangroupby&groupby=p.fk_opp_status'.preg_replace('/(&|\?)*(mode|groupby)=[^&]+/', '', $param), '', ($mode == 'kanbangroupby' ? 2 : 1), array('morecss' => 'reposition'));
 //$newcardbutton .= dolGetButtonTitle($langs->trans('HierarchicView'), '', 'fa fa-stream paddingleft imgforviewmode', dol_buildpath('/designtrace/aaa_index.php', 1).'?mode=hierarchy'.preg_replace('/(&|\?)*(mode|groupby)=[^&]+/', '', $param), '', (($mode == 'hierarchy') ? 2 : 1), array('morecss' => 'reposition'));
-$newcardbutton .= dolGetButtonTitle($langs->trans('Statistics'), '', 'fa fa-chart-bar imgforviewmode', dol_buildpath('/designtrace/stats/designtrace_index.php', 1).'?mode=statistics&objecttype=myobject@designtrace'.preg_replace('/(&|\?)*(mode|groupby)=[^&]+/', '', $param), '', ($mode == 'statistics' ? 2 : 1), array('morecss' => 'reposition'));
+$newcardbutton .= dolGetButtonTitle($langs->trans('Statistics'), '', 'fa fa-chart-bar imgforviewmode', dol_buildpath('/designtrace/stats/designtrace_index.php', 1).'?mode=statistics&objecttype=design@designtrace'.preg_replace('/(&|\?)*(mode|groupby)=[^&]+/', '', $param), '', ($mode == 'statistics' ? 2 : 1), array('morecss' => 'reposition'));
 $newcardbutton .= dolGetButtonTitleSeparator();
-$newcardbutton .= dolGetButtonTitle($langs->trans('New'), '', 'fa fa-plus-circle', dol_buildpath('/designtrace/myobject_card.php', 1).'?action=create&backtopage='.urlencode($_SERVER['PHP_SELF']), '', $permissiontoadd);
+$newcardbutton .= dolGetButtonTitle($langs->trans('New'), '', 'fa fa-plus-circle', dol_buildpath('/designtrace/design_card.php', 1).'?action=create&backtopage='.urlencode($_SERVER['PHP_SELF']), '', $permissiontoadd);
 
 $param = '';
 $page = 0;
@@ -162,14 +162,14 @@ print_barre_liste($title, $page, $_SERVER["PHP_SELF"], $param, $sortfield, $sort
 
 dol_mkdir($dir);
 
-$stats = new MyObjectStats($db, $socid, $mode, ($userid > 0 ? $userid : 0), ($categ_id > 0 ? $categ_id : 0));
+$stats = new DesignStats($db, $socid, $mode, ($userid > 0 ? $userid : 0), ($categ_id > 0 ? $categ_id : 0));
 
 
 // Build graphic number of object
 $data = $stats->getNbByMonthWithPrevYear($endyear, $startyear);
 
 
-$filenamenb = $dir.'/myobjectnbinyear-'.$user->id.'-'.$year.'.png';
+$filenamenb = $dir.'/designnbinyear-'.$user->id.'-'.$year.'.png';
 $fileurlnb = DOL_URL_ROOT.'/viewimage.php?modulepart=orderstats&file=ordersnbinyear-'.$user->id.'-'.$year.'.png';
 
 
@@ -326,7 +326,7 @@ $head[$h][1] = $langs->trans("ByMonthYear");
 $head[$h][2] = 'byyear';
 $h++;
 
-$type = 'myobject_stats';
+$type = 'design_stats';
 
 complete_head_from_modules($conf, $langs, null, $head, $h, $type);
 

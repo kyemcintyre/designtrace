@@ -40,3 +40,17 @@ MyPageName = My page name
 #
 MyWidget = My widget
 MyWidgetDescription = My widget description
+
+#
+# Design
+#
+Design = Design
+Designs = Designs
+NewDesign = New design
+ListOfDesigns = List of designs
+DeleteDesign = Delete design
+DesignStatusActive = Active
+DesignStatusArchived = Archived
+DesignArchive = Archive
+DesignReactivate = Reactivate
+DesignTraceNumRefModelDesc = Returns a number of the form %s, one sequence that never resets
