@@ -1,0 +1,39 @@
+# --- CAD and design files (never commit real designs) ---
+*.FCStd
+*.FCStd1
+*.FCBak
+*.f3d
+*.step
+*.stp
+*.stl
+*.3mf
+*.obj
+*.gcode
+*.nc
+# Allow small test fixtures only
+!tests/fixtures/**
+
+# --- Dolibarr runtime data ---
+documents/
+install.lock
+conf.php
+
+# --- Secrets and local config ---
+.env
+.env.*
+!.env.example
+
+# --- Dependencies and build output ---
+vendor/
+node_modules/
+build/
+dist/
+*.zip
+
+# --- Editor and OS files ---
+.vscode/*
+!.vscode/launch.json
+.idea/
+.DS_Store
+Thumbs.db
+*.swp

@@ -1,0 +1,26 @@
+{
+  "name": "DesignTrace (Dolibarr 21.0.2)",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "dolibarr",
+  "workspaceFolder": "/workspaces/designtrace",
+  "shutdownAction": "stopCompose",
+  "remoteUser": "root",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "bmewburn.vscode-intelephense-client",
+        "xdebug.php-debug",
+        "editorconfig.editorconfig",
+        "mikestead.dotenv"
+      ],
+      "settings": {
+        "php.validate.executablePath": "/usr/local/bin/php",
+        "intelephense.environment.includePaths": [
+          "/var/www/html"
+        ],
+        "intelephense.environment.phpVersion": "8.2.0",
+        "files.eol": "\n"
+      }
+    }
+  }
+}

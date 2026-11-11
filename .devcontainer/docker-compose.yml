@@ -1,0 +1,76 @@
+# DesignTrace development stack. Dev-only credentials - never reuse these.
+
+# Fixed project name so volumes (database, documents) keep the same names
+# even if the repo folder is renamed or moved
+name: designtrace-dev
+
+services:
+  dolibarr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        DOLIBARR_VERSION: "21.0.2"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    environment:
+      DOLI_INSTALL_AUTO: "1"
+      DOLI_PROD: "0"              # dev mode: show PHP errors and warnings
+      DOLI_INIT_DEMO: "0"         # set to 1 for demo customers/products on first boot
+      DOLI_DB_TYPE: mysqli
+      DOLI_DB_HOST: mariadb
+      DOLI_DB_HOST_PORT: "3306"
+      DOLI_DB_NAME: dolidb
+      DOLI_DB_USER: dolidbuser
+      DOLI_DB_PASSWORD: dolidbpass
+      DOLI_URL_ROOT: "http://localhost:8080"
+      DOLI_ADMIN_LOGIN: admin
+      DOLI_ADMIN_PASSWORD: admin
+      PHP_INI_DATE_TIMEZONE: Australia/Sydney
+      WWW_USER_ID: "1000"
+      WWW_GROUP_ID: "1000"
+    ports:
+      - "8080:80"
+    volumes:
+      # The repo, opened in VS Code
+      - ..:/workspaces/designtrace:cached
+      # The same repo as Dolibarr's custom/ folder. Module Builder creates
+      # custom/designtrace/, which lands in the repo as designtrace/
+      - ..:/var/www/html/custom:cached
+      - dolibarr_documents:/var/www/documents
+
+  mariadb:
+    image: mariadb:11.4
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: dolidb
+      MARIADB_USER: dolidbuser
+      MARIADB_PASSWORD: dolidbpass
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - mariadb_data:/var/lib/mysql
+
+  # Browse the database at http://localhost:8081
+  # (server: mariadb, user: dolidbuser, password: dolidbpass)
+  adminer:
+    image: adminer
+    depends_on:
+      - mariadb
+    ports:
+      - "8081:8080"
+
+  # Catches all outgoing email; view it at http://localhost:8025
+  # In Dolibarr set SMTP host "mailpit", port 1025, no auth/TLS
+  mailpit:
+    image: axllent/mailpit
+    ports:
+      - "8025:8025"
+
+volumes:
+  dolibarr_documents:
+  mariadb_data:
