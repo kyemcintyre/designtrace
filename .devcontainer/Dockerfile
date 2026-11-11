@@ -8,9 +8,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Xdebug for step debugging from VS Code (triggered per request, so normal
-# page loads stay fast)
-RUN pecl install xdebug \
-    && docker-php-ext-enable xdebug \
+# page loads stay fast). install-php-extensions brings in the compilers
+# that the slim PHP base image leaves out, then removes them again.
+COPY --from=mlocati/php-extension-installer /usr/bin/install-php-extensions /usr/local/bin/
+RUN install-php-extensions xdebug \
     && { \
         echo "xdebug.mode=debug,develop"; \
         echo "xdebug.start_with_request=trigger"; \
