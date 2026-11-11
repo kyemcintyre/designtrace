@@ -82,3 +82,38 @@ ErrorComponentTypeCannotChange = The type of a component cannot be changed once 
 ErrorDrawingTypeOnlyForDrawings = Only drawings can have a drawing type.
 ErrorComponentHasNoDraftStatus = Components have no draft status.
 ErrorComponentNumberingFailed = Could not generate the component number.
+
+#
+# Component revision
+#
+ComponentRevision = Revision
+ComponentRevisions = Revisions
+NewComponentRevision = New revision
+ListOfComponentRevisions = List of revisions
+DeleteComponentRevision = Delete revision
+Revision = Revision
+RevisionHelp = Leave empty for the next letter (A, B, C, ...). Can be changed until the revision is released.
+RevisionNotes = Change notes
+RevisionNotesHelp = What changed in this revision and why
+Material = Material
+Process = Process
+Machine = Machine
+DateRelease = Release date
+ReleasedBy = Released by
+RevisionStatusInReview = In review
+RevisionStatusReleased = Released
+RevisionStatusObsolete = Obsolete
+RevisionSubmitForReview = Submit for review
+RevisionRelease = Release
+ConfirmRevisionRelease = Release %s? A released revision is read-only: any later change needs a new revision.
+RevisionMakeObsolete = Make obsolete
+RevisionUndoObsolete = Undo obsolete
+RevisionNewFromThis = New revision from this one
+ConfirmRevisionNewFromThis = Create a new draft revision from %s? Notes, material, process and machine are copied.
+ErrorRevisionIsReadOnly = %s is released and read-only. Create a new revision to make changes.
+ErrorRevisionReleasedCannotBeDeleted = %s is released and cannot be deleted.
+ErrorRevisionAlreadyOpen = %s already has a draft or in-review revision. Release or delete it first.
+ErrorRevisionComponentNotActive = %s is obsolete, so it cannot get new revisions.
+ErrorRevisionComponentCannotChange = A revision cannot be moved to another component.
+ErrorRevisionBadRev = '%s' is not a valid revision: use 1 to 16 letters, digits, dots or dashes.
+ErrorRevisionAlreadyExists = Revision %s already exists for this component.

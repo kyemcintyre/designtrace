@@ -531,6 +531,58 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 			print $formfile->showdocuments('designtrace:Component', $object->element.'/'.$objref, $filedir, $urlsource, $genallowed, $delallowed, $object->model_pdf, 1, 0, 0, 28, 0, '', '', '', $langs->defaultlang);
 		}
 
+		// Revisions of this component
+		if ($user->hasRight('designtrace', 'componentrevision', 'read')) {
+			dol_include_once('/designtrace/class/componentrevision.class.php');
+
+			$staticrevision = new ComponentRevision($db);
+			$revisions = $staticrevision->fetchAll('DESC', 't.rowid', 0, 0, '(t.fk_component:=:'.((int) $object->id).')');
+
+			$hasopen = false;
+			if (is_array($revisions)) {
+				foreach ($revisions as $revision) {
+					if ($revision->status == ComponentRevision::STATUS_DRAFT || $revision->status == ComponentRevision::STATUS_INREVIEW) {
+						$hasopen = true;
+					}
+				}
+			}
+
+			$morehtmlright = '';
+			if ($user->hasRight('designtrace', 'componentrevision', 'write') && $object->status == $object::STATUS_ACTIVE) {
+				$urlnew = dol_buildpath('/designtrace/componentrevision_card.php', 1).'?action=create&fk_component='.((int) $object->id);
+				$urlnew .= '&backtopage='.urlencode($_SERVER['PHP_SELF'].'?id='.((int) $object->id));
+				$morehtmlright = dolGetButtonTitle($langs->trans('NewComponentRevision'), $hasopen ? $langs->trans('ErrorRevisionAlreadyOpen', $object->ref) : '', 'fa fa-plus-circle', $urlnew, '', $hasopen ? -2 : 1);
+			}
+			print '<br>';
+			print load_fiche_titre($langs->trans('ComponentRevisions'), $morehtmlright, 'fa-code-branch');
+
+			print '<div class="div-table-responsive-no-min">';
+			print '<table class="noborder centpercent">';
+			print '<tr class="liste_titre">';
+			print '<td>'.$langs->trans('Ref').'</td>';
+			print '<td>'.$langs->trans('DateRelease').'</td>';
+			print '<td>'.$langs->trans('RevisionNotes').'</td>';
+			print '<td class="right">'.$langs->trans('Status').'</td>';
+			print '</tr>';
+			if (is_array($revisions) && count($revisions) > 0) {
+				foreach ($revisions as $revision) {
+					print '<tr class="oddeven">';
+					print '<td class="nowraponall">'.$revision->getNomUrl(1).'</td>';
+					print '<td class="nowraponall">'.dol_print_date($revision->date_release, 'day').'</td>';
+					print '<td class="tdoverflowmax200" title="'.dol_escape_htmltag((string) $revision->description).'">'.dol_escape_htmltag(dol_trunc((string) $revision->description, 60)).'</td>';
+					print '<td class="right nowraponall">'.$revision->getLibStatut(5).'</td>';
+					print '</tr>';
+				}
+			} elseif (!is_array($revisions)) {
+				print '<tr><td colspan="4">'.dol_escape_htmltag($staticrevision->error).'</td></tr>';
+			} else {
+				print '<tr><td colspan="4"><span class="opacitymedium">'.$langs->trans('None').'</span></td></tr>';
+			}
+			print '</table>';
+			print '</div>';
+			print '<br>';
+		}
+
 		// Show links to link elements
 		$tmparray = $form->showLinkToObjectBlock($object, array(), array('component'), 1);
 		if (is_array($tmparray)) {

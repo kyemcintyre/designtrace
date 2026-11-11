@@ -338,8 +338,30 @@ class modDesignTrace extends DolibarrModules
 		$this->rights[$r][4] = 'component';
 		$this->rights[$r][5] = 'delete';
 		$r++;
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (2 * 10) + 0 + 1);
+		$this->rights[$r][1] = 'Read ComponentRevision object of DesignTrace';
+		$this->rights[$r][4] = 'componentrevision';
+		$this->rights[$r][5] = 'read';
+		$r++;
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (2 * 10) + 1 + 1);
+		$this->rights[$r][1] = 'Create/Update ComponentRevision object of DesignTrace';
+		$this->rights[$r][4] = 'componentrevision';
+		$this->rights[$r][5] = 'write';
+		$r++;
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (2 * 10) + 2 + 1);
+		$this->rights[$r][1] = 'Delete ComponentRevision object of DesignTrace';
+		$this->rights[$r][4] = 'componentrevision';
+		$this->rights[$r][5] = 'delete';
+		$r++;
 
 		/* END MODULEBUILDER PERMISSIONS */
+
+		// Release revisions: kept outside the Module Builder block so regenerating it keeps this right
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (2 * 10) + 3 + 1);
+		$this->rights[$r][1] = 'Release ComponentRevision object of DesignTrace';
+		$this->rights[$r][4] = 'componentrevision';
+		$this->rights[$r][5] = 'release';
+		$r++;
 
 
 		// Main menu entries to add
@@ -460,6 +482,54 @@ class modDesignTrace extends DolibarrModules
 			'object' => 'Component'
 		);
 		/* END MODULEBUILDER LEFTMENU COMPONENT */
+		/* BEGIN MODULEBUILDER LEFTMENU COMPONENTREVISION */
+		$this->menu[$r++] = array(
+			'fk_menu' => 'fk_mainmenu=designtrace',
+			'type' => 'left',
+			'titre' => 'ComponentRevisions',
+			'prefix' => img_picto('', $this->picto, 'class="paddingright pictofixedwidth valignmiddle"'),
+			'mainmenu' => 'designtrace',
+			'leftmenu' => 'componentrevision',
+			'url' => '/designtrace/componentrevision_list.php',
+			'langs' => 'designtrace@designtrace',
+			'position' => 1000 + $r,
+			'enabled' => 'isModEnabled("designtrace")',
+			'perms' => '$user->hasRight("designtrace", "componentrevision", "read")',
+			'target' => '',
+			'user' => 2,
+			'object' => 'ComponentRevision'
+		);
+		$this->menu[$r++] = array(
+			'fk_menu' => 'fk_mainmenu=designtrace,fk_leftmenu=componentrevision',
+			'type' => 'left',
+			'titre' => 'ListOfComponentRevisions',
+			'mainmenu' => 'designtrace',
+			'leftmenu' => 'designtrace_componentrevision_list',
+			'url' => '/designtrace/componentrevision_list.php',
+			'langs' => 'designtrace@designtrace',
+			'position' => 1000 + $r,
+			'enabled' => 'isModEnabled("designtrace")',
+			'perms' => '$user->hasRight("designtrace", "componentrevision", "read")',
+			'target' => '',
+			'user' => 2,
+			'object' => 'ComponentRevision'
+		);
+		$this->menu[$r++] = array(
+			'fk_menu' => 'fk_mainmenu=designtrace,fk_leftmenu=componentrevision',
+			'type' => 'left',
+			'titre' => 'NewComponentRevision',
+			'mainmenu' => 'designtrace',
+			'leftmenu' => 'designtrace_componentrevision_new',
+			'url' => '/designtrace/componentrevision_card.php?action=create',
+			'langs' => 'designtrace@designtrace',
+			'position' => 1000 + $r,
+			'enabled' => 'isModEnabled("designtrace")',
+			'perms' => '$user->hasRight("designtrace", "componentrevision", "write")',
+			'target' => '',
+			'user' => 2,
+			'object' => 'ComponentRevision'
+		);
+		/* END MODULEBUILDER LEFTMENU COMPONENTREVISION */
 		/* BEGIN MODULEBUILDER LEFTMENU MYOBJECT */
 		/*
 		$this->menu[$r++]=array(

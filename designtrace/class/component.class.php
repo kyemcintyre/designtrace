@@ -76,6 +76,11 @@ class Component extends CommonObject
 	public $ismultientitymanaged = 1;
 
 
+	/**
+	 * @var array<string,array{name:string,fk_element:string}>	Tables whose rows block deleting a component
+	 */
+	protected $childtables = array('designtrace_componentrevision' => array('name' => 'ComponentRevision', 'fk_element' => 'fk_component'));
+
 	const STATUS_DRAFT = 0;		// Not used: a component is created Active (its number is needed at once to name files)
 	const STATUS_VALIDATED = 1;
 	const STATUS_CANCELED = 9;
