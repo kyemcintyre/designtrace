@@ -145,7 +145,7 @@ include DOL_DOCUMENT_ROOT.'/core/actions_fetchobject.inc.php'; // Must be 'inclu
 
 // There is several ways to check permission.
 // Set $enablepermissioncheck to 1 to enable a minimum low level of checks
-$enablepermissioncheck = getDolGlobalInt('DESIGNTRACE_ENABLE_PERMISSION_CHECK');
+$enablepermissioncheck = 1; // Always check rights (Module Builder makes this opt-in through DESIGNTRACE_ENABLE_PERMISSION_CHECK)
 if ($enablepermissioncheck) {
 	$permissiontoread = $user->hasRight('designtrace', 'component', 'read');
 	$permissiontoadd = $user->hasRight('designtrace', 'component', 'write'); // Used by the include of actions_addupdatedelete.inc.php and actions_lineupdown.inc.php
@@ -163,7 +163,9 @@ if ($enablepermissioncheck) {
 $upload_dir = $conf->designtrace->multidir_output[isset($object->entity) ? $object->entity : 1].'/component';
 
 // Security check (enable at least one, the most restrictive one)
-//if ($user->socid > 0) accessforbidden();
+if ($user->socid > 0) {
+	accessforbidden(); // External users only get files through the portals (phase 5)
+}
 //if ($user->socid > 0) $socid = $user->socid;
 //$isdraft = (isset($object->status) && ($object->status == $object::STATUS_DRAFT) ? 1 : 0);
 //restrictedArea($user, $object->module, $object, $object->table_element, $object->element, 'fk_soc', 'rowid', $isdraft);

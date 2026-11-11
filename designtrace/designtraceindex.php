@@ -90,7 +90,9 @@ if (!empty($user->socid) && $user->socid > 0) {
 //$hookmanager->initHooks(array($object->element.'index'));
 
 // Security check (enable the most restrictive one)
-//if ($user->socid > 0) accessforbidden();
+if ($user->socid > 0) {
+	accessforbidden(); // External users only get files through the portals (phase 5)
+}
 //if ($user->socid > 0) $socid = $user->socid;
 //if (!isModEnabled('designtrace')) {
 //	accessforbidden('Module not enabled');

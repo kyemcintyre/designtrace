@@ -90,7 +90,7 @@ $object = new Design($db);
 
 // List of object we want to manage statistics
 $usercanreadstatistic = 1;
-$enablepermissioncheck = getDolGlobalInt('DESIGNTRACE_ENABLE_PERMISSION_CHECK');
+$enablepermissioncheck = 1; // Always check rights (Module Builder makes this opt-in through DESIGNTRACE_ENABLE_PERMISSION_CHECK)
 if ($enablepermissioncheck) {
 	$usercanreadstatistic = $user->hasRight($objecttype, 'read');
 	if (getDolGlobalInt('MAIN_NEED_EXPORT_PERMISSION_TO_READ_STATISTICS')) {

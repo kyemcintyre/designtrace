@@ -150,7 +150,7 @@ if ($id > 0 || !empty($ref)) {
 
 // There is several ways to check permission.
 // Set $enablepermissioncheck to 1 to enable a minimum low level of checks
-$enablepermissioncheck = getDolGlobalInt('DESIGNTRACE_ENABLE_PERMISSION_CHECK');
+$enablepermissioncheck = 1; // Always check rights (Module Builder makes this opt-in through DESIGNTRACE_ENABLE_PERMISSION_CHECK)
 if ($enablepermissioncheck) {
 	$permissiontoread = $user->hasRight('designtrace', 'component', 'read');
 	$permissiontoadd = $user->hasRight('designtrace', 'component', 'write');
@@ -160,7 +160,9 @@ if ($enablepermissioncheck) {
 }
 
 // Security check (enable the most restrictive one)
-//if ($user->socid > 0) accessforbidden();
+if ($user->socid > 0) {
+	accessforbidden(); // External users only get files through the portals (phase 5)
+}
 //if ($user->socid > 0) $socid = $user->socid;
 //$isdraft = (($object->status == $object::STATUS_DRAFT) ? 1 : 0);
 //restrictedArea($user, $object->module, $object->id, $object->table_element, $object->element, 'fk_soc', 'rowid', $isdraft);

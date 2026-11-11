@@ -212,7 +212,7 @@ $arrayfields = dol_sort_array($arrayfields, 'position');
 
 // There is several ways to check permission.
 // Set $enablepermissioncheck to 1 to enable a minimum low level of checks
-$enablepermissioncheck = getDolGlobalInt('DESIGNTRACE_ENABLE_PERMISSION_CHECK');
+$enablepermissioncheck = 1; // Always check rights (Module Builder makes this opt-in through DESIGNTRACE_ENABLE_PERMISSION_CHECK)
 if ($enablepermissioncheck) {
 	$permissiontoread = $user->hasRight('designtrace', 'design', 'read');
 	$permissiontoadd = $user->hasRight('designtrace', 'design', 'write');
