@@ -1,26 +1,55 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://containers.dev/features
+//
+// DesignTrace devcontainer: Dolibarr 21.0.2 (PHP + Apache) from the official
+// image, plus MariaDB, Adminer and Mailpit via docker-compose.yml.
 {
-  "name": "DesignTrace (Dolibarr 21.0.2)",
-  "dockerComposeFile": "docker-compose.yml",
-  "service": "dolibarr",
-  "workspaceFolder": "/workspaces/designtrace",
-  "shutdownAction": "stopCompose",
-  "remoteUser": "root",
-  "customizations": {
-    "vscode": {
-      "extensions": [
-        "bmewburn.vscode-intelephense-client",
-        "xdebug.php-debug",
-        "editorconfig.editorconfig",
-        "mikestead.dotenv"
-      ],
-      "settings": {
-        "php.validate.executablePath": "/usr/local/bin/php",
-        "intelephense.environment.includePaths": [
-          "/var/www/html"
-        ],
-        "intelephense.environment.phpVersion": "8.2.0",
-        "files.eol": "\n"
-      }
-    }
-  }
+	"name": "DesignTrace (Dolibarr 21.0.2)",
+	"dockerComposeFile": "docker-compose.yml",
+	"service": "dolibarr",
+	"workspaceFolder": "/workspaces/designtrace",
+	"shutdownAction": "stopCompose",
+	"remoteUser": "root",
+
+	"features": {
+		// Required by Claude Code
+		"ghcr.io/devcontainers/features/node:1": {
+			"version": "24"
+		},
+		"ghcr.io/devcontainers/features/github-cli:1": {},
+		"ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+	},
+	"overrideFeatureInstallOrder": [
+		"ghcr.io/devcontainers/features/node",
+		"ghcr.io/devcontainers/features/github-cli",
+		"ghcr.io/anthropics/devcontainer-features/claude-code"
+	],
+
+	// Keep Claude Code's login and settings across container rebuilds
+	"mounts": [
+		"source=designtrace-claude-config,target=/root/.claude,type=volume"
+	],
+	"containerEnv": {
+		"CLAUDE_CONFIG_DIR": "/root/.claude"
+	},
+
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"anthropic.claude-code",
+				"bmewburn.vscode-intelephense-client",
+				"xdebug.php-debug",
+				"editorconfig.editorconfig",
+				"mikestead.dotenv"
+			],
+			"settings": {
+				"php.validate.executablePath": "/usr/local/bin/php",
+				"intelephense.environment.includePaths": [
+					"/var/www/html"
+				],
+				"intelephense.environment.phpVersion": "8.2.0",
+				"files.eol": "\n"
+			}
+		}
+	}
 }
