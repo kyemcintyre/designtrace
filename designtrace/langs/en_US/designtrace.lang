@@ -7,7 +7,7 @@
 # Module label 'ModuleDesignTraceName'
 ModuleDesignTraceName = DesignTrace
 # Module description 'ModuleDesignTraceDesc'
-ModuleDesignTraceDesc = DesignTrace description
+ModuleDesignTraceDesc = Track CAD designs, their revisions and dependencies, and link released revisions to sales, MRP and support records
 
 #
 # Admin page
