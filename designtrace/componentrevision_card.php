@@ -94,6 +94,7 @@ include_once DOL_DOCUMENT_ROOT.'/core/class/html.formcompany.class.php';
 include_once DOL_DOCUMENT_ROOT.'/core/class/html.formfile.class.php';
 include_once DOL_DOCUMENT_ROOT.'/core/class/html.formprojet.class.php';
 dol_include_once('/designtrace/class/componentrevision.class.php');
+dol_include_once('/designtrace/class/changeorder.class.php');
 dol_include_once('/designtrace/lib/designtrace_componentrevision.lib.php');
 dol_include_once('/designtrace/lib/designtrace_links.lib.php');
 dol_include_once('/designtrace/lib/designtrace_clientaccess.lib.php');
@@ -560,6 +561,14 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 			if ($object->status == $object::STATUS_DRAFT || $object->status == $object::STATUS_INREVIEW) {
 				$blocking = $object->getBlockingChildren(array($object::STATUS_DRAFT, $object::STATUS_INREVIEW));
 				$reason = ($permissiontorelease ? ($blocking ? $langs->trans('ErrorRevisionChildrenNotReleased', $object->ref, implode(', ', $blocking)) : '') : $langs->trans('NotEnoughPermissions'));
+				// Setting: a change to a released design needs an approved ECO (not the first revision)
+				if ($reason === '' && getDolGlobalInt('DESIGNTRACE_RELEASE_REQUIRES_ECO') && $object->getPreviousRevision()) {
+					$eco = $object->fetchEco();
+					if (!$eco || !in_array((int) $eco->status, array(ChangeOrder::STATUS_APPROVED, ChangeOrder::STATUS_IMPLEMENTED), true)) {
+						$reason = $langs->trans('ErrorRevisionNeedsApprovedEco', $object->ref);
+						$blocking = array($reason);
+					}
+				}
 				print dolGetButtonAction($reason, $langs->trans('RevisionRelease'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=release&token='.newToken(), '', $permissiontorelease && empty($blocking));
 			}
 

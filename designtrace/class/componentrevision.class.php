@@ -146,6 +146,7 @@ class ComponentRevision extends CommonObject
 		"rev" => array("type" => "varchar(16)", "label" => "Revision", "enabled" => "1", 'position' => 24, 'notnull' => 0, "visible" => "1", "index" => "1", "searchall" => "1", "css" => "maxwidth75", "csslist" => "nowraponall", "help" => "RevisionHelp", "validate" => "1",),
 		"description" => array("type" => "text", "label" => "RevisionNotes", "enabled" => "1", 'position' => 60, 'notnull' => 0, "visible" => "3", "help" => "RevisionNotesHelp", "validate" => "1",),
 		"change_reason" => array("type" => "integer", "label" => "ChangeReason", "enabled" => "1", 'position' => 58, 'notnull' => 0, "visible" => "1", "arrayofkeyval" => array("1" => "ChangeReasonInitial", "2" => "ChangeReasonCustomer", "3" => "ChangeReasonFix", "4" => "ChangeReasonImprovement", "5" => "ChangeReasonProcess", "6" => "ChangeReasonOther"), "validate" => "1", "help" => "ChangeReasonHelp"),
+		"fk_eco" => array("type" => "integer:ChangeOrder:designtrace/class/changeorder.class.php:0:((status:in:0,1,2))", "label" => "ChangeOrder", "picto" => "fa-exchange-alt", "enabled" => "1", 'position' => 59, 'notnull' => -1, "visible" => "1", "index" => "1", "css" => "maxwidth500 widthcentpercentminusxx", "csslist" => "tdoverflowmax150", "help" => "RevisionEcoHelp",),
 		"material" => array("type" => "varchar(255)", "label" => "Material", "enabled" => "1", 'position' => 70, 'notnull' => 0, "visible" => "-1", "searchall" => "1", "css" => "minwidth200", "validate" => "1",),
 		"process" => array("type" => "varchar(255)", "label" => "Process", "enabled" => "1", 'position' => 72, 'notnull' => 0, "visible" => "-1", "searchall" => "1", "css" => "minwidth200", "validate" => "1",),
 		"machine" => array("type" => "varchar(255)", "label" => "Machine", "enabled" => "1", 'position' => 74, 'notnull' => 0, "visible" => "-1", "searchall" => "1", "css" => "minwidth200", "validate" => "1",),
@@ -180,6 +181,7 @@ class ComponentRevision extends CommonObject
 	 * @var ?int Reason for the change (1 initial … 6 other); details go in the change notes
 	 */
 	public $change_reason;
+	public $fk_eco;
 	/**
 	 * @var ?float Layer height in mm
 	 */
@@ -299,7 +301,7 @@ class ComponentRevision extends CommonObject
 				return -1;
 			}
 		}
-		if ($this->checkRev() < 0 || $this->checkPrintSettings() < 0) {
+		if ($this->checkRev() < 0 || $this->checkPrintSettings() < 0 || $this->checkEco($user, $component) < 0) {
 			return -1;
 		}
 
@@ -343,7 +345,8 @@ class ComponentRevision extends CommonObject
 		unset($object->import_key);
 		$object->ref = '';
 		$object->rev = '';
-		$object->change_reason = null;		// Each revision states its own reason; the rest (material, print settings) carries over
+		$object->change_reason = null;
+		$object->fk_eco = null;			// Each revision states its own ECO		// Each revision states its own reason; the rest (material, print settings) carries over
 		$object->status = self::STATUS_DRAFT;
 		$object->date_release = null;
 		$object->fk_user_release = null;
@@ -531,11 +534,11 @@ class ComponentRevision extends CommonObject
 		$this->date_release = $stored->date_release;
 		$this->fk_user_release = $stored->fk_user_release;
 
-		if ($this->checkRev() < 0 || $this->checkPrintSettings() < 0) {
-			return -1;
-		}
 		$component = $this->fetchComponentChecked();
 		if (!is_object($component)) {
+			return -1;
+		}
+		if ($this->checkRev() < 0 || $this->checkPrintSettings() < 0 || ((int) $this->fk_eco !== (int) $stored->fk_eco && $this->checkEco($user, $component) < 0)) {
 			return -1;
 		}
 		$this->ref = $component->ref.'-'.$this->rev;
@@ -676,6 +679,61 @@ class ComponentRevision extends CommonObject
 	}
 
 	/**
+	 * Check the change order (ECO) given for this revision: it must be open (Draft, Approved or
+	 * Implemented). The component is added to its affected components if missing, as long as the
+	 * ECO's list can still change.
+	 *
+	 * @param	User		$user		User
+	 * @param	Component	$component	Component of the revision
+	 * @return	int						>0 if OK, <0 if KO
+	 */
+	private function checkEco($user, $component)
+	{
+		global $langs;
+
+		if (empty($this->fk_eco) || (int) $this->fk_eco <= 0) {
+			$this->fk_eco = null;
+			return 1;
+		}
+		$langs->load('designtrace@designtrace');
+		$eco = $this->fetchEco();
+		if (!$eco) {
+			return $this->setErrorAndFail($langs->trans('ErrorRecordNotFound'));
+		}
+		if (!$eco->isOpen()) {
+			return $this->setErrorAndFail($langs->trans('ErrorEcoNotOpen', $eco->ref));
+		}
+		foreach ($eco->fetchAffectedComponents() as $row) {
+			if ((int) $row->fk_component === (int) $component->id) {
+				return 1;
+			}
+		}
+		if (!$eco->canEditAffected()) {
+			return $this->setErrorAndFail($langs->trans('ErrorEcoDoesNotListComponent', $eco->ref, $component->ref));
+		}
+		if ($eco->addAffectedComponent($user, (int) $component->id, $langs->transnoentities('EcoAffectedFromRevision', $component->ref.'-'.$this->rev)) < 0) {
+			$this->setErrorsFromObject($eco);
+			return -1;
+		}
+		return 1;
+	}
+
+	/**
+	 * The change order (ECO) this revision was made under
+	 *
+	 * @return	ChangeOrder|null
+	 */
+	public function fetchEco()
+	{
+		if (empty($this->fk_eco)) {
+			return null;
+		}
+		dol_include_once('/designtrace/class/changeorder.class.php');
+		$eco = new ChangeOrder($this->db);
+		return ($eco->fetch((int) $this->fk_eco) > 0 ? $eco : null);
+	}
+
+	/**
 	 *	Release a draft or in-review revision. It becomes read-only and gets its release date and
 	 *	releasing user. The caller must check the release permission.
 	 *
@@ -698,6 +756,14 @@ class ComponentRevision extends CommonObject
 		if ($blocking) {
 			$langs->load('designtrace@designtrace');
 			return $this->setErrorAndFail($langs->trans('ErrorRevisionChildrenNotReleased', $this->ref, implode(', ', $blocking)));
+		}
+		if (getDolGlobalInt('DESIGNTRACE_RELEASE_REQUIRES_ECO') && $this->getPreviousRevision()) {
+			// A change to a released design needs an approved ECO; the first revision does not
+			$langs->load('designtrace@designtrace');
+			$eco = $this->fetchEco();
+			if (!$eco || !in_array((int) $eco->status, array(ChangeOrder::STATUS_APPROVED, ChangeOrder::STATUS_IMPLEMENTED), true)) {
+				return $this->setErrorAndFail($langs->trans('ErrorRevisionNeedsApprovedEco', $this->ref));
+			}
 		}
 		if (getDolGlobalInt('DESIGNTRACE_RELEASE_REQUIRES_SOURCE')) {
 			dol_include_once('/designtrace/class/revisionfile.class.php');

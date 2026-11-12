@@ -81,6 +81,9 @@ class ActionsDesignTrace extends CommonHookActions
 		global $langs, $user;
 
 		$contexts = explode(':', $parameters['context']);
+		if (in_array('ticketcard', $contexts)) {
+			return $this->addRaiseEcoButton($object);
+		}
 		if (!in_array('propalcard', $contexts) && !in_array('ordercard', $contexts)) {
 			return 0;
 		}
@@ -98,6 +101,28 @@ class ActionsDesignTrace extends CommonHookActions
 
 		$url = dol_buildpath('/designtrace/design_card.php', 1).'?action=create&origin='.urlencode($object->element).'&originid='.((int) $object->id);
 		print dolGetButtonAction('', $langs->trans('DesignCreateFromThis'), 'default', $url, '', true);
+
+		return 0;
+	}
+
+
+	/**
+	 *	"Raise ECO" on a ticket card: a new change order linked to the ticket, with its customer and
+	 *	the components of the revisions linked to the ticket
+	 *
+	 *	@param	CommonObject	$object		Ticket shown
+	 *	@return	int							0 so the standard buttons are still shown
+	 */
+	private function addRaiseEcoButton($object)
+	{
+		global $langs, $user;
+
+		if (!isModEnabled('designtrace') || empty($object->id) || $object->element != 'ticket' || !$user->hasRight('designtrace', 'changeorder', 'write')) {
+			return 0;
+		}
+		$langs->load('designtrace@designtrace');
+		$url = dol_buildpath('/designtrace/changeorder_card.php', 1).'?action=create&origin=ticket&originid='.((int) $object->id);
+		print dolGetButtonAction('', $langs->trans('EcoRaiseFromTicket'), 'default', $url, '', true);
 
 		return 0;
 	}

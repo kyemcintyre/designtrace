@@ -129,6 +129,10 @@ $item->helpText = $langs->trans('DESIGNTRACE_FILE_NO_PREFIXTooltip');
 
 $formSetup->newItem('DESIGNTRACE_RELEASE_REQUIRES_SOURCE')->setAsYesNo();
 
+// Change orders: off by default, for shops that need ISO 9001-style control
+$item = $formSetup->newItem('DESIGNTRACE_RELEASE_REQUIRES_ECO')->setAsYesNo();
+$item->helpText = $langs->trans('DESIGNTRACE_RELEASE_REQUIRES_ECOTooltip');
+
 // Server limit: smallest of upload_max_filesize and post_max_size
 $phplimit = 0;
 foreach (array('upload_max_filesize', 'post_max_size') as $inikey) {
@@ -172,6 +176,7 @@ $myTmpObjects = array();
 // TODO Scan list of objects to fill this array
 $myTmpObjects['design'] = array('label' => 'Design', 'includerefgeneration' => 1, 'includedocgeneration' => 0, 'class' => 'Design');
 $myTmpObjects['component'] = array('label' => 'Component', 'includerefgeneration' => 1, 'includedocgeneration' => 0, 'class' => 'Component');
+$myTmpObjects['changeorder'] = array('label' => 'ChangeOrder', 'includerefgeneration' => 1, 'includedocgeneration' => 0, 'class' => 'ChangeOrder');
 
 $tmpobjectkey = GETPOST('object', 'aZ09');
 if ($tmpobjectkey && !array_key_exists($tmpobjectkey, $myTmpObjects)) {

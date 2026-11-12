@@ -22,6 +22,7 @@ CREATE TABLE llx_designtrace_componentrevision(
 	fk_component integer NOT NULL, 
 	rev varchar(16) NOT NULL, 
 	change_reason integer, 
+	fk_eco integer, 
 	description text, 
 	material varchar(255), 
 	process varchar(255), 

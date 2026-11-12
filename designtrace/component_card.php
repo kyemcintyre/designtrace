@@ -595,6 +595,7 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 			print '<tr class="liste_titre">';
 			print '<td>'.$langs->trans('Ref').'</td>';
 			print '<td>'.$langs->trans('DateRelease').'</td>';
+			print '<td>'.$langs->trans('RevisionCause').'</td>';
 			print '<td>'.$langs->trans('RevisionNotes').'</td>';
 			print '<td class="right">'.$langs->trans('Status').'</td>';
 			print '</tr>';
@@ -603,14 +604,16 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 					print '<tr class="oddeven">';
 					print '<td class="nowraponall">'.$revision->getNomUrl(1).'</td>';
 					print '<td class="nowraponall">'.dol_print_date($revision->date_release, 'day').'</td>';
+					// Cause: "from ECO-0012: bracket cracking at bend", else the change reason
+					print '<td class="tdoverflowmax300">'.designtraceRevisionCause($revision).'</td>';
 					print '<td class="tdoverflowmax200" title="'.dol_escape_htmltag((string) $revision->description).'">'.dol_escape_htmltag(dol_trunc((string) $revision->description, 60)).'</td>';
 					print '<td class="right nowraponall">'.$revision->getLibStatut(5).'</td>';
 					print '</tr>';
 				}
 			} elseif (!is_array($revisions)) {
-				print '<tr><td colspan="4">'.dol_escape_htmltag($staticrevision->error).'</td></tr>';
+				print '<tr><td colspan="5">'.dol_escape_htmltag($staticrevision->error).'</td></tr>';
 			} else {
-				print '<tr><td colspan="4"><span class="opacitymedium">'.$langs->trans('None').'</span></td></tr>';
+				print '<tr><td colspan="5"><span class="opacitymedium">'.$langs->trans('None').'</span></td></tr>';
 			}
 			print '</table>';
 			print '</div>';

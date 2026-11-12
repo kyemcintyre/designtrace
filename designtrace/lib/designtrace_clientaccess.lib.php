@@ -76,7 +76,7 @@ function designtraceDoClientAccessActions($action, $object, $user)
 		$errors = array();
 		if ($order->fetch(GETPOSTINT('docid')) <= 0 || $newrev->fetch(GETPOSTINT('newrev')) <= 0) {
 			setEventMessages($langs->trans('ErrorRecordNotFound'), null, 'errors');
-		} elseif (DesignTraceClientAccess::updateDelivered($db, $user, $order, $object, $newrev, GETPOST('reason', 'alphanohtml'), GETPOST('keepold', 'alpha') ? 1 : 0, $errors) > 0) {
+		} elseif (DesignTraceClientAccess::updateDelivered($db, $user, $order, $object, $newrev, GETPOST('reason', 'alphanohtml'), GETPOST('keepold', 'alpha') ? 1 : 0, $errors, GETPOSTINT('eco')) > 0) {
 			setEventMessages($langs->trans('DeliveredRevisionUpdated', $order->ref, $object->ref, $newrev->ref), null, 'mesgs');
 		} else {
 			setEventMessages(null, $errors, 'errors');
@@ -151,9 +151,22 @@ function designtraceClientAccessConfirm($form, $object)
 	if (empty($newer)) {
 		return '';
 	}
+	// Optional ECO: those listing the component (any status but cancelled), the newest revision's first
+	dol_include_once('/designtrace/class/changeorder.class.php');
+	$ecos = array();
+	$sql = "SELECT e.rowid, e.ref, e.label FROM ".$db->prefix()."designtrace_changeorder as e";
+	$sql .= " INNER JOIN ".$db->prefix()."designtrace_changeorder_component as ec ON ec.fk_eco = e.rowid AND ec.fk_component = ".((int) $object->fk_component);
+	$sql .= " WHERE e.status <> ".ChangeOrder::STATUS_CANCELED." ORDER BY e.rowid DESC";
+	$resql = $db->query($sql);
+	while ($resql && ($obj = $db->fetch_object($resql))) {
+		$ecos[(int) $obj->rowid] = $obj->ref.' - '.dol_trunc((string) $obj->label, 50);
+	}
+	$newest = new ComponentRevision($db);
+	$defaulteco = ($newest->fetch((int) key($newer)) > 0 && !empty($newest->fk_eco) ? (string) $newest->fk_eco : '');
 	$formquestion = array(
 		array('type' => 'select', 'name' => 'newrev', 'label' => $langs->trans('UpdateDeliveredTo'), 'values' => $newer, 'default' => (string) key($newer), 'select_show_empty' => 0),
 		array('type' => 'text', 'name' => 'reason', 'label' => $langs->trans('UpdateDeliveredReason'), 'value' => '', 'morecss' => 'minwidth300'),
+		array('type' => 'select', 'name' => 'eco', 'label' => $langs->trans('ChangeOrder'), 'values' => $ecos, 'default' => $defaulteco, 'select_show_empty' => 1),
 		array('type' => 'checkbox', 'name' => 'keepold', 'label' => $langs->trans('UpdateDeliveredKeepOld', $object->ref), 'value' => 0),
 	);
 	$url = dol_buildpath('/designtrace/componentrevision_card.php', 1).'?id='.((int) $object->id).'&docid='.((int) $order->id);

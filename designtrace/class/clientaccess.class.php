@@ -348,9 +348,10 @@ class DesignTraceClientAccess
 	 * @param	string				$reason		Why (required)
 	 * @param	int					$keepold	1 to keep the previous revision visible to the customer
 	 * @param	string[]			$errors		Errors, filled on failure
+	 * @param	int					$ecoid		Change order (ECO) behind the update, 0 if none
 	 * @return	int								>0 if OK, <0 if KO
 	 */
-	public static function updateDelivered($db, $user, $order, $oldrev, $newrev, $reason, $keepold, &$errors)
+	public static function updateDelivered($db, $user, $order, $oldrev, $newrev, $reason, $keepold, &$errors, $ecoid = 0)
 	{
 		global $langs;
 
@@ -401,6 +402,13 @@ class DesignTraceClientAccess
 			$event->code = 'AC_DESIGNTRACE_DELIVERED_UPDATE';
 			$event->label = $langs->transnoentities('EventDeliveredRevisionUpdated', $order->ref, $oldrev->ref, $newrev->rev);
 			$event->note_private = $langs->transnoentities('EventDeliveredRevisionUpdatedNote', $oldrev->ref, $newrev->ref, $order->ref, trim($reason), $langs->transnoentities($keepold ? 'Yes' : 'No'));
+			if ((int) $ecoid > 0) {
+				dol_include_once('/designtrace/class/changeorder.class.php');
+				$eco = new ChangeOrder($db);
+				if ($eco->fetch((int) $ecoid) > 0) {
+					$event->note_private .= "\n".$langs->transnoentities('EventDeliveredRevisionUpdatedEco', $eco->ref, $eco->label);
+				}
+			}
 			$event->datep = $now;
 			$event->datef = $now;
 			$event->percentage = -1;

@@ -139,6 +139,7 @@ class modDesignTrace extends DolibarrModules
 				'propalcard',	// "Create design" button
 				'ordercard',
 				'bomcard',		// Design revision of the BOM, warning when it needs updating
+				'ticketcard',	// "Raise ECO" button
 				'webportal',	// Web portal: Design files menu entry and column on quote/order lists
 				'webportaldao',	// Web portal: registers the Design files page (initController)
 			),
@@ -356,6 +357,21 @@ class modDesignTrace extends DolibarrModules
 		$this->rights[$r][4] = 'componentrevision';
 		$this->rights[$r][5] = 'delete';
 		$r++;
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (4 * 10) + 0 + 1);
+		$this->rights[$r][1] = 'Read change orders (ECO) of DesignTrace';
+		$this->rights[$r][4] = 'changeorder';
+		$this->rights[$r][5] = 'read';
+		$r++;
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (4 * 10) + 1 + 1);
+		$this->rights[$r][1] = 'Create/Update change orders (ECO) of DesignTrace';
+		$this->rights[$r][4] = 'changeorder';
+		$this->rights[$r][5] = 'write';
+		$r++;
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (4 * 10) + 2 + 1);
+		$this->rights[$r][1] = 'Delete change orders (ECO) of DesignTrace';
+		$this->rights[$r][4] = 'changeorder';
+		$this->rights[$r][5] = 'delete';
+		$r++;
 
 		/* END MODULEBUILDER PERMISSIONS */
 
@@ -399,6 +415,13 @@ class modDesignTrace extends DolibarrModules
 		$this->rights[$r][1] = 'Customer files through the API (list visible files, signed download links)';
 		$this->rights[$r][4] = 'clientfiles';
 		$this->rights[$r][5] = 'api';
+		$r++;
+
+		// Approve change orders (ECO): separate from write so the requester cannot approve alone
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (4 * 10) + 3 + 1);
+		$this->rights[$r][1] = 'Approve change orders (ECO) of DesignTrace';
+		$this->rights[$r][4] = 'changeorder';
+		$this->rights[$r][5] = 'approve';
 		$r++;
 
 
@@ -568,6 +591,54 @@ class modDesignTrace extends DolibarrModules
 			'object' => 'ComponentRevision'
 		);
 		/* END MODULEBUILDER LEFTMENU COMPONENTREVISION */
+		/* BEGIN MODULEBUILDER LEFTMENU CHANGEORDER */
+		$this->menu[$r++] = array(
+			'fk_menu' => 'fk_mainmenu=designtrace',
+			'type' => 'left',
+			'titre' => 'ChangeOrders',
+			'prefix' => img_picto('', $this->picto, 'class="paddingright pictofixedwidth valignmiddle"'),
+			'mainmenu' => 'designtrace',
+			'leftmenu' => 'changeorder',
+			'url' => '/designtrace/changeorder_list.php',
+			'langs' => 'designtrace@designtrace',
+			'position' => 1000 + $r,
+			'enabled' => 'isModEnabled("designtrace")',
+			'perms' => '$user->hasRight("designtrace", "changeorder", "read")',
+			'target' => '',
+			'user' => 2,
+			'object' => 'ChangeOrder'
+		);
+		$this->menu[$r++] = array(
+			'fk_menu' => 'fk_mainmenu=designtrace,fk_leftmenu=changeorder',
+			'type' => 'left',
+			'titre' => 'ListOfChangeOrders',
+			'mainmenu' => 'designtrace',
+			'leftmenu' => 'designtrace_changeorder_list',
+			'url' => '/designtrace/changeorder_list.php',
+			'langs' => 'designtrace@designtrace',
+			'position' => 1000 + $r,
+			'enabled' => 'isModEnabled("designtrace")',
+			'perms' => '$user->hasRight("designtrace", "changeorder", "read")',
+			'target' => '',
+			'user' => 2,
+			'object' => 'ChangeOrder'
+		);
+		$this->menu[$r++] = array(
+			'fk_menu' => 'fk_mainmenu=designtrace,fk_leftmenu=changeorder',
+			'type' => 'left',
+			'titre' => 'NewChangeOrder',
+			'mainmenu' => 'designtrace',
+			'leftmenu' => 'designtrace_changeorder_new',
+			'url' => '/designtrace/changeorder_card.php?action=create',
+			'langs' => 'designtrace@designtrace',
+			'position' => 1000 + $r,
+			'enabled' => 'isModEnabled("designtrace")',
+			'perms' => '$user->hasRight("designtrace", "changeorder", "write")',
+			'target' => '',
+			'user' => 2,
+			'object' => 'ChangeOrder'
+		);
+		/* END MODULEBUILDER LEFTMENU CHANGEORDER */
 		/* BEGIN MODULEBUILDER LEFTMENU MYOBJECT */
 		/*
 		$this->menu[$r++]=array(

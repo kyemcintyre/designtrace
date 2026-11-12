@@ -22,6 +22,7 @@ ALTER TABLE llx_designtrace_componentrevision ADD UNIQUE INDEX uk_designtrace_co
 ALTER TABLE llx_designtrace_componentrevision ADD INDEX idx_designtrace_componentrevision_fk_component (fk_component);
 ALTER TABLE llx_designtrace_componentrevision ADD INDEX idx_designtrace_componentrevision_date_release (date_release);
 ALTER TABLE llx_designtrace_componentrevision ADD INDEX idx_designtrace_componentrevision_status (status);
+ALTER TABLE llx_designtrace_componentrevision ADD INDEX idx_designtrace_componentrevision_fk_eco (fk_eco);
 -- END MODULEBUILDER INDEXES
 
 --ALTER TABLE llx_designtrace_componentrevision ADD UNIQUE INDEX uk_designtrace_componentrevision_fieldxy(fieldx, fieldy);

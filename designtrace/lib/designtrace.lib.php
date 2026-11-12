@@ -202,3 +202,33 @@ function designtraceLinkableSalesElements()
 
 	return $elements;
 }
+
+/**
+ * Cause of a revision for the revision history: "from ECO-0012: bracket cracking at bend" when
+ * it was made under a change order, else its change reason
+ *
+ * @param	ComponentRevision	$revision	Revision
+ * @return	string							HTML
+ */
+function designtraceRevisionCause($revision)
+{
+	global $langs;
+
+	static $ecocache = array();
+
+	$out = '';
+	if (!empty($revision->fk_eco)) {
+		$ecoid = (int) $revision->fk_eco;
+		if (!array_key_exists($ecoid, $ecocache)) {
+			$ecocache[$ecoid] = $revision->fetchEco();
+		}
+		$eco = $ecocache[$ecoid];
+		if ($eco) {
+			$out = $langs->trans('RevisionFromEco', $eco->getNomUrl(1), dol_escape_htmltag((string) $eco->label));
+		}
+	}
+	if ($out === '' && !empty($revision->change_reason) && isset($revision->fields['change_reason']['arrayofkeyval'][$revision->change_reason])) {
+		$out = dol_escape_htmltag($revision->fields['change_reason']['arrayofkeyval'][$revision->change_reason]);
+	}
+	return $out;
+}
