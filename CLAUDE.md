@@ -69,7 +69,7 @@ list.
 
 ## Integrations (agreed)
 
-Dolibarr's linked-objects system, pinned to revisions: quotes (drawings, client-visible
+Dolibarr's linked-objects system, pinned to revisions: quotes (any component, client-visible
 toggle, carried to the order), orders (drawings, parts, assemblies; per-file visibility Hidden /
 Visible now / Visible on completion; delivered files locked to the revision, with an explicit,
 logged "Update delivered revision" on closed orders), invoices, projects, MRP BOMs (warning when
@@ -164,7 +164,7 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
     card (flag box, Where used), design card (roll-up, External dependencies) and the global
     `needsupdate_list.php` (left menu "Needs update"). Display code in `lib/designtrace_links.lib.php`.
 - **Dolibarr document links** (phase 4, `class/doclinks.class.php`): revisions link to quotes
-  (drawings, any open status), orders and invoices (any component, released), BOMs (assemblies,
+  (any component, any open status), orders and invoices (any component, released), BOMs (assemblies,
   released) and tickets (released) through `llx_element_element` (document as source, target
   `designtrace_componentrevision`; use `$doc->getElementType()`, e.g. BOM is `bom_bom`).
   Added from the revision card ("Link to a document"); shown on the document side by

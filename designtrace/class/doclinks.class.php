@@ -43,7 +43,7 @@ class DesignTraceDocLinks
 
 	/**
 	 * Which documents can link to which components, from the spec:
-	 * quotes: drawings; orders and invoices: any component; BOMs: assemblies; tickets: any.
+	 * quotes, orders and invoices: any component (quotes also before release); BOMs: assemblies; tickets: any.
 	 *
 	 * @return	array<string,array{class:string,file:string,module:string,right:array{0:string,1:string},label:string,picto:string,types:int[],statuses:string,table:string}>
 	 */
@@ -51,7 +51,7 @@ class DesignTraceDocLinks
 	{
 		$all = array(Component::TYPE_PART, Component::TYPE_ASSEMBLY, Component::TYPE_DRAWING);
 		return array(
-			'propal' => array('class' => 'Propal', 'file' => '/comm/propal/class/propal.class.php', 'module' => 'propal', 'right' => array('propal', 'lire'), 'label' => 'Proposal', 'picto' => 'propal', 'types' => array(Component::TYPE_DRAWING), 'statuses' => self::ANY_OPEN_OR_RELEASED, 'table' => 'propal'),
+			'propal' => array('class' => 'Propal', 'file' => '/comm/propal/class/propal.class.php', 'module' => 'propal', 'right' => array('propal', 'lire'), 'label' => 'Proposal', 'picto' => 'propal', 'types' => $all, 'statuses' => self::ANY_OPEN_OR_RELEASED, 'table' => 'propal'),
 			'commande' => array('class' => 'Commande', 'file' => '/commande/class/commande.class.php', 'module' => 'order', 'right' => array('commande', 'lire'), 'label' => 'Order', 'picto' => 'order', 'types' => $all, 'statuses' => self::RELEASED_ONLY, 'table' => 'commande'),
 			'facture' => array('class' => 'Facture', 'file' => '/compta/facture/class/facture.class.php', 'module' => 'invoice', 'right' => array('facture', 'lire'), 'label' => 'Invoice', 'picto' => 'bill', 'types' => $all, 'statuses' => self::RELEASED_ONLY, 'table' => 'facture'),
 			'bom' => array('class' => 'BOM', 'file' => '/bom/class/bom.class.php', 'module' => 'bom', 'right' => array('bom', 'read'), 'label' => 'BOM', 'picto' => 'bom', 'types' => array(Component::TYPE_ASSEMBLY), 'statuses' => self::RELEASED_ONLY, 'table' => 'bom_bom'),

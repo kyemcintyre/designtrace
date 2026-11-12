@@ -229,7 +229,7 @@ ErrorLinkNotFlagged = This link does not need an update.
 # Links to Dolibarr documents
 #
 DocLinkTitle = Link to a document
-DocLinkHelp = Link this exact revision to a quote (drawings), an order or invoice (any component), a BOM (assemblies) or a ticket. The link shows on both sides, and the document warns when a newer revision exists. Orders made from a quote, and invoices made from an order, keep the links.
+DocLinkHelp = Link this exact revision to a quote (any component, also before release), an order or invoice (released), a BOM (assemblies) or a ticket. The link shows on both sides, and the document warns when a newer revision exists. Orders made from a quote, and invoices made from an order, keep the links.
 DocLinkButton = Link
 DocLinkAdded = %s linked.
 DocLinkReleasedOnly = Only released revisions can be linked to this kind of document.
