@@ -268,6 +268,8 @@ class DesignTraceCadTime
 		$task->fk_task_parent = 0;
 		$task->label = self::getDefaultTaskLabel($db, $object);
 		$task->description = $langs->transnoentities('CadTimeTaskDescription');
+		$task->note_public = '';
+		$task->note_private = '';
 		$task->date_c = dol_now();
 		$task->date_start = dol_now();
 		$model = getDolGlobalString('PROJECT_TASK_ADDON', 'mod_task_simple');
