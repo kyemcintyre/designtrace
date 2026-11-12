@@ -467,8 +467,35 @@ class Design extends CommonObject
 	 */
 	public function delete(User $user, $notrigger = 0)
 	{
-		return $this->deleteCommon($user, $notrigger);
-		//return $this->deleteCommon($user, $notrigger, 1);
+		$result = $this->deleteCommon($user, $notrigger);
+		if ($result > 0) {
+			$this->deleteDocumentsDir();
+		}
+
+		return $result;
+	}
+
+	/**
+	 *	Delete the object's documents directory and its entries in the documents index, so a
+	 *	later object that gets the same ref (numbers are reused after a delete) does not
+	 *	inherit them. Called once the record is deleted; a failure is only logged.
+	 *
+	 *	@return	void
+	 */
+	private function deleteDocumentsDir()
+	{
+		global $conf;
+
+		include_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
+
+		$entity = (empty($this->entity) ? $conf->entity : $this->entity);
+		if (empty($this->ref) || empty($conf->designtrace->multidir_output[$entity])) {
+			return;
+		}
+		$dir = $conf->designtrace->multidir_output[$entity].'/'.$this->element.'/'.dol_sanitizeFileName($this->ref);
+		if (file_exists($dir) && !dol_delete_dir_recursive($dir)) {
+			dol_syslog(__METHOD__.' could not delete '.$dir, LOG_WARNING);
+		}
 	}
 
 	/**
@@ -551,16 +578,19 @@ class Design extends CommonObject
 
 			// Rename directory if dir was a temporary ref
 			if (preg_match('/^[\(]?PROV/i', $this->ref)) {
-				// Now we rename also files into index
-				$sql = 'UPDATE '.$this->db->prefix()."ecm_files set filename = CONCAT('".$this->db->escape($this->newref)."', SUBSTR(filename, ".(strlen($this->ref) + 1).")), filepath = 'design/".$this->db->escape($this->newref)."'";
-				$sql .= " WHERE filename LIKE '".$this->db->escape($this->ref)."%' AND filepath = 'design/".$this->db->escape($this->ref)."' and entity = ".((int) $conf->entity);
+				// Now we rename also files into index. The index path is relative to the data root
+				// and includes the module directory (designtrace/design/REF, or 2/designtrace/...
+				// for entity 2): Module Builder generated 'design/REF', which never matched.
+				$relpath = trim(preg_replace('/^'.preg_quote(DOL_DATA_ROOT, '/').'/', '', $conf->designtrace->dir_output), '/').'/design/';
+				$sql = 'UPDATE '.$this->db->prefix()."ecm_files set filename = CONCAT('".$this->db->escape($this->newref)."', SUBSTR(filename, ".(strlen($this->ref) + 1).")), filepath = '".$this->db->escape($relpath.$this->newref)."'";
+				$sql .= " WHERE filename LIKE '".$this->db->escape($this->db->escapeforlike($this->ref))."%' AND filepath = '".$this->db->escape($relpath.$this->ref)."' and entity = ".((int) $conf->entity);
 				$resql = $this->db->query($sql);
 				if (!$resql) {
 					$error++;
 					$this->error = $this->db->lasterror();
 				}
-				$sql = 'UPDATE '.$this->db->prefix()."ecm_files set filepath = 'design/".$this->db->escape($this->newref)."'";
-				$sql .= " WHERE filepath = 'design/".$this->db->escape($this->ref)."' and entity = ".((int) $conf->entity);
+				$sql = 'UPDATE '.$this->db->prefix()."ecm_files set filepath = '".$this->db->escape($relpath.$this->newref)."'";
+				$sql .= " WHERE filepath = '".$this->db->escape($relpath.$this->ref)."' and entity = ".((int) $conf->entity);
 				$resql = $this->db->query($sql);
 				if (!$resql) {
 					$error++;

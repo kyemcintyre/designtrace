@@ -573,8 +573,35 @@ class Component extends CommonObject
 	 */
 	public function delete(User $user, $notrigger = 0)
 	{
-		return $this->deleteCommon($user, $notrigger);
-		//return $this->deleteCommon($user, $notrigger, 1);
+		$result = $this->deleteCommon($user, $notrigger);
+		if ($result > 0) {
+			$this->deleteDocumentsDir();
+		}
+
+		return $result;
+	}
+
+	/**
+	 *	Delete the object's documents directory and its entries in the documents index, so a
+	 *	later object that gets the same ref (numbers are reused after a delete) does not
+	 *	inherit them. Called once the record is deleted; a failure is only logged.
+	 *
+	 *	@return	void
+	 */
+	private function deleteDocumentsDir()
+	{
+		global $conf;
+
+		include_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
+
+		$entity = (empty($this->entity) ? $conf->entity : $this->entity);
+		if (empty($this->ref) || empty($conf->designtrace->multidir_output[$entity])) {
+			return;
+		}
+		$dir = $conf->designtrace->multidir_output[$entity].'/'.$this->element.'/'.dol_sanitizeFileName($this->ref);
+		if (file_exists($dir) && !dol_delete_dir_recursive($dir)) {
+			dol_syslog(__METHOD__.' could not delete '.$dir, LOG_WARNING);
+		}
 	}
 
 	/**
