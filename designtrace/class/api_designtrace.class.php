@@ -34,6 +34,7 @@ dol_include_once('/designtrace/class/clientaccess.class.php');
 dol_include_once('/designtrace/class/licensing.class.php');
 dol_include_once('/designtrace/class/portfolio.class.php');
 dol_include_once('/designtrace/class/proofapproval.class.php');
+dol_include_once('/designtrace/class/reorder.class.php');
 
 /**
  * API class for DesignTrace customer files (named DesignTrace so the endpoints are /designtrace/...)
@@ -338,6 +339,51 @@ class DesignTrace extends DolibarrApi
 			throw new RestException(409, $error);
 		}
 		return array('id' => $res['id'], 'ticket_id' => $res['ticket'], 'eco_id' => $res['eco']);
+	}
+
+	/**
+	 * Reorder a delivered order
+	 *
+	 * Makes a draft quote with the order's lines, pinned to the revisions that were delivered (same
+	 * revision, material, process, machine), for staff to check and send. Asking again while that
+	 * quote is still a draft returns the same quote.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$orderid	Delivered order
+	 * @param	array	$request_data	Optional: actor (who asked, for the quote's note)
+	 * @phan-param ?array<string,mixed> $request_data
+	 * @phpstan-param ?array<string,mixed> $request_data
+	 * @return	array				quote_id, quote_ref
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	POST customers/{socid}/orders/{orderid}/reorder
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Order not found
+	 * @throws RestException 409 Order cannot be reordered
+	 */
+	public function reorder($socid, $orderid, $request_data = null)
+	{
+		$socid = $this->checkCustomer($socid);
+		// A single optional body field would receive the whole body in Restler: read it from the array
+		$actor = (is_array($request_data) && isset($request_data['actor']) && is_scalar($request_data['actor'])) ? (string) $request_data['actor'] : '';
+		$order = new Commande($this->db);
+		if (!isModEnabled('propal') || $order->fetch((int) $orderid) <= 0 || (int) $order->socid !== $socid) {
+			throw new RestException(404, 'Order not found');
+		}
+		$actor = trim($actor);
+		if ($actor === '') {
+			$actor = 'api:'.DolibarrApiAccess::$user->login;
+		}
+		$error = '';
+		$quoteid = DesignTraceReorder::createQuote($this->db, DolibarrApiAccess::$user, $order, 'api', $actor, $error);
+		if ($quoteid <= 0) {
+			throw new RestException(409, $error);
+		}
+		$quote = new Propal($this->db);
+		$quote->fetch($quoteid);
+		return array('quote_id' => (int) $quoteid, 'quote_ref' => $quote->ref);
 	}
 
 	/**

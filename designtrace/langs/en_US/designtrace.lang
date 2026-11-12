@@ -579,3 +579,21 @@ WebPortalProofApprove = Approve
 WebPortalProofRequestChanges = Request changes
 WebPortalProofApproved = Thank you, the proof is approved.
 WebPortalProofChangesSent = Thank you, your change request has been sent.
+
+#
+# Reorder (phase 7)
+#
+Reorder = Reorder
+ReorderHelp = Make a draft quote with the lines of this order, linked to the same delivered revisions (same material, process and machine). Check the prices before sending it.
+ReorderQuoteCreated = Draft reorder quote created. Check its lines and prices before validating it.
+ErrorReorderNotPossible = Order %s cannot be reordered: it must be delivered, with released design revisions delivered on it.
+ReorderNoteTitle = Reorder of %s (%s: %s). Make it the same way:
+ReorderByStaff = made by staff
+ReorderByPortal = requested in the Web portal
+ReorderByApi = requested through My workshop
+ReorderNewerRevision = newer revision %s is released
+ReorderNoteCheckPrices = Prices are copied from the order: check them before validating.
+WebPortalReorder = Reorder
+WebPortalReorderHelp = We will send you a quote for the same parts, made the same way.
+WebPortalReorderSent = Thank you, we will send you a quote to reorder %s.
+WebPortalReorderPending = Your reorder request is with us: we will send you a quote.

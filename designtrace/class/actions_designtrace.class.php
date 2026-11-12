@@ -90,6 +90,12 @@ class ActionsDesignTrace extends CommonHookActions
 		if (!isModEnabled('designtrace') || empty($object->id) || !in_array($object->element, array('propal', 'commande'), true)) {
 			return 0;
 		}
+		// Reorder a delivered order: a draft quote pinned to the same revisions
+		if ($object->element == 'commande' && $this->canReorderFromCard($object)) {
+			$langs->load('designtrace@designtrace');
+			$url = $_SERVER['PHP_SELF'].'?id='.((int) $object->id).'&action=designtrace_reorder&token='.newToken();
+			print dolGetButtonAction($langs->trans('ReorderHelp'), $langs->trans('Reorder'), 'default', $url, '', true);
+		}
 		if (!$user->hasRight('designtrace', 'design', 'write')) {
 			return 0;
 		}
@@ -148,6 +154,11 @@ class ActionsDesignTrace extends CommonHookActions
 		if (!isModEnabled('designtrace') || empty($object->id) || !in_array($object->element, array('propal', 'commande'), true)) {
 			return 0;
 		}
+		if ($action == 'designtrace_reorder' && $object->element == 'commande') {
+			$this->doReorder($object);
+			$action = '';
+			return 0;
+		}
 		if ($action == 'designtrace_setconsent') {
 			$this->doSetConsent($object);
 			$action = '';
@@ -167,6 +178,49 @@ class ActionsDesignTrace extends CommonHookActions
 		}
 		$action = '';
 		return 0;
+	}
+
+	/**
+	 *	Whether the user can reorder this order from its card
+	 *
+	 *	@param	Commande	$order	Order
+	 *	@return	bool
+	 */
+	private function canReorderFromCard($order)
+	{
+		global $user;
+
+		if (!isModEnabled('propal') || !$user->hasRight('propal', 'creer') || !$user->hasRight('designtrace', 'componentrevision', 'read')) {
+			return false;
+		}
+		dol_include_once('/designtrace/class/reorder.class.php');
+		return DesignTraceReorder::canReorder($this->db, $order);
+	}
+
+	/**
+	 *	Make the reorder quote and open it
+	 *
+	 *	@param	Commande	$order	Delivered order
+	 *	@return	void
+	 */
+	private function doReorder($order)
+	{
+		global $langs, $user;
+
+		$langs->load('designtrace@designtrace');
+		if (!$this->canReorderFromCard($order)) {
+			setEventMessages($langs->trans('NotEnoughPermissions'), null, 'errors');
+			return;
+		}
+		$error = '';
+		$quoteid = DesignTraceReorder::createQuote($this->db, $user, $order, 'backoffice', $user->login, $error);
+		if ($quoteid <= 0) {
+			setEventMessages($error, null, 'errors');
+			return;
+		}
+		setEventMessages($langs->trans('ReorderQuoteCreated'), null, 'mesgs');
+		header('Location: '.DOL_URL_ROOT.'/comm/propal/card.php?id='.((int) $quoteid));
+		exit;
 	}
 
 	/**

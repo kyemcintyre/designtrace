@@ -26,13 +26,15 @@
  * the same checks and is logged. Quotes and orders also show the licence of each design, which the
  * customer can read and accept (logged with the exact version, PDF copy on the document), and ask
  * whether renders of each (non-confidential) design may be shown in the workshop's gallery.
- * Proof drawings can be approved, or changes requested with a comment (DesignTraceProofApproval).
+ * Proof drawings can be approved, or changes requested with a comment (DesignTraceProofApproval),
+ * and delivered orders reordered (a draft quote for staff to check, DesignTraceReorder).
  */
 
 dol_include_once('/designtrace/class/clientaccess.class.php');
 dol_include_once('/designtrace/class/licensing.class.php');
 dol_include_once('/designtrace/class/portfolio.class.php');
 dol_include_once('/designtrace/class/proofapproval.class.php');
+dol_include_once('/designtrace/class/reorder.class.php');
 
 /**
  * Controller for the Design files page of the Web portal
@@ -145,6 +147,20 @@ class DesignFilesController extends Controller
 				} else {
 					$context->setEventMessage($error, 'errors');
 				}
+			}
+		}
+
+		// Reorder a delivered order (POST)
+		if ($context->action == 'reorder' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+			global $user;
+			$error = '';
+			$order = new Commande($this->db);
+			if ($order->fetch(GETPOSTINT('reorder_docid')) <= 0 || (int) $order->socid !== $socid) {
+				$context->setEventMessage($langs->trans('ErrorRecordNotFound'), 'errors');
+			} elseif (DesignTraceReorder::createQuote($this->db, $user, $order, 'webportal', $this->getActor(), $error) > 0) {
+				$context->setEventMessage($langs->trans('WebPortalReorderSent', $order->ref), 'mesgs');
+			} else {
+				$context->setEventMessage($error, 'errors');
 			}
 		}
 
@@ -291,6 +307,9 @@ class DesignFilesController extends Controller
 			}
 			if (!empty($files[$key])) {
 				$this->printFiles($context, $files[$key]);
+			}
+			if ($doc['element'] == 'commande') {
+				$this->printReorder($context, $doc);
 			}
 			if (!empty($this->proofs[$key])) {
 				$this->printProofs($context, $this->proofs[$key]);
@@ -460,5 +479,32 @@ class DesignFilesController extends Controller
 			print '</form>';
 		}
 		print '</section>';
+	}
+
+	/**
+	 * Reorder button of a delivered order (or the pending request)
+	 *
+	 * @param	Context	$context	Web portal context
+	 * @param	array{element:string,doc_id:int,doc_ref:string}	$doc	Order
+	 * @return	void
+	 */
+	private function printReorder($context, $doc)
+	{
+		global $langs;
+
+		$order = new Commande($this->db);
+		if ($order->fetch($doc['doc_id']) <= 0 || !DesignTraceReorder::canReorder($this->db, $order)) {
+			return;
+		}
+		if (DesignTraceReorder::getPendingQuote($this->db, (int) $order->id) > 0) {
+			print '<p><small>'.$langs->trans('WebPortalReorderPending').'</small></p>';
+			return;
+		}
+		print '<form method="POST" action="'.dolPrintHTMLForAttributeUrl($context->getControllerUrl('designfiles', array('element' => 'commande', 'docid' => $doc['doc_id']), false)).'">';
+		print $context->getFormToken();
+		print '<input type="hidden" name="action" value="reorder">';
+		print '<input type="hidden" name="reorder_docid" value="'.((int) $doc['doc_id']).'">';
+		print '<button type="submit" class="secondary">'.$langs->trans('WebPortalReorder').'</button> <small>'.$langs->trans('WebPortalReorderHelp').'</small>';
+		print '</form>';
 	}
 }
