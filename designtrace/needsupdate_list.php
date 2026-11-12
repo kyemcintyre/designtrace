@@ -97,14 +97,19 @@ if ($search_design > 0) {
 if (in_array($search_flag, array(ComponentLink::FLAG_NEEDS_UPDATE, ComponentLink::FLAG_INDIRECT), true)) {
 	$filters[] = "l.flag_status = ".((int) $search_flag);
 }
-$rows = ComponentLink::fetchFlagged($db, implode(' AND ', $filters));
+$where = implode(' AND ', $filters);
+$confidential = Design::sqlConfidentialFilterOn($user, 'pc.fk_design');
+if ($confidential !== '') {
+	$where = ($where === '' ? '1 = 1' : $where).$confidential;
+}
+$rows = ComponentLink::fetchFlagged($db, $where);
 
 print load_fiche_titre($title.' <span class="badge marginleftonlyshort">'.count($rows).'</span>', '', 'fa-exclamation-triangle');
 print '<div class="opacitymedium marginbottomonly">'.$langs->trans('NeedsUpdateListHelp').'</div>';
 
 // Filters
 $designs = array();
-$resql = $db->query("SELECT rowid, ref, label FROM ".$db->prefix()."designtrace_design WHERE entity IN (".getEntity('design').") ORDER BY ref");
+$resql = $db->query("SELECT t.rowid, t.ref, t.label FROM ".$db->prefix()."designtrace_design as t WHERE t.entity IN (".getEntity('design').")".Design::sqlConfidentialFilter($user, 't')." ORDER BY t.ref");
 while ($resql && ($obj = $db->fetch_object($resql))) {
 	$designs[(int) $obj->rowid] = $obj->ref.($obj->label ? ' - '.$obj->label : '');
 }

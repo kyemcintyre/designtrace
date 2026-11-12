@@ -66,6 +66,7 @@ if (!$res) {
  * @var User $user
  */
 
+dol_include_once('/designtrace/class/design.class.php');
 dol_include_once('/designtrace/class/clientaccess.class.php');
 require_once DOL_DOCUMENT_ROOT.'/societe/class/societe.class.php';
 
@@ -107,6 +108,7 @@ if ($search_from) {
 if ($search_to) {
 	$where .= " AND dl.date_download <= '".$db->idate($search_to)."'";
 }
+$where .= Design::sqlConfidentialFilterOnRevision($user, 'dl.fk_revision');
 $from = " FROM ".$db->prefix()."designtrace_download as dl";
 $from .= " LEFT JOIN ".$db->prefix()."societe as s ON s.rowid = dl.fk_soc";
 $from .= " LEFT JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.rowid = dl.fk_revision";

@@ -154,13 +154,13 @@ print '<div class="fichecenter"><div class="fichethirdleft">';
 // At a glance
 $stats = array();
 if ($candesign) {
-	$stats[] = array('DesignsActive', designtraceIndexCount($db, "SELECT COUNT(rowid) as nb FROM ".$db->prefix()."designtrace_design WHERE status = ".Design::STATUS_VALIDATED." AND entity IN (".getEntity('design').")"), dol_buildpath('/designtrace/design_list.php', 1).'?search_status='.Design::STATUS_VALIDATED);
+	$stats[] = array('DesignsActive', designtraceIndexCount($db, "SELECT COUNT(rowid) as nb FROM ".$db->prefix()."designtrace_design as t WHERE t.status = ".Design::STATUS_VALIDATED." AND t.entity IN (".getEntity('design').")".Design::sqlConfidentialFilter($user, 't')), dol_buildpath('/designtrace/design_list.php', 1).'?search_status='.Design::STATUS_VALIDATED);
 }
 if ($canrev) {
-	$stats[] = array('RevisionsInDraft', designtraceIndexCount($db, "SELECT COUNT(rowid) as nb FROM ".$db->prefix()."designtrace_componentrevision WHERE status = ".ComponentRevision::STATUS_DRAFT." AND entity IN (".getEntity('componentrevision').")"), dol_buildpath('/designtrace/componentrevision_list.php', 1).'?search_status='.ComponentRevision::STATUS_DRAFT);
-	$stats[] = array('RevisionsInReview', designtraceIndexCount($db, "SELECT COUNT(rowid) as nb FROM ".$db->prefix()."designtrace_componentrevision WHERE status = ".ComponentRevision::STATUS_INREVIEW." AND entity IN (".getEntity('componentrevision').")"), dol_buildpath('/designtrace/componentrevision_list.php', 1).'?search_status='.ComponentRevision::STATUS_INREVIEW);
-	$stats[] = array('NeedsUpdateList', count(ComponentLink::fetchFlagged($db, 'l.flag_status = '.ComponentLink::FLAG_NEEDS_UPDATE)), dol_buildpath('/designtrace/needsupdate_list.php', 1).'?search_flag='.ComponentLink::FLAG_NEEDS_UPDATE);
-	$stats[] = array('DownloadsLast30Days', designtraceIndexCount($db, "SELECT COUNT(rowid) as nb FROM ".$db->prefix()."designtrace_download WHERE date_download >= '".$db->idate(dol_time_plus_duree($now, -30, 'd'))."' AND entity IN (".getEntity('designtrace_download').")"), dol_buildpath('/designtrace/download_list.php', 1));
+	$stats[] = array('RevisionsInDraft', designtraceIndexCount($db, "SELECT COUNT(rowid) as nb FROM ".$db->prefix()."designtrace_componentrevision WHERE status = ".ComponentRevision::STATUS_DRAFT." AND entity IN (".getEntity('componentrevision').")".Design::sqlConfidentialFilterOnComponent($user, 'fk_component')), dol_buildpath('/designtrace/componentrevision_list.php', 1).'?search_status='.ComponentRevision::STATUS_DRAFT);
+	$stats[] = array('RevisionsInReview', designtraceIndexCount($db, "SELECT COUNT(rowid) as nb FROM ".$db->prefix()."designtrace_componentrevision WHERE status = ".ComponentRevision::STATUS_INREVIEW." AND entity IN (".getEntity('componentrevision').")".Design::sqlConfidentialFilterOnComponent($user, 'fk_component')), dol_buildpath('/designtrace/componentrevision_list.php', 1).'?search_status='.ComponentRevision::STATUS_INREVIEW);
+	$stats[] = array('NeedsUpdateList', count(ComponentLink::fetchFlagged($db, 'l.flag_status = '.ComponentLink::FLAG_NEEDS_UPDATE.Design::sqlConfidentialFilterOn($user, 'pc.fk_design'))), dol_buildpath('/designtrace/needsupdate_list.php', 1).'?search_flag='.ComponentLink::FLAG_NEEDS_UPDATE);
+	$stats[] = array('DownloadsLast30Days', designtraceIndexCount($db, "SELECT COUNT(rowid) as nb FROM ".$db->prefix()."designtrace_download WHERE date_download >= '".$db->idate(dol_time_plus_duree($now, -30, 'd'))."' AND entity IN (".getEntity('designtrace_download').")".Design::sqlConfidentialFilterOnRevision($user, 'fk_revision')), dol_buildpath('/designtrace/download_list.php', 1));
 }
 if ($caneco) {
 	$stats[] = array('EcosOpen', designtraceIndexCount($db, "SELECT COUNT(rowid) as nb FROM ".$db->prefix()."designtrace_changeorder WHERE status IN (".ChangeOrder::STATUS_DRAFT.", ".ChangeOrder::STATUS_APPROVED.", ".ChangeOrder::STATUS_IMPLEMENTED.") AND entity IN (".getEntity('changeorder').")"), dol_buildpath('/designtrace/changeorder_list.php', 1));
@@ -202,6 +202,7 @@ if ($candesign && $canrev) {
 	$sql .= " LEFT JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.fk_component = c.rowid AND r.status IN (".ComponentRevision::STATUS_DRAFT.", ".ComponentRevision::STATUS_INREVIEW.")";
 	$sql .= " WHERE d.entity IN (".getEntity('design').")";
 	$sql .= " AND (d.status = ".Design::STATUS_DRAFT." OR r.rowid IS NOT NULL)";
+	$sql .= Design::sqlConfidentialFilter($user, 'd');
 	$sql .= " ORDER BY d.rowid DESC, r.ref";
 	$resql = $db->query($sql);
 	$designs = array();
@@ -295,6 +296,7 @@ if ($canrev) {
 	$sql .= " LEFT JOIN ".$db->prefix()."societe as s ON s.rowid = dl.fk_soc";
 	$sql .= " LEFT JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.rowid = dl.fk_revision";
 	$sql .= " WHERE dl.entity IN (".getEntity('designtrace_download').")";
+	$sql .= Design::sqlConfidentialFilterOnRevision($user, 'dl.fk_revision');
 	$sql .= " ORDER BY dl.date_download DESC, dl.rowid DESC".$db->plimit($max);
 	$resql = $db->query($sql);
 	$socstatic = new Societe($db);

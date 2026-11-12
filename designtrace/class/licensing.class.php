@@ -95,16 +95,16 @@ class DesignTraceLicensing
 	 * @param	DoliDB	$db			Database handler
 	 * @param	string	$element	propal or commande
 	 * @param	int		$docid		Document id
-	 * @return	array<int,array{id:int,ref:string,label:string,fk_licence:int,revisions:string[]}>	By design id
+	 * @return	array<int,array{id:int,ref:string,label:string,fk_licence:int,ownership:int,confidential:int,revisions:string[]}>	By design id
 	 */
 	public static function fetchDesignsOfDocument($db, $element, $docid)
 	{
 		$designs = array();
-		$sql = "SELECT d.rowid, d.ref, d.label, d.fk_licence, NULL as rev_ref FROM ".$db->prefix()."element_element as ee";
+		$sql = "SELECT d.rowid, d.ref, d.label, d.fk_licence, d.ownership, d.confidential, NULL as rev_ref FROM ".$db->prefix()."element_element as ee";
 		$sql .= " INNER JOIN ".$db->prefix()."designtrace_design as d ON d.rowid = ee.fk_target";
 		$sql .= " WHERE ee.sourcetype = '".$db->escape($element)."' AND ee.fk_source = ".((int) $docid)." AND ee.targettype = 'designtrace_design'";
 		$sql .= " UNION ALL";
-		$sql .= " SELECT d.rowid, d.ref, d.label, d.fk_licence, r.ref as rev_ref FROM ".$db->prefix()."element_element as ee";
+		$sql .= " SELECT d.rowid, d.ref, d.label, d.fk_licence, d.ownership, d.confidential, r.ref as rev_ref FROM ".$db->prefix()."element_element as ee";
 		$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.rowid = ee.fk_target";
 		$sql .= " INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
 		$sql .= " INNER JOIN ".$db->prefix()."designtrace_design as d ON d.rowid = c.fk_design";
@@ -113,7 +113,7 @@ class DesignTraceLicensing
 		while ($resql && ($obj = $db->fetch_object($resql))) {
 			$id = (int) $obj->rowid;
 			if (!isset($designs[$id])) {
-				$designs[$id] = array('id' => $id, 'ref' => $obj->ref, 'label' => (string) $obj->label, 'fk_licence' => (int) $obj->fk_licence, 'revisions' => array());
+				$designs[$id] = array('id' => $id, 'ref' => $obj->ref, 'label' => (string) $obj->label, 'fk_licence' => (int) $obj->fk_licence, 'ownership' => (int) $obj->ownership, 'confidential' => (int) $obj->confidential, 'revisions' => array());
 			}
 			if ($obj->rev_ref !== null && !in_array($obj->rev_ref, $designs[$id]['revisions'], true)) {
 				$designs[$id]['revisions'][] = $obj->rev_ref;
@@ -196,8 +196,8 @@ class DesignTraceLicensing
 	}
 
 	/**
-	 * Whether source files of a design can be given to the customer of a document: the licence
-	 * that counts there allows it (no licence = no)
+	 * Whether source files of a design can be given to the customer of a document: the design is
+	 * not workshop-owned and the licence that counts there allows it (no licence = no)
 	 *
 	 * @param	DoliDB	$db			Database handler
 	 * @param	string	$element	Document type (propal, commande; others: no)
@@ -214,7 +214,7 @@ class DesignTraceLicensing
 		}
 		$licences = self::fetchDocumentLicences($db, $element, $docid);
 		$info = isset($licences[(int) $designid]) ? $licences[(int) $designid] : null;
-		return ($info && $info['version'] && (int) $info['version']->perm_source === 1);
+		return ($info && Design::ownershipAllowsSource($info['design']['ownership']) && $info['version'] && (int) $info['version']->perm_source === 1);
 	}
 
 	/**

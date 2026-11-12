@@ -28,3 +28,4 @@ ALTER TABLE llx_designtrace_design ADD INDEX idx_designtrace_design_status (stat
 --ALTER TABLE llx_designtrace_design ADD UNIQUE INDEX uk_designtrace_design_fieldxy(fieldx, fieldy);
 
 --ALTER TABLE llx_designtrace_design ADD CONSTRAINT llx_designtrace_design_fk_field FOREIGN KEY (fk_field) REFERENCES llx_designtrace_myotherobject(rowid);
+ALTER TABLE llx_designtrace_design ADD INDEX idx_designtrace_design_confidential (confidential);

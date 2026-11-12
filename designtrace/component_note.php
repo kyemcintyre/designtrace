@@ -87,6 +87,7 @@ if (!$res) {
  * @var Translate $langs
  * @var User $user
  */
+dol_include_once('/designtrace/class/design.class.php');
 dol_include_once('/designtrace/class/component.class.php');
 dol_include_once('/designtrace/lib/designtrace_component.lib.php');
 
@@ -141,6 +142,8 @@ if (!isModEnabled("designtrace")) {
 if (!$permissiontoread) {
 	accessforbidden();
 }
+// Confidential designs: only their designer, creator and users with the readconfidential right
+Design::checkObjectAccessOrDie($db, $user, $object);
 
 
 /*

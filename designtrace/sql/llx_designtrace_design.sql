@@ -24,6 +24,8 @@ CREATE TABLE llx_designtrace_design(
 	fk_project integer, 
 	fk_user_designer integer, 
 	fk_licence integer, 
+	ownership integer DEFAULT 2 NOT NULL, 
+	confidential smallint DEFAULT 0 NOT NULL, 
 	description text, 
 	note_public text, 
 	note_private text, 

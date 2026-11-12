@@ -93,6 +93,7 @@ if (!$res) {
 include_once DOL_DOCUMENT_ROOT.'/core/class/html.formcompany.class.php';
 include_once DOL_DOCUMENT_ROOT.'/core/class/html.formfile.class.php';
 include_once DOL_DOCUMENT_ROOT.'/core/class/html.formprojet.class.php';
+dol_include_once('/designtrace/class/design.class.php');
 dol_include_once('/designtrace/class/component.class.php');
 dol_include_once('/designtrace/lib/designtrace.lib.php');
 dol_include_once('/designtrace/lib/designtrace_component.lib.php');
@@ -177,6 +178,8 @@ if (!isModEnabled($object->module)) {
 if (!$permissiontoread) {
 	accessforbidden();
 }
+// Confidential designs: only their designer, creator and users with the readconfidential right
+Design::checkObjectAccessOrDie($db, $user, $object);
 
 $error = 0;
 

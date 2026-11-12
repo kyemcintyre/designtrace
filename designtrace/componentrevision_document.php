@@ -87,6 +87,7 @@ if (!$res) {
  * @var User $user
  */
 include_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
+dol_include_once('/designtrace/class/design.class.php');
 dol_include_once('/designtrace/class/componentrevision.class.php');
 dol_include_once('/designtrace/class/revisionfile.class.php');
 dol_include_once('/designtrace/class/clientaccess.class.php');
@@ -128,6 +129,8 @@ if (!isModEnabled("designtrace")) {
 if (!$permissiontoread) {
 	accessforbidden();
 }
+// Confidential designs: only their designer, creator and users with the readconfidential right
+Design::checkObjectAccessOrDie($db, $user, $object);
 if (empty($object->id)) {
 	accessforbidden();
 }

@@ -235,6 +235,9 @@ class ActionsDesignTrace extends CommonHookActions
 				} else {
 					$line .= '<br><span class="opacitymedium">'.$langs->trans('LicenceNotAcceptedYet', $info['version']->ref).'</span>';
 				}
+				if ($info['version'] && (int) $info['version']->perm_source === 1 && !Design::ownershipAllowsSource($info['design']['ownership'])) {
+					$line .= '<br>'.img_warning().' <span class="opacitymedium">'.$langs->trans('LicenceSourceBlockedByOwnership').'</span>';
+				}
 			}
 			$lines[] = $line;
 		}
@@ -454,5 +457,51 @@ class ActionsDesignTrace extends CommonHookActions
 		}
 		$map = array('propallist' => 'propal', 'orderlist' => 'commande');
 		return isset($map[$object->controller]) ? $map[$object->controller] : '';
+	}
+
+	/**
+	 * document.php: refuse files of confidential designs the user cannot see (design, component
+	 * and revision folders of the module)
+	 *
+	 * @param	array<string,mixed>	$parameters		Hook parameters (modulepart, fullpath_original_file...)
+	 * @param	object				$object			Not used
+	 * @param	string				$action			Current action
+	 * @param	HookManager			$hookmanager	Hook manager
+	 * @return	int									0, or -1 to refuse the download
+	 */
+	public function downloadDocument($parameters, &$object, &$action, $hookmanager)
+	{
+		global $user;
+
+		if (!isModEnabled('designtrace') || ($parameters['modulepart'] ?? '') !== 'designtrace' || empty($user->id)) {
+			return 0;
+		}
+		dol_include_once('/designtrace/class/design.class.php');
+		if (Design::canReadAllConfidential($user)) {
+			return 0;
+		}
+		$path = str_replace('\\', '/', (string) ($parameters['original_file'] ?? ''));
+		if (!preg_match('#(?:^|/)(design|component|componentrevision)/([^/]+)/[^/]+$#', $path, $m)) {
+			return 0;
+		}
+		$tables = array('design' => 'designtrace_design', 'component' => 'designtrace_component', 'componentrevision' => 'designtrace_componentrevision');
+		$sql = "SELECT t.rowid FROM ".$this->db->prefix().$tables[$m[1]]." as t WHERE t.ref = '".$this->db->escape($m[2])."' AND t.entity IN (".getEntity($m[1]).")";
+		$resql = $this->db->query($sql);
+		$obj = $resql ? $this->db->fetch_object($resql) : null;
+		if (!$obj) {
+			return 0;
+		}
+		$classes = array('design' => 'Design', 'component' => 'Component', 'componentrevision' => 'ComponentRevision');
+		dol_include_once('/designtrace/class/'.$m[1].'.class.php');
+		$target = new $classes[$m[1]]($this->db);
+		if ($target->fetch((int) $obj->rowid) <= 0) {
+			return 0;
+		}
+		$designid = Design::getDesignIdOf($this->db, $target);
+		if ($designid > 0 && in_array($designid, Design::getHiddenDesignIds($this->db, $user), true)) {
+			$this->errors[] = 'DesignConfidentialNoAccess';
+			return -1;
+		}
+		return 0;
 	}
 }

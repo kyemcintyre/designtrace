@@ -162,6 +162,8 @@ if (!isModEnabled("designtrace")) {
 if (!$permissiontoread) {
 	accessforbidden();
 }
+// Confidential designs: only their designer, creator and users with the readconfidential right
+Design::checkObjectAccessOrDie($db, $user, $object);
 if (empty($object->id) || $upload_dir === null) {
 	accessforbidden();
 }

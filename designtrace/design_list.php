@@ -345,6 +345,8 @@ if (!empty($object->ismultientitymanaged) && (int) $object->ismultientitymanaged
 } else {
 	$sql .= " WHERE 1 = 1";
 }
+// Confidential designs the user cannot see
+$sql .= Design::sqlConfidentialFilter($user, 't');
 foreach ($search as $key => $val) {
 	if (array_key_exists($key, $object->fields)) {
 		if ($key == 'status' && $search[$key] == -1) {

@@ -177,6 +177,8 @@ if (!isModEnabled($object->module)) {
 if (!$permissiontoread) {
 	accessforbidden();
 }
+// Confidential designs: only their designer, creator and users with the readconfidential right
+Design::checkObjectAccessOrDie($db, $user, $object);
 
 $error = 0;
 

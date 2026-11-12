@@ -142,6 +142,7 @@ class modDesignTrace extends DolibarrModules
 				'ticketcard',	// "Raise ECO" button
 				'webportal',	// Web portal: Design files menu entry and column on quote/order lists
 				'webportaldao',	// Web portal: registers the Design files page (initController)
+				'document',		// document.php: files of confidential designs
 			),
 			/* END MODULEBUILDER HOOKSCONTEXTS */
 			// Set this to 1 if features of module are opened to external users
@@ -437,6 +438,13 @@ class modDesignTrace extends DolibarrModules
 		$this->rights[$r][1] = 'Approve change orders (ECO) of DesignTrace';
 		$this->rights[$r][4] = 'changeorder';
 		$this->rights[$r][5] = 'approve';
+		$r++;
+
+		// See confidential designs of other designers (others only see their own)
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (0 * 10) + 3 + 1);
+		$this->rights[$r][1] = 'Read confidential designs of other designers (DesignTrace)';
+		$this->rights[$r][4] = 'design';
+		$this->rights[$r][5] = 'readconfidential';
 		$r++;
 
 

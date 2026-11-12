@@ -85,6 +85,10 @@ class Design extends CommonObject
 	const STATUS_VALIDATED = 1;
 	const STATUS_CANCELED = 9;
 
+	const OWNERSHIP_CUSTOMER = 1;
+	const OWNERSHIP_WORKSHOP = 2;
+	const OWNERSHIP_SHARED = 3;
+
 	/**
 	 *  'type' field format:
 	 *  	'integer', 'integer:ObjectClass:PathToClass[:AddCreateButtonOrNot[:Filter[:Sortfield]]]',
@@ -143,6 +147,8 @@ class Design extends CommonObject
 		"fk_project" => array("type" => "integer:Project:projet/class/project.class.php:1", "label" => "Project", "picto" => "project", "enabled" => "isModEnabled('project')", 'position' => 52, 'notnull' => -1, "visible" => "-1", "index" => "1", "css" => "maxwidth500 widthcentpercentminusxx", "csslist" => "tdoverflowmax150", "validate" => "1",),
 		"fk_user_designer" => array("type" => "integer:User:user/class/user.class.php:0:(t.statut:=:1)", "label" => "Designer", "picto" => "user", "enabled" => "1", 'position' => 54, 'notnull' => 0, "visible" => "1", "index" => "1", "foreignkey" => "user.rowid", "css" => "maxwidth500 widthcentpercentminusxx", "csslist" => "tdoverflowmax150", "validate" => "1", "help" => "DesignerHelp"),
 		"fk_licence" => array("type" => "integer:Licence:designtrace/class/licence.class.php:0:(t.status:=:1)", "label" => "Licence", "picto" => "fa-file-signature", "enabled" => "1", 'position' => 56, 'notnull' => -1, "visible" => "1", "index" => "1", "css" => "maxwidth500 widthcentpercentminusxx", "csslist" => "tdoverflowmax150", "help" => "DesignLicenceHelp",),
+		"ownership" => array("type" => "integer", "label" => "Ownership", "enabled" => "1", 'position' => 57, 'notnull' => 1, "visible" => "1", "default" => "2", "index" => "1", "arrayofkeyval" => array("1" => "OwnershipCustomer", "2" => "OwnershipWorkshop", "3" => "OwnershipShared"), "csslist" => "tdoverflowmax100", "help" => "OwnershipHelp",),
+		"confidential" => array("type" => "boolean", "label" => "Confidential", "enabled" => "1", 'position' => 58, 'notnull' => 0, "visible" => "1", "default" => "0", "index" => "1", "help" => "ConfidentialHelp",),
 		"description" => array("type" => "text", "label" => "Description", "enabled" => "1", 'position' => 60, 'notnull' => 0, "visible" => "3", "validate" => "1",),
 		"note_public" => array("type" => "html", "label" => "NotePublic", "enabled" => "1", 'position' => 61, 'notnull' => 0, "visible" => "0", "cssview" => "wordbreak", "validate" => "1",),
 		"note_private" => array("type" => "html", "label" => "NotePrivate", "enabled" => "1", 'position' => 62, 'notnull' => 0, "visible" => "0", "cssview" => "wordbreak", "validate" => "1",),
@@ -166,6 +172,15 @@ class Design extends CommonObject
 	 */
 	public $fk_user_designer;
 	public $fk_licence;
+	/**
+	 * @var int	self::OWNERSHIP_*: who owns the design, sets whether source files can ever be delivered
+	 */
+	public $ownership;
+	/**
+	 * @var int	1 = hidden from the gallery and readable only by its designer, its creator and
+	 *			users with the readconfidential right
+	 */
+	public $confidential;
 	public $description;
 	public $note_public;
 	public $note_private;
@@ -234,6 +249,10 @@ class Design extends CommonObject
 		if (empty($this->fk_user_designer)) {
 			$this->fk_user_designer = $user->id;
 		}
+		if (!in_array((int) $this->ownership, array(self::OWNERSHIP_CUSTOMER, self::OWNERSHIP_WORKSHOP, self::OWNERSHIP_SHARED), true)) {
+			$this->ownership = self::OWNERSHIP_WORKSHOP;
+		}
+		$this->confidential = (empty($this->confidential) ? 0 : 1);
 
 		// Quotes and orders to link (set by the create form or the "Create design" button)
 		$links = $this->checkLinkedSalesDocuments();
@@ -438,6 +457,201 @@ class Design extends CommonObject
 	}
 
 	/**
+	 * Whether source files of this design can ever be given to the customer: not when the
+	 * workshop owns it. For customer-owned and shared designs, the licence decides.
+	 *
+	 * @param	int		$ownership	self::OWNERSHIP_*
+	 * @return	bool
+	 */
+	public static function ownershipAllowsSource($ownership)
+	{
+		return in_array((int) $ownership, array(self::OWNERSHIP_CUSTOMER, self::OWNERSHIP_SHARED), true);
+	}
+
+	/**
+	 * Whether a user can see confidential designs they did not design or create
+	 *
+	 * @param	User	$user	User
+	 * @return	bool
+	 */
+	public static function canReadAllConfidential($user)
+	{
+		return (bool) $user->hasRight('designtrace', 'design', 'readconfidential');
+	}
+
+	/**
+	 * Whether a user can see a design (confidential ones: designer, creator or the right)
+	 *
+	 * @param	User					$user		User
+	 * @param	Design|stdClass|null	$design		Design, or a row with confidential, fk_user_designer, fk_user_creat
+	 * @return	bool
+	 */
+	public static function userCanSee($user, $design)
+	{
+		if (empty($design) || empty($design->confidential) || self::canReadAllConfidential($user)) {
+			return true;
+		}
+		return ((int) $design->fk_user_designer === (int) $user->id || (int) $design->fk_user_creat === (int) $user->id);
+	}
+
+	/**
+	 * SQL condition hiding the confidential designs a user cannot see, to AND into a WHERE
+	 *
+	 * @param	User	$user	User
+	 * @param	string	$alias	Alias of the design table in the query
+	 * @return	string			'' when the user sees everything, else " AND (...)"
+	 */
+	public static function sqlConfidentialFilter($user, $alias = 't')
+	{
+		if (self::canReadAllConfidential($user)) {
+			return '';
+		}
+		$a = preg_replace('/[^a-z0-9_]/i', '', $alias);
+		return " AND (".$a.".confidential = 0 OR ".$a.".confidential IS NULL OR ".$a.".fk_user_designer = ".((int) $user->id)." OR ".$a.".fk_user_creat = ".((int) $user->id).")";
+	}
+
+	/**
+	 * Ids of the confidential designs a user cannot see
+	 *
+	 * @param	DoliDB	$db		Database handler
+	 * @param	User	$user	User
+	 * @return	int[]
+	 */
+	public static function getHiddenDesignIds($db, $user)
+	{
+		if (self::canReadAllConfidential($user)) {
+			return array();
+		}
+		$ids = array();
+		$sql = "SELECT rowid FROM ".$db->prefix()."designtrace_design WHERE confidential = 1";
+		$sql .= " AND (fk_user_designer IS NULL OR fk_user_designer <> ".((int) $user->id).") AND fk_user_creat <> ".((int) $user->id);
+		$resql = $db->query($sql);
+		while ($resql && ($obj = $db->fetch_object($resql))) {
+			$ids[] = (int) $obj->rowid;
+		}
+		return $ids;
+	}
+
+	/**
+	 * SQL condition for a query on another table that has a design id column
+	 *
+	 * @param	User	$user		User
+	 * @param	string	$column		Column holding the design id, e.g. "c.fk_design"
+	 * @return	string				'' or " AND (col IS NULL OR col NOT IN (designs the user cannot see))"
+	 */
+	public static function sqlConfidentialFilterOn($user, $column)
+	{
+		global $db;
+
+		$ids = self::getHiddenDesignIds($db, $user);
+		if (empty($ids)) {
+			return '';
+		}
+		$col = preg_replace('/[^a-z0-9_.]/i', '', $column);
+		return " AND (".$col." IS NULL OR ".$col." NOT IN (".implode(',', $ids)."))";
+	}
+
+	/**
+	 * SQL condition for a query with a component id column (revisions...)
+	 *
+	 * @param	User	$user		User
+	 * @param	string	$column		Column holding the component id, e.g. "t.fk_component"
+	 * @return	string				'' or " AND col NOT IN (components of designs the user cannot see)"
+	 */
+	public static function sqlConfidentialFilterOnComponent($user, $column)
+	{
+		global $db;
+
+		$ids = self::getHiddenDesignIds($db, $user);
+		if (empty($ids)) {
+			return '';
+		}
+		$col = preg_replace('/[^a-z0-9_.]/i', '', $column);
+		return " AND ".$col." NOT IN (SELECT hc.rowid FROM ".$db->prefix()."designtrace_component as hc WHERE hc.fk_design IN (".implode(',', $ids)."))";
+	}
+
+	/**
+	 * SQL condition for a query with a revision id column (download log...)
+	 *
+	 * @param	User	$user		User
+	 * @param	string	$column		Column holding the revision id, e.g. "dl.fk_revision"
+	 * @return	string				'' or " AND col NOT IN (revisions of designs the user cannot see)"
+	 */
+	public static function sqlConfidentialFilterOnRevision($user, $column)
+	{
+		global $db;
+
+		$ids = self::getHiddenDesignIds($db, $user);
+		if (empty($ids)) {
+			return '';
+		}
+		$col = preg_replace('/[^a-z0-9_.]/i', '', $column);
+		$sub = "SELECT hr.rowid FROM ".$db->prefix()."designtrace_componentrevision as hr";
+		$sub .= " INNER JOIN ".$db->prefix()."designtrace_component as hc ON hc.rowid = hr.fk_component WHERE hc.fk_design IN (".implode(',', $ids).")";
+		return " AND (".$col." IS NULL OR ".$col." NOT IN (".$sub."))";
+	}
+
+	/**
+	 * Id of the design an object belongs to
+	 *
+	 * @param	DoliDB			$db		Database handler
+	 * @param	CommonObject	$object	Design, Component or ComponentRevision
+	 * @return	int						Design id, 0 if none or unknown
+	 */
+	public static function getDesignIdOf($db, $object)
+	{
+		if (empty($object) || empty($object->id)) {
+			return 0;
+		}
+		switch ($object->element) {
+			case 'design':
+				return (int) $object->id;
+			case 'component':
+				return (int) $object->fk_design;
+			case 'componentrevision':
+				$sql = "SELECT fk_design FROM ".$db->prefix()."designtrace_component WHERE rowid = ".((int) $object->fk_component);
+				$resql = $db->query($sql);
+				$obj = $resql ? $db->fetch_object($resql) : null;
+				return $obj ? (int) $obj->fk_design : 0;
+		}
+		return 0;
+	}
+
+	/**
+	 * Stop the page if the user cannot see the design of this object
+	 *
+	 * @param	DoliDB			$db		Database handler
+	 * @param	User			$user	User
+	 * @param	CommonObject	$object	Design, Component or ComponentRevision (not fetched = nothing to check)
+	 * @return	void
+	 */
+	public static function checkObjectAccessOrDie($db, $user, $object)
+	{
+		self::checkAccessOrDie($db, $user, self::getDesignIdOf($db, $object));
+	}
+
+	/**
+	 * Stop the page if the user cannot see this design
+	 *
+	 * @param	DoliDB	$db			Database handler
+	 * @param	User	$user		User
+	 * @param	int		$designid	Design id (0 = nothing to check)
+	 * @return	void
+	 */
+	public static function checkAccessOrDie($db, $user, $designid)
+	{
+		if ((int) $designid <= 0 || self::canReadAllConfidential($user)) {
+			return;
+		}
+		$sql = "SELECT confidential, fk_user_designer, fk_user_creat FROM ".$db->prefix()."designtrace_design WHERE rowid = ".((int) $designid);
+		$resql = $db->query($sql);
+		$obj = $resql ? $db->fetch_object($resql) : null;
+		if ($obj && !self::userCanSee($user, $obj)) {
+			accessforbidden('DesignConfidentialNoAccess');
+		}
+	}
+
+	/**
 	 * Load object in memory from the database
 	 *
 	 * @param	int    		$id   			Id object
@@ -556,6 +770,10 @@ class Design extends CommonObject
 	 */
 	public function update(User $user, $notrigger = 0)
 	{
+		if (!in_array((int) $this->ownership, array(self::OWNERSHIP_CUSTOMER, self::OWNERSHIP_WORKSHOP, self::OWNERSHIP_SHARED), true)) {
+			$this->ownership = self::OWNERSHIP_WORKSHOP;
+		}
+		$this->confidential = (empty($this->confidential) ? 0 : 1);
 		return $this->updateCommon($user, $notrigger);
 	}
 
