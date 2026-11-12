@@ -314,7 +314,7 @@ FileVisibilityNeverSource = Source files are not shared with customers until the
 ErrorFileRoleNeverVisible = %s cannot be shown to customers: only presentation files can.
 RevisionFileVisibilityChanged = %s: %s
 FileDownloadsHelp = Customer downloads through the Web portal or the REST API
-DownloadLog = Customer downloads
+DownloadLog = Download log
 DownloadLogHelp = Every download by a customer, through Dolibarr's Web portal or a signed link from the REST API (latest 50).
 DownloadChannel = Through
 DownloadChannelWebportal = Web portal
@@ -417,3 +417,21 @@ RevisionFromEco = from %s: %s
 DESIGNTRACE_RELEASE_REQUIRES_ECO = Releasing a change needs an approved ECO
 DESIGNTRACE_RELEASE_REQUIRES_ECOTooltip = A revision after the first can only be released when it is made under an approved (or implemented) change order. Off by default; for shops that need ISO 9001-style control.
 EventDeliveredRevisionUpdatedEco = Change order: %s (%s)
+
+#
+# Home page and download log
+#
+AtAGlance = At a glance
+DesignsActive = Active designs
+RevisionsInDraft = Revisions in draft
+RevisionsInReview = Revisions in review
+DownloadsLast30Days = Customer downloads (last 30 days)
+EcosOpen = Open change orders
+DesignsInProgress = Designs in progress
+DesignsInProgressHelp = Draft designs and designs with a revision in draft or in review, most recently changed first
+DesignsInProgressNone = Nothing in progress: no draft design and no revision in draft or in review.
+RevisionsInProgress = Revisions in progress
+LatestDownloads = Latest customer downloads
+DownloadLogHelpAll = Every file customers downloaded through the Web portal or a signed REST API link. Rows stay when a file or revision is deleted.
+DownloadSearchFile = File, revision or who
+ExportCSV = Export CSV

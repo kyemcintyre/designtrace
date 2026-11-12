@@ -706,6 +706,22 @@ class modDesignTrace extends DolibarrModules
 			'target' => '',
 			'user' => 0,
 		);
+		// Customer downloads (Web portal and REST API) across all revisions
+		$this->menu[$r++] = array(
+			'fk_menu' => 'fk_mainmenu=designtrace',
+			'type' => 'left',
+			'titre' => 'DownloadLog',
+			'prefix' => img_picto('', 'fa-download', 'class="paddingright pictofixedwidth valignmiddle"'),
+			'mainmenu' => 'designtrace',
+			'leftmenu' => 'designtrace_downloads',
+			'url' => '/designtrace/download_list.php',
+			'langs' => 'designtrace@designtrace',
+			'position' => 1000 + $r,
+			'enabled' => 'isModEnabled("designtrace")',
+			'perms' => '$user->hasRight("designtrace", "componentrevision", "read")',
+			'target' => '',
+			'user' => 0,
+		);
 
 
 		// Exports profiles provided by this module
