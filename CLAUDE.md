@@ -202,8 +202,9 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
   - Download log `llx_designtrace_download` (no FKs, outlives files): channel webportal/api,
     actor (`portal:<login>` or the API's actor), IP, user agent. Shown on the Files tab (count per
     file, latest 50).
-- Not yet: customer email when files are released; source files for customers (licences,
-  phase 6); linking from the document side (only from the revision, plus "Create design");
+- No automated customer emails (Kye's decision): he tells customers with Dolibarr's own "Send
+  email" on the quote/order. Do not add email on release, visibility change or delivered update.
+- Not yet: source files for customers (licences, phase 6); linking from the document side (only from the revision, plus "Create design");
   components on the project overview.
 - Not yet: ECO and customer approval on revisions (phases 6–7), per-type prefix settings
   (prefixes are fixed in the standard rules; the generated "advanced" mask rules ignore type).
