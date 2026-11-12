@@ -26,11 +26,13 @@
  * the same checks and is logged. Quotes and orders also show the licence of each design, which the
  * customer can read and accept (logged with the exact version, PDF copy on the document), and ask
  * whether renders of each (non-confidential) design may be shown in the workshop's gallery.
+ * Proof drawings can be approved, or changes requested with a comment (DesignTraceProofApproval).
  */
 
 dol_include_once('/designtrace/class/clientaccess.class.php');
 dol_include_once('/designtrace/class/licensing.class.php');
 dol_include_once('/designtrace/class/portfolio.class.php');
+dol_include_once('/designtrace/class/proofapproval.class.php');
 
 /**
  * Controller for the Design files page of the Web portal
@@ -46,6 +48,11 @@ class DesignFilesController extends Controller
 	 * @var array<string,array<int,array<string,mixed>>>	Licences per document ("element_id" => fetchDocumentLicences())
 	 */
 	public $licences = array();
+
+	/**
+	 * @var array<string,array<string,array<string,mixed>>>	Proofs per document ("element_id" => DesignTraceProofApproval::fetchProofs() entries)
+	 */
+	public $proofs = array();
 
 	/**
 	 * @var array<string,array<int,array<string,mixed>>>	Designs asked about for the gallery per document (not confidential)
@@ -141,6 +148,20 @@ class DesignFilesController extends Controller
 			}
 		}
 
+		// Proof decision (POST): approve, or request changes with a comment
+		if ($context->action == 'proofdecision' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+			global $user;
+			$error = '';
+			$element = DesignTraceClientAccess::normaliseElement(GETPOST('proof_element', 'aZ09'));
+			$decision = (GETPOST('decision', 'aZ09') === 'approve' ? DesignTraceProofApproval::DECISION_APPROVED : DesignTraceProofApproval::DECISION_CHANGES);
+			$res = DesignTraceProofApproval::decide($this->db, $user, $socid, GETPOSTINT('proof_rev'), $element, GETPOSTINT('proof_docid'), $decision, GETPOST('comment', 'alphanohtml'), DesignTraceClientAccess::CHANNEL_WEBPORTAL, $this->getActor(), $error);
+			if (is_array($res)) {
+				$context->setEventMessage($langs->trans($decision === DesignTraceProofApproval::DECISION_APPROVED ? 'WebPortalProofApproved' : 'WebPortalProofChangesSent'), 'mesgs');
+			} else {
+				$context->setEventMessage($error, 'errors');
+			}
+		}
+
 		// Portfolio consent (POST): the design must be on one of the customer's quotes or orders
 		if ($context->action == 'setconsent' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 			$element = DesignTraceClientAccess::normaliseElement(GETPOST('consent_element', 'aZ09'));
@@ -159,6 +180,10 @@ class DesignFilesController extends Controller
 
 		$rows = DesignTraceClientAccess::fetchVisibleFiles($this->db, $socid, $this->element, $this->docid);
 		$this->rows = is_array($rows) ? $rows : array();
+
+		foreach (DesignTraceProofApproval::fetchProofs($this->db, $socid, $this->element, $this->docid) as $proof) {
+			$this->proofs[$proof['element'].'_'.$proof['doc_id']][] = $proof;
+		}
 
 		// Documents to show: those with visible files, and quotes/orders with designs under a licence
 		foreach ($this->rows as $row) {
@@ -266,6 +291,9 @@ class DesignFilesController extends Controller
 			}
 			if (!empty($files[$key])) {
 				$this->printFiles($context, $files[$key]);
+			}
+			if (!empty($this->proofs[$key])) {
+				$this->printProofs($context, $this->proofs[$key]);
 			}
 			if (!empty($this->designs[$key])) {
 				$this->printConsent($context, $doc, $this->designs[$key]);
@@ -392,6 +420,43 @@ class DesignFilesController extends Controller
 			if ($consent !== DesignTracePortfolio::CONSENT_REFUSED) {
 				print '<button type="submit" name="consent" value="'.DesignTracePortfolio::CONSENT_REFUSED.'" class="secondary">'.$langs->trans('WebPortalPortfolioNo').'</button>';
 			}
+			print '</form>';
+		}
+		print '</section>';
+	}
+
+	/**
+	 * Proof drawings of one document: decision, or the approve / request changes form
+	 *
+	 * @param	Context						$context	Web portal context
+	 * @param	array<int,array<string,mixed>>	$proofs	Entries of DesignTraceProofApproval::fetchProofs()
+	 * @return	void
+	 */
+	private function printProofs($context, $proofs)
+	{
+		global $langs;
+
+		$labels = DesignTraceProofApproval::getDecisionLabels();
+		print '<section class="designtrace-proofs">';
+		print '<p><strong>'.$langs->trans('WebPortalProofTitle').'</strong></p>';
+		foreach ($proofs as $proof) {
+			print '<p>'.dol_escape_htmltag($proof['rev_ref'].' '.$proof['comp_label']);
+			if ($proof['decision'] !== DesignTraceProofApproval::DECISION_NONE) {
+				print '<br><small>'.$langs->trans('WebPortalProofDecision', dol_escape_htmltag($labels[$proof['decision']]), dol_print_date($proof['date_decision'], 'dayhour'), dol_escape_htmltag($proof['decided_by'])).'</small>';
+			}
+			print '</p>';
+			if (!$proof['can_decide']) {
+				continue;
+			}
+			print '<form method="POST" action="'.dolPrintHTMLForAttributeUrl($context->getControllerUrl('designfiles', array('element' => $proof['element'], 'docid' => $proof['doc_id']), false)).'">';
+			print $context->getFormToken();
+			print '<input type="hidden" name="action" value="proofdecision">';
+			print '<input type="hidden" name="proof_element" value="'.dol_escape_htmltag($proof['element']).'">';
+			print '<input type="hidden" name="proof_docid" value="'.((int) $proof['doc_id']).'">';
+			print '<input type="hidden" name="proof_rev" value="'.((int) $proof['rev_id']).'">';
+			print '<textarea name="comment" rows="2" placeholder="'.dolPrintHTMLForAttribute($langs->trans('WebPortalProofCommentPlaceholder')).'"></textarea>';
+			print '<button type="submit" name="decision" value="approve">'.$langs->trans('WebPortalProofApprove').'</button> ';
+			print '<button type="submit" name="decision" value="changes" class="secondary">'.$langs->trans('WebPortalProofRequestChanges').'</button>';
 			print '</form>';
 		}
 		print '</section>';

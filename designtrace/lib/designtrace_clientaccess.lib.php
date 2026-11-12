@@ -241,3 +241,56 @@ function designtracePrintClientAccess($object, $form)
 	print '</table>';
 	print '</div>';
 }
+
+
+/**
+ * Customer approval block of a proof revision: decision and history (decisions are made by the
+ * customer in the Web portal or through the API, never here)
+ *
+ * @param	ComponentRevision	$object		Revision
+ * @return	void
+ */
+function designtracePrintProofApproval($object)
+{
+	global $db, $langs;
+
+	dol_include_once('/designtrace/class/proofapproval.class.php');
+	$component = new Component($db);
+	if ($component->fetch((int) $object->fk_component) <= 0 || !DesignTraceProofApproval::isProof((int) $component->type, (int) $component->drawing_type)) {
+		return;
+	}
+	$labels = DesignTraceProofApproval::getDecisionLabels();
+	$history = DesignTraceProofApproval::fetchHistory($db, (int) $object->id);
+
+	print load_fiche_titre($langs->trans('CustomerApproval'), '', 'fa-user-check');
+	print '<div class="div-table-responsive-no-min"><table class="noborder centpercent">';
+	print '<tr class="liste_titre"><td colspan="4">'.DesignTraceProofApproval::getDecisionBadge((int) $object->customer_approval);
+	if ((int) $object->customer_approval !== DesignTraceProofApproval::DECISION_NONE) {
+		print ' <span class="opacitymedium">'.dol_print_date($object->date_customer_approval, 'dayhour').' &middot; '.dol_escape_htmltag((string) $object->customer_approval_by).'</span>';
+	} elseif (!DesignTraceProofApproval::statusAllowsDecision((int) $object->status)) {
+		print ' <span class="opacitymedium">'.$langs->trans('CustomerApprovalWhenInReview').'</span>';
+	}
+	print '</td></tr>';
+	foreach ($history as $row) {
+		print '<tr class="oddeven">';
+		print '<td class="nowraponall">'.dol_print_date($row->date_decision, 'dayhour').'</td>';
+		print '<td class="nowraponall">'.dol_escape_htmltag($labels[(int) $row->decision] ?? '').'</td>';
+		print '<td class="tdoverflowmax200">'.dol_escape_htmltag((string) $row->actor).' &middot; '.DesignTraceClientAccess::getDocumentNomUrl($db, $row->element, (int) $row->fk_element);
+		if ($row->fk_ticket > 0) {
+			print ' &rarr; '.DesignTraceClientAccess::getDocumentNomUrl($db, 'ticket', (int) $row->fk_ticket);
+		}
+		if ($row->fk_eco > 0) {
+			$eco = new ChangeOrder($db);
+			if ($eco->fetch((int) $row->fk_eco) > 0) {
+				print ' &rarr; '.$eco->getNomUrl(1);
+			}
+		}
+		print '</td>';
+		print '<td>'.dol_nl2br(dol_escape_htmltag((string) $row->comment)).'</td>';
+		print '</tr>';
+	}
+	if (empty($history)) {
+		print '<tr class="oddeven"><td colspan="4"><span class="opacitymedium">'.$langs->trans('CustomerApprovalNoHistory').'</span></td></tr>';
+	}
+	print '</table></div><br>';
+}

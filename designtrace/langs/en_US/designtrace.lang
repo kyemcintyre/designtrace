@@ -544,3 +544,38 @@ WebPortalPortfolioYes = Yes, you may
 WebPortalPortfolioNo = No, keep it private
 WebPortalPortfolioCurrent = Your answer: %s (you can change it at any time).
 WebPortalPortfolioSaved = Thank you, your answer is saved.
+
+#
+# Proof approval (phase 7)
+#
+CustomerApproval = Customer approval
+CustomerApprovalHelp = The customer's decision on a proof drawing, made in the Web portal or through My workshop.
+CustomerApprovalNone = Awaiting customer
+CustomerApprovalApproved = Customer approved
+CustomerApprovalChanges = Changes requested
+DateCustomerApproval = Customer decision date
+CustomerApprovalBy = Decided by
+CustomerApprovalNoHistory = The customer has not decided yet. They see the proof once it is in review or released and one of its files is visible to them.
+CustomerApprovalWhenInReview = The customer can decide once the revision is in review or released.
+ErrorProofBadDecision = Unknown decision.
+ErrorProofCommentRequired = Please say what should change.
+ErrorProofNotAvailable = This proof is not available for a decision.
+ErrorProofAlreadyApproved = This proof is already approved.
+ProofChangesTicketSubject = Changes requested on proof %s
+ProofChangesTicketMessage = The customer requested changes on proof %s (shown through %s), by %s:
+ProofChangesEcoNote = Changes requested by the customer on proof %s
+EventProofApproved = Proof %s approved by the customer (%s)
+EventProofChanges = Changes requested on proof %s (%s)
+EventProofNote = Through %s, by %s
+DESIGNTRACE_PROOF_CHANGES_ACTION = A customer's change request on a proof opens
+DESIGNTRACE_PROOF_CHANGES_ACTIONTooltip = When a customer requests changes on a proof drawing, open a ticket for them (needs the Tickets module) or a draft ECO with the drawing as affected component, or only record the request.
+ProofChangesActionTicket = A ticket
+ProofChangesActionEco = A draft ECO
+ProofChangesActionNone = Nothing (only record it)
+WebPortalProofTitle = Proofs to approve
+WebPortalProofDecision = %s on %s by %s
+WebPortalProofCommentPlaceholder = Comments (required to request changes)
+WebPortalProofApprove = Approve
+WebPortalProofRequestChanges = Request changes
+WebPortalProofApproved = Thank you, the proof is approved.
+WebPortalProofChangesSent = Thank you, your change request has been sent.

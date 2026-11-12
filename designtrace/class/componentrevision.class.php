@@ -147,6 +147,9 @@ class ComponentRevision extends CommonObject
 		"description" => array("type" => "text", "label" => "RevisionNotes", "enabled" => "1", 'position' => 60, 'notnull' => 0, "visible" => "3", "help" => "RevisionNotesHelp", "validate" => "1",),
 		"change_reason" => array("type" => "integer", "label" => "ChangeReason", "enabled" => "1", 'position' => 58, 'notnull' => 0, "visible" => "1", "arrayofkeyval" => array("1" => "ChangeReasonInitial", "2" => "ChangeReasonCustomer", "3" => "ChangeReasonFix", "4" => "ChangeReasonImprovement", "5" => "ChangeReasonProcess", "6" => "ChangeReasonOther"), "validate" => "1", "help" => "ChangeReasonHelp"),
 		"fk_eco" => array("type" => "integer:ChangeOrder:designtrace/class/changeorder.class.php:0:((status:in:0,1,2))", "label" => "ChangeOrder", "picto" => "fa-exchange-alt", "enabled" => "1", 'position' => 59, 'notnull' => -1, "visible" => "1", "index" => "1", "css" => "maxwidth500 widthcentpercentminusxx", "csslist" => "tdoverflowmax150", "help" => "RevisionEcoHelp",),
+		"customer_approval" => array("type" => "integer", "label" => "CustomerApproval", "enabled" => "1", 'position' => 60, 'notnull' => 1, "visible" => "-5", "noteditable" => "1", "default" => "0", "index" => "1", "arrayofkeyval" => array("0" => "CustomerApprovalNone", "1" => "CustomerApprovalApproved", "2" => "CustomerApprovalChanges"), "help" => "CustomerApprovalHelp",),
+		"date_customer_approval" => array("type" => "datetime", "label" => "DateCustomerApproval", "enabled" => "1", 'position' => 61, 'notnull' => 0, "visible" => "-5", "noteditable" => "1",),
+		"customer_approval_by" => array("type" => "varchar(128)", "label" => "CustomerApprovalBy", "enabled" => "1", 'position' => 62, 'notnull' => 0, "visible" => "-5", "noteditable" => "1",),
 		"material" => array("type" => "varchar(255)", "label" => "Material", "enabled" => "1", 'position' => 70, 'notnull' => 0, "visible" => "-1", "searchall" => "1", "css" => "minwidth200", "validate" => "1",),
 		"process" => array("type" => "varchar(255)", "label" => "Process", "enabled" => "1", 'position' => 72, 'notnull' => 0, "visible" => "-1", "searchall" => "1", "css" => "minwidth200", "validate" => "1",),
 		"machine" => array("type" => "varchar(255)", "label" => "Machine", "enabled" => "1", 'position' => 74, 'notnull' => 0, "visible" => "-1", "searchall" => "1", "css" => "minwidth200", "validate" => "1",),
@@ -177,6 +180,18 @@ class ComponentRevision extends CommonObject
 	 */
 	public $change_reason;
 	public $fk_eco;
+	/**
+	 * @var int	Customer approval of a proof (DesignTraceProofApproval::DECISION_*), set only by the customer
+	 */
+	public $customer_approval;
+	/**
+	 * @var int|string	Date of the customer's last decision
+	 */
+	public $date_customer_approval;
+	/**
+	 * @var ?string	Who decided (portal login or API actor)
+	 */
+	public $customer_approval_by;
 	public $date_release;
 	public $fk_user_release;
 	/**
@@ -322,6 +337,9 @@ class ComponentRevision extends CommonObject
 		$object->rev = '';
 		$object->change_reason = null;
 		$object->fk_eco = null;			// Each revision states its own reason and ECO; notes, material, process and machine carry over
+		$object->customer_approval = 0;		// The customer approves each proof revision
+		$object->date_customer_approval = null;
+		$object->customer_approval_by = null;
 		$object->status = self::STATUS_DRAFT;
 		$object->date_release = null;
 		$object->fk_user_release = null;

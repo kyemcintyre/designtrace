@@ -99,7 +99,7 @@ class DesignTraceClientAccess
 	 * @param	int		$docid		Only through this document
 	 * @param	int		$fileid		Only this file
 	 * @return	stdClass[]|int		Rows (file_id, filename, role, format, filesize, sha256, visibility, rev_id, rev_ref, rev,
-	 *								rev_status, date_release, comp_id, comp_ref, comp_label, comp_type, element, doc_id, doc_ref,
+	 *								rev_status, date_release, comp_id, comp_ref, comp_label, comp_type, drawing_type, design_id, element, doc_id, doc_ref,
 	 *								doc_status), or -1 on error
 	 */
 	public static function fetchVisibleFiles($db, $socid, $element = '', $docid = 0, $fileid = 0)
@@ -115,7 +115,7 @@ class DesignTraceClientAccess
 			$completed = empty($def['completed']) ? '0 = 1' : 'd.fk_statut IN ('.implode(',', array_map('intval', $def['completed'])).')';
 			$sql = "SELECT f.rowid as file_id, f.filename, f.role, f.format, f.filesize, f.sha256, f.visibility,";
 			$sql .= " r.rowid as rev_id, r.ref as rev_ref, r.rev, r.status as rev_status, r.date_release,";
-			$sql .= " c.rowid as comp_id, c.ref as comp_ref, c.label as comp_label, c.type as comp_type, c.fk_design as design_id,";
+			$sql .= " c.rowid as comp_id, c.ref as comp_ref, c.label as comp_label, c.type as comp_type, c.drawing_type, c.fk_design as design_id,";
 			$sql .= " ee.sourcetype as element, d.rowid as doc_id, d.ref as doc_ref, d.fk_statut as doc_status";
 			$sql .= " FROM ".$db->prefix()."element_element as ee";
 			$sql .= " INNER JOIN ".$db->prefix().$def['table']." as d ON d.rowid = ee.fk_source";

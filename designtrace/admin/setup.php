@@ -163,6 +163,15 @@ $item->fieldAttr['min'] = '10';
 $item->helpText = $langs->trans('DESIGNTRACE_LINK_TTLTooltip', DesignTraceClientAccess::DEFAULT_LINK_TTL);
 $item->cssClass = 'maxwidth100';
 
+// What a customer's change request on a proof opens (ticket by default)
+$item = $formSetup->newItem('DESIGNTRACE_PROOF_CHANGES_ACTION')->setAsSelect(array(
+	'ticket' => $langs->trans('ProofChangesActionTicket'),
+	'eco' => $langs->trans('ProofChangesActionEco'),
+	'none' => $langs->trans('ProofChangesActionNone'),
+));
+$item->defaultFieldValue = 'ticket';
+$item->helpText = $langs->trans('DESIGNTRACE_PROOF_CHANGES_ACTIONTooltip');
+
 // End of definition of parameters
 
 

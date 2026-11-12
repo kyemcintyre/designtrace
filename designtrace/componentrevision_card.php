@@ -512,6 +512,8 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 	//$keyforbreak='fieldkeytoswitchonsecondcolumn';	// We change column just before this field
 	//unset($object->fields['fk_project']);				// Hide field already shown in banner
 	//unset($object->fields['fk_soc']);					// Hide field already shown in banner
+	// Customer approval has its own block (proof drawings only)
+	unset($object->fields['customer_approval'], $object->fields['date_customer_approval'], $object->fields['customer_approval_by']);
 	include DOL_DOCUMENT_ROOT.'/core/tpl/commonfields_view.tpl.php';
 
 	// Other attributes. Fields from hook formObjectOptions and Extrafields.
@@ -639,6 +641,9 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 			// backward compatibility
 			$somethingshown = $form->showLinkedObjectBlock($object, $tmparray);
 		}
+
+		// Proof drawings: the customer's approval
+		designtracePrintProofApproval($object);
 
 		// What customers see through the quotes, orders and tickets it is linked to
 		designtracePrintClientAccess($object, $form);

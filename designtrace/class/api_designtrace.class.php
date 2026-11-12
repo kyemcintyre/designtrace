@@ -33,6 +33,7 @@ use Luracast\Restler\RestException;
 dol_include_once('/designtrace/class/clientaccess.class.php');
 dol_include_once('/designtrace/class/licensing.class.php');
 dol_include_once('/designtrace/class/portfolio.class.php');
+dol_include_once('/designtrace/class/proofapproval.class.php');
 
 /**
  * API class for DesignTrace customer files (named DesignTrace so the endpoints are /designtrace/...)
@@ -249,6 +250,94 @@ class DesignTrace extends DolibarrApi
 			throw new RestException(409, $error);
 		}
 		return array('id' => (int) $id, 'date' => dol_now());
+	}
+
+	/**
+	 * List the proof drawings a customer can decide on through a document, with their decision
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	string	$element	quote, order or ticket
+	 * @param	int		$docid		Document id
+	 * @return	array				revision_id, revision_ref, component_ref, component_label, decision (none, approved, changes),
+	 *								date_decision, decided_by, can_decide
+	 * @phan-return array<int,array<string,mixed>>
+	 * @phpstan-return array<int,array<string,mixed>>
+	 *
+	 * @url	GET customers/{socid}/documents/{element}/{docid}/proofs
+	 *
+	 * @throws RestException 400 Bad document type
+	 * @throws RestException 403 Not allowed
+	 */
+	public function listProofs($socid, $element, $docid)
+	{
+		$socid = $this->checkCustomer($socid);
+		$type = DesignTraceClientAccess::normaliseElement($element);
+		if ($type === '') {
+			throw new RestException(400, 'Bad document type, use quote, order or ticket');
+		}
+		$names = array(DesignTraceProofApproval::DECISION_NONE => 'none', DesignTraceProofApproval::DECISION_APPROVED => 'approved', DesignTraceProofApproval::DECISION_CHANGES => 'changes');
+		$result = array();
+		foreach (DesignTraceProofApproval::fetchProofs($this->db, $socid, $type, (int) $docid) as $proof) {
+			$result[] = array(
+				'revision_id' => $proof['rev_id'],
+				'revision_ref' => $proof['rev_ref'],
+				'revision_released' => ($proof['rev_status'] === ComponentRevision::STATUS_RELEASED),
+				'component_ref' => $proof['comp_ref'],
+				'component_label' => $proof['comp_label'],
+				'decision' => $names[$proof['decision']] ?? 'none',
+				'date_decision' => $proof['date_decision'],
+				'decided_by' => $proof['decided_by'],
+				'can_decide' => $proof['can_decide'],
+			);
+		}
+		return $result;
+	}
+
+	/**
+	 * Approve a proof drawing, or request changes
+	 *
+	 * A change request needs a comment and opens a ticket or a draft ECO, as set up in DesignTrace.
+	 * An approval is final for that revision.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	string	$element	quote, order or ticket the proof is shown through
+	 * @param	int		$docid		Document id
+	 * @param	int		$revid		Revision of the proof
+	 * @param	string	$decision	approve or changes {@from body}
+	 * @param	string	$comment	Customer's comment (required for changes) {@from body}
+	 * @param	string	$actor		Who decided, for the log {@from body}
+	 * @return	array				id of the decision, ticket_id, eco_id (0 if none)
+	 * @phan-return array<string,int>
+	 * @phpstan-return array<string,int>
+	 *
+	 * @url	POST customers/{socid}/documents/{element}/{docid}/proofs/{revid}/decision
+	 *
+	 * @throws RestException 400 Bad document type or decision
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 409 Not available or already approved
+	 */
+	public function decideProof($socid, $element, $docid, $revid, $decision, $comment = '', $actor = '')
+	{
+		$socid = $this->checkCustomer($socid);
+		$type = DesignTraceClientAccess::normaliseElement($element);
+		if ($type === '') {
+			throw new RestException(400, 'Bad document type, use quote, order or ticket');
+		}
+		$values = array('approve' => DesignTraceProofApproval::DECISION_APPROVED, 'changes' => DesignTraceProofApproval::DECISION_CHANGES);
+		$decision = strtolower(trim((string) $decision));
+		if (!isset($values[$decision])) {
+			throw new RestException(400, 'Bad decision, use approve or changes');
+		}
+		$actor = trim((string) $actor);
+		if ($actor === '') {
+			$actor = 'api:'.DolibarrApiAccess::$user->login;
+		}
+		$error = '';
+		$res = DesignTraceProofApproval::decide($this->db, DolibarrApiAccess::$user, $socid, (int) $revid, $type, (int) $docid, $values[$decision], (string) $comment, DesignTraceClientAccess::CHANNEL_API, $actor, $error);
+		if (!is_array($res)) {
+			throw new RestException(409, $error);
+		}
+		return array('id' => $res['id'], 'ticket_id' => $res['ticket'], 'eco_id' => $res['eco']);
 	}
 
 	/**
@@ -535,6 +624,7 @@ class DesignTrace extends DolibarrApi
 				'component_ref' => $row->comp_ref,
 				'component_label' => $row->comp_label,
 				'component_type' => isset($types[(int) $row->comp_type]) ? $types[(int) $row->comp_type] : '',
+				'is_proof' => DesignTraceProofApproval::isProof((int) $row->comp_type, (int) $row->drawing_type),
 				'document_type' => $this->publicElement((string) $row->element),
 				'document_id' => (int) $row->doc_id,
 				'document_ref' => $row->doc_ref,
