@@ -97,6 +97,12 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
   (defaults to the creator), description, notes.
   Draft (0) → Active (1, by Validate, which assigns `DSN-0001`) → Archived (9), reactivatable.
   Drafts are `(PROVn)`. Cannot be deleted while it has components. Card lists its components.
+  Optional Quote / Order on the create form (filtered to the chosen customer), stored as
+  Dolibarr linked objects (`element_element`, type `designtrace_design`); `Design::create()`
+  checks `linked_objects` (same customer; fills empty customer/project). Quote and order cards
+  get a "Create design" button (hooks `propalcard`/`ordercard` in
+  `class/actions_designtrace.class.php`, `?action=create&origin=propal&originid=ID`) and list
+  linked designs via `design/tpl/linkedobjectblock.tpl.php`.
 - **Component** (`llx_designtrace_component`): fk_design (FK), type 0 part / 1 assembly /
   2 drawing, drawing_type 1 concept / 2 proof / 3 TDS (required for drawings only), label,
   fk_product, sourcing (1 print / 2 make / 3 buy), finish, weight (g); sourcing, finish and
@@ -135,6 +141,9 @@ New objects can be generated without the GUI by POSTing Module Builder's `initob
 - Fix `validate()`'s `ecm_files` updates: it uses `design/REF` but the index stores
   `designtrace/design/REF` (relative to the data root), and make `delete()` remove the
   documents folder (refs are reused after a delete).
+- Module parts (hooks, tpl, ...) are only registered on activation. Deactivate and activate
+  in **separate** PHP processes: in one process `$conf` still says enabled and
+  `activateModule()` silently does nothing.
 - Re-run module activation to create tables and rights; `modDesignTrace` is reachable via
   `activateModule('modDesignTrace')` from the CLI.
 

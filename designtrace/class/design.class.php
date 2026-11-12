@@ -233,16 +233,110 @@ class Design extends CommonObject
 			$this->fk_user_designer = $user->id;
 		}
 
-		$result = $this->createCommon($user, $notrigger);
+		// Quotes and orders to link (set by the create form or the "Create design" button)
+		$links = $this->checkLinkedSalesDocuments();
+		if (!is_array($links)) {
+			return -1;
+		}
 
-		// uncomment lines below if you want to validate object after creation
-		// if ($result > 0) {
-		// $this->fetch($this->id); // needed to retrieve some fields (ie date_creation for masked ref)
-		// $resultupdate = $this->validate($user, $notrigger);
-		// if ($resultupdate < 0) { return $resultupdate; }
-		// }
+		$this->db->begin();
+
+		$result = $this->createCommon($user, $notrigger);
+		if ($result > 0) {
+			foreach ($links as $link) {
+				if (!$this->add_object_linked($link['element'], $link['id'])) {
+					$this->error = $this->db->lasterror();
+					$this->errors[] = $this->error;
+					$result = -1;
+					break;
+				}
+			}
+		}
+
+		if ($result > 0) {
+			$this->db->commit();
+		} else {
+			$this->db->rollback();
+			$this->id = 0;
+		}
 
 		return $result;
+	}
+
+	/**
+	 *	Check the quotes and orders in $this->linked_objects (array('propal' => id, 'commande' => id),
+	 *	ids may also be arrays) before creating the design.
+	 *
+	 *	Each one must exist in an entity we can see and belong to the design's customer. When
+	 *	the design has no customer or project yet, they are taken from the first document.
+	 *
+	 *	@return	array<int,array{element:string,id:int}>|int<-1,-1>	Links to create, or -1 if KO
+	 */
+	public function checkLinkedSalesDocuments()
+	{
+		global $langs;
+
+		$langs->loadLangs(array('designtrace@designtrace', 'propal', 'orders'));
+
+		$links = array();
+		if (empty($this->linked_objects) || !is_array($this->linked_objects)) {
+			return $links;
+		}
+
+		$classes = array(
+			'propal' => array('module' => 'propal', 'file' => '/comm/propal/class/propal.class.php', 'class' => 'Propal', 'label' => 'Proposal'),
+			'commande' => array('module' => 'order', 'file' => '/commande/class/commande.class.php', 'class' => 'Commande', 'label' => 'Order'),
+		);
+
+		foreach ($this->linked_objects as $element => $ids) {
+			if ($element == 'order') {
+				$element = 'commande';
+			}
+			if (!isset($classes[$element])) {
+				return $this->setErrorAndFail($langs->trans('ErrorDesignLinkTypeNotAllowed', (string) $element));
+			}
+			foreach ((array) $ids as $id) {
+				$id = (int) $id;
+				if ($id <= 0) {
+					continue;
+				}
+				$def = $classes[$element];
+				if (!isModEnabled($def['module'])) {
+					return $this->setErrorAndFail($langs->trans('ErrorDesignLinkTypeNotAllowed', $element));
+				}
+				require_once DOL_DOCUMENT_ROOT.$def['file'];
+				$doc = new $def['class']($this->db);
+				if ($doc->fetch($id) <= 0 || !in_array((int) $doc->entity, array_map('intval', explode(',', getEntity($element))), true)) {
+					return $this->setErrorAndFail($langs->trans('ErrorRecordNotFound').' ('.$langs->transnoentitiesnoconv($def['label']).' '.$id.')');
+				}
+
+				if (empty($this->fk_soc) || (int) $this->fk_soc <= 0) {
+					$this->fk_soc = (int) $doc->socid;
+				} elseif ((int) $this->fk_soc != (int) $doc->socid) {
+					return $this->setErrorAndFail($langs->trans('ErrorDesignLinkOtherCustomer', $doc->ref));
+				}
+				if ((empty($this->fk_project) || (int) $this->fk_project <= 0) && !empty($doc->fk_project)) {
+					$this->fk_project = (int) $doc->fk_project;
+				}
+
+				$links[] = array('element' => $element, 'id' => $id);
+			}
+		}
+
+		return $links;
+	}
+
+	/**
+	 *	Set the error and return -1
+	 *
+	 *	@param	string		$message	Translated error message
+	 *	@return	int<-1,-1>				-1
+	 */
+	private function setErrorAndFail($message)
+	{
+		$this->error = $message;
+		$this->errors[] = $message;
+		return -1;
 	}
 
 	/**

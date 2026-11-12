@@ -131,3 +131,74 @@ function designtraceBannerWithThumbnail($object, $subdir, $bannerhtml)
 	// The picto block dol_banner_tab() prints when it has no photo of its own
 	return preg_replace('/<!-- No photo to show -->\s*<div class="floatleft inline-block valignmiddle divphotoref"><div class="photoref">.*?<\/div><\/div>/s', $photo, $bannerhtml, 1);
 }
+
+/**
+ * Return a select of the customer quotes ('propal') or orders ('commande') a new design can be
+ * linked to, newest first. Each option carries the customer id (data-socid) so the create form
+ * can narrow the list to the chosen customer.
+ *
+ * @param	string	$element	'propal' or 'commande'
+ * @param	string	$htmlname	Name and id of the select
+ * @param	int		$selected	Preselected id
+ * @return	string				HTML select (with select2), or '' if the element is not supported
+ */
+function designtraceSelectSalesDocument($element, $htmlname, $selected = 0)
+{
+	global $db, $langs;
+
+	include_once DOL_DOCUMENT_ROOT.'/core/lib/ajax.lib.php';
+
+	if ($element == 'propal') {
+		$table = 'propal';
+		$sqlstatus = '';
+	} elseif ($element == 'commande') {
+		$table = 'commande';
+		$sqlstatus = ' AND t.fk_statut >= 0';		// Not cancelled
+	} else {
+		return '';
+	}
+
+	$sql = "SELECT t.rowid, t.ref, t.ref_client, t.fk_soc, s.nom as socname";
+	$sql .= " FROM ".$db->prefix().$table." as t";
+	$sql .= " LEFT JOIN ".$db->prefix()."societe as s ON s.rowid = t.fk_soc";
+	$sql .= " WHERE t.entity IN (".getEntity($element).")".$sqlstatus;
+	$sql .= " ORDER BY t.rowid DESC";		// Newest first (the creation date column differs between tables)
+	$sql .= $db->plimit(1000);
+
+	$out = '<select class="flat minwidth300 maxwidth500 widthcentpercentminusx" id="'.dol_escape_htmltag($htmlname).'" name="'.dol_escape_htmltag($htmlname).'">';
+	$out .= '<option value="-1" data-socid="0">&nbsp;</option>';
+	$resql = $db->query($sql);
+	if ($resql) {
+		while ($obj = $db->fetch_object($resql)) {
+			$label = $obj->ref.' - '.$obj->socname.($obj->ref_client ? ' ('.$obj->ref_client.')' : '');
+			$out .= '<option value="'.((int) $obj->rowid).'" data-socid="'.((int) $obj->fk_soc).'"'.((int) $obj->rowid == (int) $selected ? ' selected' : '').'>'.dol_escape_htmltag($label).'</option>';
+		}
+		$db->free($resql);
+	} else {
+		dol_syslog(__FUNCTION__.' '.$db->lasterror(), LOG_ERR);
+	}
+	$out .= '</select>';
+	$out .= ajax_combobox($htmlname);
+
+	return $out;
+}
+
+/**
+ * Sales documents a new design can be linked to on creation, among those the user can read.
+ *
+ * @return	string[]	Subset of array('propal', 'commande')
+ */
+function designtraceLinkableSalesElements()
+{
+	global $user;
+
+	$elements = array();
+	if (isModEnabled('propal') && $user->hasRight('propal', 'lire')) {
+		$elements[] = 'propal';
+	}
+	if (isModEnabled('order') && $user->hasRight('commande', 'lire')) {
+		$elements[] = 'commande';
+	}
+
+	return $elements;
+}

@@ -205,6 +205,17 @@ if (empty($reshook)) {
 
 	$triggermodname = $object->TRIGGER_PREFIX.'_MODIFY'; // Name of trigger action code to execute when we modify record. Used in actions_addupdatedelete.inc.php
 
+	// Quote and order to link the new design to (create form fields, prefilled by the "Create
+	// design" button on quotes and orders). Design::create() checks them and fills the customer.
+	if ($action == 'add' && $permissiontoadd) {
+		$object->linked_objects = array();
+		foreach (designtraceLinkableSalesElements() as $element) {
+			if (GETPOSTINT('linked_'.$element) > 0) {
+				$object->linked_objects[$element] = GETPOSTINT('linked_'.$element);
+			}
+		}
+	}
+
 	// Actions cancel, add, update, update_extras, confirm_validate, confirm_delete, confirm_deleteline, confirm_clone, confirm_close, confirm_setdraft, confirm_reopen
 	include DOL_DOCUMENT_ROOT.'/core/actions_addupdatedelete.inc.php';
 
@@ -297,7 +308,35 @@ if ($action == 'create') {
 	if (!GETPOSTISSET('fk_user_designer')) {
 		$_GET['fk_user_designer'] = $user->id;
 	}
+	// Coming from the "Create design" button of a quote or order: link it, and take its
+	// customer and project
+	$origin = GETPOST('origin', 'aZ09');
+	$originid = GETPOSTINT('originid');
+	if (in_array($origin, designtraceLinkableSalesElements(), true) && $originid > 0 && !GETPOSTISSET('linked_'.$origin)) {
+		$originclass = ($origin == 'propal' ? 'Propal' : 'Commande');
+		require_once DOL_DOCUMENT_ROOT.($origin == 'propal' ? '/comm/propal/class/propal.class.php' : '/commande/class/commande.class.php');
+		$originobject = new $originclass($db);
+		if ($originobject->fetch($originid) > 0) {
+			$_GET['linked_'.$origin] = $originobject->id;
+			if (!GETPOSTISSET('fk_soc')) {
+				$_GET['fk_soc'] = $originobject->socid;
+			}
+			if (!GETPOSTISSET('fk_project') && !empty($originobject->fk_project)) {
+				$_GET['fk_project'] = $originobject->fk_project;
+			}
+		}
+	}
 	include DOL_DOCUMENT_ROOT.'/core/tpl/commonfields_add.tpl.php';
+
+	// Quote and order to link to (not fields of the design: stored as Dolibarr linked objects)
+	$linkfields = array('propal' => 'DesignLinkQuote', 'commande' => 'DesignLinkOrder');
+	foreach (designtraceLinkableSalesElements() as $element) {
+		print '<tr class="field_linked_'.$element.'"><td class="titlefieldcreate">';
+		print '<label for="linked_'.$element.'">'.$form->textwithpicto($langs->trans($linkfields[$element]), $langs->trans('DesignLinkSalesHelp')).'</label></td>';
+		print '<td class="valuefieldcreate">'.img_picto('', $element == 'propal' ? 'propal' : 'order', '', 0, 0, 0, '', 'pictofixedwidth');
+		print designtraceSelectSalesDocument($element, 'linked_'.$element, GETPOSTINT('linked_'.$element));
+		print '</td></tr>';
+	}
 
 	// Other attributes
 	include DOL_DOCUMENT_ROOT.'/core/tpl/extrafields_add.tpl.php';
@@ -309,6 +348,30 @@ if ($action == 'create') {
 	print $form->buttonsSaveCancel("Create");
 
 	print '</form>';
+
+	// Only list the chosen customer's quotes and orders (all of them while no customer is set)
+	print '<script type="text/javascript">
+	jQuery(document).ready(function() {
+		var designtraceSalesOptions = {};
+		jQuery("#linked_propal, #linked_commande").each(function() {
+			designtraceSalesOptions[this.id] = jQuery(this).find("option").clone();
+		});
+		function designtraceFilterSales() {
+			var socid = parseInt(jQuery("#fk_soc").val(), 10) || 0;
+			jQuery.each(designtraceSalesOptions, function(id, options) {
+				var select = jQuery("#" + id);
+				var current = select.val();
+				select.empty().append(options.filter(function() {
+					var optsocid = parseInt(jQuery(this).data("socid"), 10) || 0;
+					return socid <= 0 || optsocid == 0 || optsocid == socid;
+				}).clone());
+				select.val(select.find("option[value=\"" + current + "\"]").length ? current : "-1").trigger("change.select2");
+			});
+		}
+		designtraceFilterSales();
+		jQuery("#fk_soc").on("change", designtraceFilterSales);
+	});
+	</script>';
 
 	//dol_set_focus('input[name="ref"]');
 }

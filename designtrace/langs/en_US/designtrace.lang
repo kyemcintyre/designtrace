@@ -56,6 +56,12 @@ DesignReactivate = Reactivate
 DesignTraceNumRefModelDesc = Returns a number of the form %s, one sequence that never resets
 Designer = Designer
 DesignerHelp = Who is responsible for the design. Defaults to the person who creates it.
+DesignLinkQuote = Quote
+DesignLinkOrder = Order
+DesignLinkSalesHelp = Optional. The design is linked to it and shows in its Linked objects. Picking one fills in the customer and project if they are empty; it must belong to the design's customer.
+DesignCreateFromThis = Create design
+ErrorDesignLinkOtherCustomer = %s belongs to another customer than the design.
+ErrorDesignLinkTypeNotAllowed = A design cannot be linked to '%s' when it is created.
 
 #
 # Component
