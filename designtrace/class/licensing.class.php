@@ -324,6 +324,13 @@ class DesignTraceLicensing
 			return -1;
 		}
 		$db->query("UPDATE ".$db->prefix()."designtrace_licenceaccept SET filename = '".$db->escape($filename)."' WHERE rowid = ".$id);
+		// A licence allowing portfolio use counts as consent when the customer said nothing yet
+		dol_include_once('/designtrace/class/portfolio.class.php');
+		if (DesignTracePortfolio::consentFromLicence($db, (int) $designid, $info['version'], $element, (int) $docid, $actor) < 0) {
+			$error = $db->lasterror();
+			$db->rollback();
+			return -1;
+		}
 		$db->commit();
 		return $id;
 	}

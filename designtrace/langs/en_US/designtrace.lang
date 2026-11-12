@@ -521,3 +521,33 @@ WebPortalLicenceAgree = I have read and accept this licence
 WebPortalLicenceAccept = Accept
 WebPortalLicenceTickToAccept = Tick the box to accept the licence.
 WebPortalLicenceAccepted = Licence accepted. A copy has been added to the document.
+
+#
+# Portfolio consent (phase 7)
+#
+PortfolioConsent = Portfolio consent
+PortfolioConsentHelp = Whether the customer allows renders of the design to be shown in the workshop's website gallery. Record what they said here, on the design card, or let them answer in the Web portal. Accepting a licence that allows portfolio use counts as consent when they had not answered yet.
+PortfolioConsentNone = Not asked
+PortfolioConsentGranted = Granted
+PortfolioConsentRefused = Refused
+DatePortfolioConsent = Portfolio consent date
+PortfolioConsentSaved = Portfolio consent recorded
+PortfolioConsentRecord = Record answer
+PortfolioConsentRecordGranted = Customer said yes
+PortfolioConsentRecordRefused = Customer said no
+PortfolioConsentNotePlaceholder = How it was given (phone, email...)
+PortfolioConsentNoHistory = The customer has not been asked yet.
+PortfolioConfidentialNote = confidential: never in the gallery
+PortfolioInGallery = In the gallery
+PortfolioNotInGalleryConfidential = Not in the gallery: the design is confidential
+PortfolioNotInGalleryNotActive = Not in the gallery until the design is active
+PortfolioChannelBackoffice = Recorded by staff
+PortfolioChannelWebportal = Web portal
+PortfolioChannelApi = My workshop (API)
+PortfolioChannelLicence = Licence accepted
+WebPortalPortfolioTitle = Gallery
+WebPortalPortfolioQuestion = May we show renders of %s in our website gallery?
+WebPortalPortfolioYes = Yes, you may
+WebPortalPortfolioNo = No, keep it private
+WebPortalPortfolioCurrent = Your answer: %s (you can change it at any time).
+WebPortalPortfolioSaved = Thank you, your answer is saved.

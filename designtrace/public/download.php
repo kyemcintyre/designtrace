@@ -22,7 +22,8 @@
  *
  *	No login: the link itself is the authorisation (HMAC over file, customer, document, actor,
  *	entity and expiry). The visibility rules are checked again here, so a file hidden after the
- *	link was made is refused. Every download is logged.
+ *	link was made is refused. Every customer download is logged. Links of type "portfolio" serve
+ *	gallery images of designs whose customer consented (not logged: they are public on the site).
  */
 
 if (!defined('NOLOGIN')) {
@@ -95,6 +96,16 @@ $reason = DesignTraceClientAccess::checkSignedParams($params);
 if ($reason !== '') {
 	dol_syslog('designtrace download refused: '.$reason.' file='.$params['f'], LOG_NOTICE);
 	httponly_accessforbidden($reason, 403);
+}
+
+// Gallery image (portfolio): the design must still be in the gallery
+if ($params['t'] === 'portfolio') {
+	dol_include_once('/designtrace/class/portfolio.class.php');
+	$image = DesignTracePortfolio::getImage($db, (int) $params['d'], (int) $params['f']);
+	if (!$image || !is_file(dol_osencode($image['path']))) {
+		httponly_accessforbidden('Image not available', 404);
+	}
+	DesignTraceClientAccess::sendFile($image['path'], $image['filename'], true);
 }
 
 $row = DesignTraceClientAccess::getDownloadableFile($db, (int) $params['s'], (int) $params['f'], DesignTraceClientAccess::normaliseElement((string) $params['t']), (int) $params['d']);

@@ -97,6 +97,7 @@ dol_include_once('/designtrace/class/design.class.php');
 dol_include_once('/designtrace/lib/designtrace.lib.php');
 dol_include_once('/designtrace/lib/designtrace_design.lib.php');
 dol_include_once('/designtrace/lib/designtrace_links.lib.php');
+dol_include_once('/designtrace/lib/designtrace_portfolio.lib.php');
 
 // Load translation files required by the page
 $langs->loadLangs(array("designtrace@designtrace", "other"));
@@ -221,6 +222,9 @@ if (empty($reshook)) {
 
 	// Actions cancel, add, update, update_extras, confirm_validate, confirm_delete, confirm_deleteline, confirm_clone, confirm_close, confirm_setdraft, confirm_reopen
 	include DOL_DOCUMENT_ROOT.'/core/actions_addupdatedelete.inc.php';
+
+	// Record the customer's portfolio consent
+	designtraceDoConsentActions($object, $action);
 
 	// Actions when linking object each other
 	include DOL_DOCUMENT_ROOT.'/core/actions_dellink.inc.php';
@@ -684,6 +688,8 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 		}
 
 		print '</div><div class="fichehalfright">';
+
+		designtracePrintConsentBox($object);
 
 		// BEGIN MODULEBUILDER TAB AGENDA
 		$MAXEVENT = 10;

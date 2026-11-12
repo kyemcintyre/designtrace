@@ -25,12 +25,14 @@
  * only ask for its own third party. The rules are the same as the Web portal's
  * (DesignTraceClientAccess). Files are not streamed through the API: it returns a short-lived
  * signed link to designtrace/public/download.php, which checks the rules again and logs the download.
+ * The same service user reads the portfolio gallery (designs whose customer consented).
  */
 
 use Luracast\Restler\RestException;
 
 dol_include_once('/designtrace/class/clientaccess.class.php');
 dol_include_once('/designtrace/class/licensing.class.php');
+dol_include_once('/designtrace/class/portfolio.class.php');
 
 /**
  * API class for DesignTrace customer files (named DesignTrace so the endpoints are /designtrace/...)
@@ -247,6 +249,149 @@ class DesignTrace extends DolibarrApi
 			throw new RestException(409, $error);
 		}
 		return array('id' => (int) $id, 'date' => dol_now());
+	}
+
+	/**
+	 * Portfolio consent of the designs on a quote or order
+	 *
+	 * Confidential designs are not listed: they never go to the gallery.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	string	$element	quote or order
+	 * @param	int		$docid		Id of the quote or order
+	 * @return	array				design_id, design_ref, design_label, consent (none, granted, refused), date_consent
+	 * @phan-return array<int,array<string,mixed>>
+	 * @phpstan-return array<int,array<string,mixed>>
+	 *
+	 * @url	GET customers/{socid}/documents/{element}/{docid}/consent
+	 *
+	 * @throws RestException 400 Bad document type
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Document not found
+	 */
+	public function listConsent($socid, $element, $docid)
+	{
+		$socid = $this->checkCustomer($socid);
+		$doc = $this->checkLicenceDocument($socid, $element, $docid);
+		$names = array(DesignTracePortfolio::CONSENT_NONE => 'none', DesignTracePortfolio::CONSENT_GRANTED => 'granted', DesignTracePortfolio::CONSENT_REFUSED => 'refused');
+		$result = array();
+		foreach (DesignTraceLicensing::fetchDesignsOfDocument($this->db, $doc->element, (int) $doc->id) as $id => $design) {
+			if (!empty($design['confidential'])) {
+				continue;
+			}
+			$history = DesignTracePortfolio::fetchHistory($this->db, $id);
+			$consent = (int) DesignTracePortfolio::getConsent($this->db, $id);
+			$result[] = array(
+				'design_id' => (int) $id,
+				'design_ref' => $design['ref'],
+				'design_label' => $design['label'],
+				'consent' => $names[$consent] ?? 'none',
+				'date_consent' => ($history ? $history[0]->date_consent : null),
+			);
+		}
+		return $result;
+	}
+
+	/**
+	 * Record the customer's portfolio consent for a design on a quote or order
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	string	$element	quote or order
+	 * @param	int		$docid		Id of the quote or order
+	 * @param	int		$design_id	Design on the document {@from body}
+	 * @param	string	$consent	granted or refused {@from body}
+	 * @param	string	$actor		Who answered, for the log (e.g. the site's user) {@from body}
+	 * @return	array				design_id, consent, changed (false when it was already the answer)
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	POST customers/{socid}/documents/{element}/{docid}/consent
+	 *
+	 * @throws RestException 400 Bad document type or consent
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Document or design not found
+	 * @throws RestException 503 System error
+	 */
+	public function setConsent($socid, $element, $docid, $design_id, $consent, $actor = '')
+	{
+		$socid = $this->checkCustomer($socid);
+		$doc = $this->checkLicenceDocument($socid, $element, $docid);
+		$values = array('granted' => DesignTracePortfolio::CONSENT_GRANTED, 'refused' => DesignTracePortfolio::CONSENT_REFUSED);
+		$consent = strtolower(trim((string) $consent));
+		if (!isset($values[$consent])) {
+			throw new RestException(400, 'Bad consent, use granted or refused');
+		}
+		$designs = DesignTraceLicensing::fetchDesignsOfDocument($this->db, $doc->element, (int) $doc->id);
+		if (!isset($designs[(int) $design_id]) || !empty($designs[(int) $design_id]['confidential'])) {
+			throw new RestException(404, 'Design not found on this document');
+		}
+		$actor = trim((string) $actor);
+		if ($actor === '') {
+			$actor = 'api:'.DolibarrApiAccess::$user->login;
+		}
+		$res = DesignTracePortfolio::setConsent($this->db, (int) $design_id, $values[$consent], DesignTracePortfolio::CHANNEL_API, $actor, $doc->element, (int) $doc->id);
+		if ($res < 0) {
+			throw new RestException(503, 'Error saving consent');
+		}
+		return array('design_id' => (int) $design_id, 'consent' => $consent, 'changed' => ($res > 0));
+	}
+
+	/**
+	 * Portfolio gallery: active, non-confidential designs whose customer consented, with the
+	 * images of their Documents tab
+	 *
+	 * @return	array				id, ref, label, date_consent, images (image_id, filename, filesize)
+	 * @phan-return array<int,array<string,mixed>>
+	 * @phpstan-return array<int,array<string,mixed>>
+	 *
+	 * @url	GET portfolio
+	 *
+	 * @throws RestException 403 Not allowed
+	 */
+	public function listPortfolio()
+	{
+		$this->checkService();
+		return DesignTracePortfolio::fetchGallery($this->db);
+	}
+
+	/**
+	 * Short-lived signed link to a gallery image
+	 *
+	 * @param	int		$designid	Design id
+	 * @param	int		$imageid	Image id (from GET portfolio)
+	 * @return	array				url, expires, filename
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET portfolio/{designid}/images/{imageid}/link
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Image not in the gallery
+	 */
+	public function getPortfolioImageLink($designid, $imageid)
+	{
+		$this->checkService();
+		$image = DesignTracePortfolio::getImage($this->db, (int) $designid, (int) $imageid);
+		if (!$image) {
+			throw new RestException(404, 'Image not in the gallery');
+		}
+		$link = DesignTracePortfolio::buildSignedUrl((int) $designid, (int) $imageid);
+		return array('url' => $link['url'], 'expires' => $link['expires'], 'filename' => $image['filename']);
+	}
+
+	/**
+	 * Check the API user is the internal service user
+	 *
+	 * @return	void
+	 *
+	 * @throws RestException 403 Not allowed
+	 */
+	private function checkService()
+	{
+		$apiuser = DolibarrApiAccess::$user;
+		if (!isModEnabled('designtrace') || !$apiuser->hasRight('designtrace', 'clientfiles', 'api') || $apiuser->socid > 0) {
+			throw new RestException(403, 'Needs an internal user with the DesignTrace right "Customer files through the API"');
+		}
 	}
 
 	/**

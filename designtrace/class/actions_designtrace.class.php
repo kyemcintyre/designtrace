@@ -142,10 +142,18 @@ class ActionsDesignTrace extends CommonHookActions
 		global $langs, $user;
 
 		$contexts = explode(':', $parameters['context']);
-		if ($action != 'designtrace_setlicence' || (!in_array('propalcard', $contexts) && !in_array('ordercard', $contexts))) {
+		if (!in_array('propalcard', $contexts) && !in_array('ordercard', $contexts)) {
 			return 0;
 		}
 		if (!isModEnabled('designtrace') || empty($object->id) || !in_array($object->element, array('propal', 'commande'), true)) {
+			return 0;
+		}
+		if ($action == 'designtrace_setconsent') {
+			$this->doSetConsent($object);
+			$action = '';
+			return 0;
+		}
+		if ($action != 'designtrace_setlicence') {
 			return 0;
 		}
 		dol_include_once('/designtrace/class/licensing.class.php');
@@ -159,6 +167,81 @@ class ActionsDesignTrace extends CommonHookActions
 		}
 		$action = '';
 		return 0;
+	}
+
+	/**
+	 *	Record the customer's portfolio consent for a design of a quote or order
+	 *
+	 *	@param	CommonObject	$object		Quote or order
+	 *	@return	void
+	 */
+	private function doSetConsent($object)
+	{
+		global $langs, $user;
+
+		dol_include_once('/designtrace/class/licensing.class.php');
+		dol_include_once('/designtrace/class/portfolio.class.php');
+		$langs->load('designtrace@designtrace');
+		$designid = GETPOSTINT('designtrace_design');
+		$designs = DesignTraceLicensing::fetchDesignsOfDocument($this->db, $object->element, (int) $object->id);
+		if (!$user->hasRight('designtrace', 'design', 'write')) {
+			setEventMessages($langs->trans('NotEnoughPermissions'), null, 'errors');
+		} elseif (!isset($designs[$designid])) {
+			setEventMessages($langs->trans('ErrorRecordNotFound'), null, 'errors');
+		} else {
+			$res = DesignTracePortfolio::setConsent($this->db, $designid, GETPOSTINT('designtrace_consent'), DesignTracePortfolio::CHANNEL_BACKOFFICE, $user->login, $object->element, (int) $object->id, (int) $user->id, GETPOST('designtrace_consent_note', 'alphanohtml'));
+			if ($res < 0) {
+				setEventMessages($this->db->lasterror() ?: $langs->trans('Error'), null, 'errors');
+			} elseif ($res > 0) {
+				setEventMessages($langs->trans('PortfolioConsentSaved'), null, 'mesgs');
+			}
+		}
+	}
+
+	/**
+	 *	Rows for the quote and order cards: portfolio consent of each design, with buttons to
+	 *	record the customer's answer
+	 *
+	 *	@param	CommonObject	$object		Quote or order
+	 *	@return	string						HTML rows ('' if nothing to show)
+	 */
+	private function getDocumentConsentRows($object)
+	{
+		global $langs, $user, $form;
+
+		if (!$user->hasRight('designtrace', 'design', 'read')) {
+			return '';
+		}
+		dol_include_once('/designtrace/class/licensing.class.php');
+		dol_include_once('/designtrace/class/portfolio.class.php');
+		$langs->load('designtrace@designtrace');
+		$designs = DesignTraceLicensing::fetchDesignsOfDocument($this->db, $object->element, (int) $object->id);
+		if (empty($designs)) {
+			return '';
+		}
+		$canset = $user->hasRight('designtrace', 'design', 'write');
+		$lines = array();
+		foreach ($designs as $id => $design) {
+			$consent = (int) DesignTracePortfolio::getConsent($this->db, $id);
+			$line = dol_escape_htmltag($design['ref']).': '.DesignTracePortfolio::getConsentBadge($consent);
+			if (!empty($design['confidential'])) {
+				$line .= ' <span class="opacitymedium">('.$langs->trans('PortfolioConfidentialNote').')</span>';
+			}
+			if ($canset) {
+				$base = $_SERVER['PHP_SELF'].'?id='.((int) $object->id).'&action=designtrace_setconsent&designtrace_design='.((int) $id).'&token='.newToken();
+				if ($consent !== DesignTracePortfolio::CONSENT_GRANTED) {
+					$line .= ' <a class="marginleftonly" href="'.$base.'&designtrace_consent='.DesignTracePortfolio::CONSENT_GRANTED.'">'.$langs->trans('PortfolioConsentRecordGranted').'</a>';
+				}
+				if ($consent !== DesignTracePortfolio::CONSENT_REFUSED) {
+					$line .= ' <a class="marginleftonly" href="'.$base.'&designtrace_consent='.DesignTracePortfolio::CONSENT_REFUSED.'">'.$langs->trans('PortfolioConsentRecordRefused').'</a>';
+				}
+			}
+			$lines[] = $line;
+		}
+		$out = '<tr><td class="titlefield">'.$form->textwithpicto($langs->trans('PortfolioConsent'), $langs->trans('PortfolioConsentHelp')).'</td><td>';
+		$out .= implode('<br>', $lines);
+		$out .= '</td></tr>';
+		return $out;
 	}
 
 	/**
@@ -268,7 +351,7 @@ class ActionsDesignTrace extends CommonHookActions
 
 		$contexts = explode(':', $parameters['context']);
 		if ((in_array('propalcard', $contexts) || in_array('ordercard', $contexts)) && in_array($object->element, array('propal', 'commande'), true)) {
-			$this->resprints = $this->getDocumentLicenceRows($object, $action);
+			$this->resprints = $this->getDocumentLicenceRows($object, $action).$this->getDocumentConsentRows($object);
 			return 0;
 		}
 		if (!in_array('bomcard', $contexts) || !isModEnabled('designtrace') || empty($object->id) || $object->element != 'bom') {

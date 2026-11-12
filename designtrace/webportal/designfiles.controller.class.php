@@ -24,11 +24,13 @@
  * customer can see, grouped by quote, order or ticket (DesignTraceClientAccess rules), and serves
  * downloads itself (?controller=designfiles&action=download&file=ID) so every download goes through
  * the same checks and is logged. Quotes and orders also show the licence of each design, which the
- * customer can read and accept (logged with the exact version, PDF copy on the document).
+ * customer can read and accept (logged with the exact version, PDF copy on the document), and ask
+ * whether renders of each (non-confidential) design may be shown in the workshop's gallery.
  */
 
 dol_include_once('/designtrace/class/clientaccess.class.php');
 dol_include_once('/designtrace/class/licensing.class.php');
+dol_include_once('/designtrace/class/portfolio.class.php');
 
 /**
  * Controller for the Design files page of the Web portal
@@ -44,6 +46,11 @@ class DesignFilesController extends Controller
 	 * @var array<string,array<int,array<string,mixed>>>	Licences per document ("element_id" => fetchDocumentLicences())
 	 */
 	public $licences = array();
+
+	/**
+	 * @var array<string,array<int,array<string,mixed>>>	Designs asked about for the gallery per document (not confidential)
+	 */
+	public $designs = array();
 
 	/**
 	 * @var array<string,array{element:string,doc_id:int,doc_ref:string}>	Documents shown, newest first
@@ -134,6 +141,22 @@ class DesignFilesController extends Controller
 			}
 		}
 
+		// Portfolio consent (POST): the design must be on one of the customer's quotes or orders
+		if ($context->action == 'setconsent' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+			$element = DesignTraceClientAccess::normaliseElement(GETPOST('consent_element', 'aZ09'));
+			$docid = GETPOSTINT('consent_docid');
+			$designid = GETPOSTINT('consent_design');
+			$doc = DesignTraceLicensing::fetchDocument($this->db, $element, $docid);
+			$designs = ($doc && (int) $doc->socid === $socid && (int) $doc->status > 0) ? DesignTraceLicensing::fetchDesignsOfDocument($this->db, $element, $docid) : array();
+			if (!isset($designs[$designid]) || !empty($designs[$designid]['confidential'])) {
+				$context->setEventMessage($langs->trans('ErrorRecordNotFound'), 'errors');
+			} elseif (DesignTracePortfolio::setConsent($this->db, $designid, GETPOSTINT('consent'), DesignTracePortfolio::CHANNEL_WEBPORTAL, $this->getActor(), $element, $docid) < 0) {
+				$context->setEventMessage($langs->trans('Error'), 'errors');
+			} else {
+				$context->setEventMessage($langs->trans('WebPortalPortfolioSaved'), 'mesgs');
+			}
+		}
+
 		$rows = DesignTraceClientAccess::fetchVisibleFiles($this->db, $socid, $this->element, $this->docid);
 		$this->rows = is_array($rows) ? $rows : array();
 
@@ -159,9 +182,17 @@ class DesignFilesController extends Controller
 				$licences = array_filter(DesignTraceLicensing::fetchDocumentLicences($this->db, $element, (int) $obj->rowid), function ($info) {
 					return $info['licence'] && $info['version'];
 				});
+				$key = $element.'_'.$obj->rowid;
 				if ($licences) {
-					$key = $element.'_'.$obj->rowid;
 					$this->licences[$key] = $licences;
+				}
+				$designs = array_filter(DesignTraceLicensing::fetchDesignsOfDocument($this->db, $element, (int) $obj->rowid), function ($design) {
+					return empty($design['confidential']);
+				});
+				if ($designs) {
+					$this->designs[$key] = $designs;
+				}
+				if ($licences || $designs) {
 					$this->docs[$key] = array('element' => $element, 'doc_id' => (int) $obj->rowid, 'doc_ref' => $obj->ref);
 				}
 			}
@@ -235,6 +266,9 @@ class DesignFilesController extends Controller
 			}
 			if (!empty($files[$key])) {
 				$this->printFiles($context, $files[$key]);
+			}
+			if (!empty($this->designs[$key])) {
+				$this->printConsent($context, $doc, $this->designs[$key]);
 			}
 			print '</article>';
 		}
@@ -322,5 +356,44 @@ class DesignFilesController extends Controller
 			}
 			print '</section>';
 		}
+	}
+
+	/**
+	 * Gallery question for the designs of one quote or order
+	 *
+	 * @param	Context								$context	Web portal context
+	 * @param	array{element:string,doc_id:int,doc_ref:string}	$doc	Document
+	 * @param	array<int,array<string,mixed>>		$designs	Designs (not confidential)
+	 * @return	void
+	 */
+	private function printConsent($context, $doc, $designs)
+	{
+		global $langs;
+
+		$labels = DesignTracePortfolio::getConsentLabels();
+		print '<section class="designtrace-portfolio">';
+		print '<p><strong>'.$langs->trans('WebPortalPortfolioTitle').'</strong></p>';
+		foreach ($designs as $designid => $design) {
+			$consent = (int) DesignTracePortfolio::getConsent($this->db, $designid);
+			print '<form method="POST" action="'.dolPrintHTMLForAttributeUrl($context->getControllerUrl('designfiles', array('element' => $doc['element'], 'docid' => $doc['doc_id']), false)).'">';
+			print $context->getFormToken();
+			print '<input type="hidden" name="action" value="setconsent">';
+			print '<input type="hidden" name="consent_element" value="'.dol_escape_htmltag($doc['element']).'">';
+			print '<input type="hidden" name="consent_docid" value="'.((int) $doc['doc_id']).'">';
+			print '<input type="hidden" name="consent_design" value="'.((int) $designid).'">';
+			print '<p>'.$langs->trans('WebPortalPortfolioQuestion', dol_escape_htmltag(trim($design['ref'].' '.$design['label'])));
+			if ($consent !== DesignTracePortfolio::CONSENT_NONE) {
+				print '<br><small>'.$langs->trans('WebPortalPortfolioCurrent', dol_escape_htmltag($labels[$consent])).'</small>';
+			}
+			print '</p>';
+			if ($consent !== DesignTracePortfolio::CONSENT_GRANTED) {
+				print '<button type="submit" name="consent" value="'.DesignTracePortfolio::CONSENT_GRANTED.'">'.$langs->trans('WebPortalPortfolioYes').'</button> ';
+			}
+			if ($consent !== DesignTracePortfolio::CONSENT_REFUSED) {
+				print '<button type="submit" name="consent" value="'.DesignTracePortfolio::CONSENT_REFUSED.'" class="secondary">'.$langs->trans('WebPortalPortfolioNo').'</button>';
+			}
+			print '</form>';
+		}
+		print '</section>';
 	}
 }

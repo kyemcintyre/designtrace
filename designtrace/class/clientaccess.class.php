@@ -229,9 +229,10 @@ class DesignTraceClientAccess
 	 *
 	 * @param	string	$fullpath	Full path on disk
 	 * @param	string	$filename	Name given to the browser
+	 * @param	bool	$inline		Shown in place (images, viewers) rather than saved
 	 * @return	void
 	 */
-	public static function sendFile($fullpath, $filename)
+	public static function sendFile($fullpath, $filename, $inline = false)
 	{
 		$osfile = dol_osencode($fullpath);
 		if (!is_file($osfile)) {
@@ -249,10 +250,13 @@ class DesignTraceClientAccess
 		}
 		header('Content-Type: '.$type);
 		header('Content-Description: File Transfer');
-		header('Content-Disposition: attachment; filename="'.$filename.'"; filename*=UTF-8\'\''.rawurlencode($filename));
+		header('Content-Disposition: '.($inline ? 'inline' : 'attachment').'; filename="'.$filename.'"; filename*=UTF-8\'\''.rawurlencode($filename));
 		header('Content-Length: '.dol_filesize($fullpath));
 		header('X-Content-Type-Options: nosniff');
 		header('Cache-Control: private, no-store');
+		if ($inline) {
+			header("Content-Security-Policy: default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
+		}
 		readfileLowMemory($osfile);
 		exit;
 	}

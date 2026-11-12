@@ -149,6 +149,8 @@ class Design extends CommonObject
 		"fk_licence" => array("type" => "integer:Licence:designtrace/class/licence.class.php:0:(t.status:=:1)", "label" => "Licence", "picto" => "fa-file-signature", "enabled" => "1", 'position' => 56, 'notnull' => -1, "visible" => "1", "index" => "1", "css" => "maxwidth500 widthcentpercentminusxx", "csslist" => "tdoverflowmax150", "help" => "DesignLicenceHelp",),
 		"ownership" => array("type" => "integer", "label" => "Ownership", "enabled" => "1", 'position' => 57, 'notnull' => 1, "visible" => "1", "default" => "2", "index" => "1", "arrayofkeyval" => array("1" => "OwnershipCustomer", "2" => "OwnershipWorkshop", "3" => "OwnershipShared"), "csslist" => "tdoverflowmax100", "help" => "OwnershipHelp",),
 		"confidential" => array("type" => "boolean", "label" => "Confidential", "enabled" => "1", 'position' => 58, 'notnull' => 0, "visible" => "1", "default" => "0", "index" => "1", "help" => "ConfidentialHelp",),
+		"portfolio_consent" => array("type" => "integer", "label" => "PortfolioConsent", "enabled" => "1", 'position' => 59, 'notnull' => 1, "visible" => "5", "noteditable" => "1", "default" => "0", "index" => "1", "arrayofkeyval" => array("0" => "PortfolioConsentNone", "1" => "PortfolioConsentGranted", "2" => "PortfolioConsentRefused"), "help" => "PortfolioConsentHelp",),
+		"date_portfolio_consent" => array("type" => "datetime", "label" => "DatePortfolioConsent", "enabled" => "1", 'position' => 59, 'notnull' => 0, "visible" => "-2", "noteditable" => "1",),
 		"description" => array("type" => "text", "label" => "Description", "enabled" => "1", 'position' => 60, 'notnull' => 0, "visible" => "3", "validate" => "1",),
 		"note_public" => array("type" => "html", "label" => "NotePublic", "enabled" => "1", 'position' => 61, 'notnull' => 0, "visible" => "0", "cssview" => "wordbreak", "validate" => "1",),
 		"note_private" => array("type" => "html", "label" => "NotePrivate", "enabled" => "1", 'position' => 62, 'notnull' => 0, "visible" => "0", "cssview" => "wordbreak", "validate" => "1",),
@@ -181,6 +183,14 @@ class Design extends CommonObject
 	 *			users with the readconfidential right
 	 */
 	public $confidential;
+	/**
+	 * @var int	DesignTracePortfolio::CONSENT_*, changed only through DesignTracePortfolio::setConsent()
+	 */
+	public $portfolio_consent;
+	/**
+	 * @var int|string	Date of the last consent answer
+	 */
+	public $date_portfolio_consent;
 	public $description;
 	public $note_public;
 	public $note_private;
@@ -400,6 +410,9 @@ class Design extends CommonObject
 		if (property_exists($object, 'status')) {
 			$object->status = self::STATUS_DRAFT;
 		}
+		// Consent was given for the original design, not for the copy
+		$object->portfolio_consent = 0;
+		$object->date_portfolio_consent = null;
 		if (property_exists($object, 'date_creation')) {
 			$object->date_creation = dol_now();
 		}
