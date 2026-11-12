@@ -209,6 +209,10 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
     `apidirect` ("API (direct)"); `client_ip` (checked with `FILTER_VALIDATE_IP`) and `user_agent`
     (255 chars) go to the log only, falling back to the caller's. Signed links, view links and
     `DESIGNTRACE_VIEWER_ORIGINS` stay for installs whose Dolibarr is public.
+  - For the same reason, the POSTs for licence acceptance, consent and proof decisions take
+    optional `client_ip` / `user_agent` (`DesignTraceClientAccess::resolveClientIp()` /
+    `resolveUserAgent()`): recorded as evidence (acceptance row and PDF, consent log, approval log,
+    ticket IP) instead of the backend's own, never used for access.
   - Download log `llx_designtrace_download` (no FKs, outlives files): channel webportal/api/viewer/
     apidirect, actor (`portal:<login>` or the API's actor), IP, user agent (`logDownload()` takes
     optional `$ip`/`$useragent` for a proxying backend). Shown on the Files tab (count per

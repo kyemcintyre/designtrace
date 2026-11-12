@@ -179,11 +179,16 @@ class DesignTraceProofApproval
 	 * @param	string	$channel	DesignTraceClientAccess::CHANNEL_*
 	 * @param	string	$actor		Who decided
 	 * @param	string	$error		Error message if KO
+	 * @param	?string	$ip			Customer's IP as seen by a proxying backend (log only), null = this request's
+	 * @param	?string	$useragent	Customer's user agent as seen by a proxying backend, null = this request's
 	 * @return	array{id:int,ticket:int,eco:int}|int	Ids created, or -1 if KO
 	 */
-	public static function decide($db, $user, $socid, $revid, $element, $docid, $decision, $comment, $channel, $actor, &$error)
+	public static function decide($db, $user, $socid, $revid, $element, $docid, $decision, $comment, $channel, $actor, &$error, $ip = null, $useragent = null)
 	{
 		global $conf, $langs;
+
+		$ip = DesignTraceClientAccess::resolveClientIp($ip);
+		$useragent = DesignTraceClientAccess::resolveUserAgent($useragent);
 
 		$langs->load('designtrace@designtrace');
 		$error = '';
@@ -221,7 +226,7 @@ class DesignTraceProofApproval
 		if ($decision === self::DECISION_CHANGES) {
 			$action = self::getChangesAction();
 			if ($action === self::ACTION_TICKET) {
-				$result['ticket'] = self::openTicket($db, $user, $socid, $revision, $proof, $comment, $actor, $error);
+				$result['ticket'] = self::openTicket($db, $user, $socid, $revision, $proof, $comment, $actor, $ip, $error);
 				if ($result['ticket'] < 0) {
 					$db->rollback();
 					return -1;
@@ -239,8 +244,8 @@ class DesignTraceProofApproval
 		$sql .= " (entity, fk_revision, decision, comment, element, fk_element, fk_soc, channel, actor, ip, useragent, fk_ticket, fk_eco, date_decision)";
 		$sql .= " VALUES (".((int) $conf->entity).", ".((int) $revid).", ".$decision.", ".($comment !== '' ? "'".$db->escape($comment)."'" : "NULL");
 		$sql .= ", '".$db->escape($element)."', ".((int) $docid).", ".((int) $socid).", '".$db->escape($channel)."'";
-		$sql .= ", '".$db->escape(dol_trunc((string) $actor, 128, 'right', 'UTF-8', 1))."', '".$db->escape(getUserRemoteIP())."'";
-		$sql .= ", '".$db->escape(dol_trunc((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 255, 'right', 'UTF-8', 1))."'";
+		$sql .= ", '".$db->escape(dol_trunc((string) $actor, 128, 'right', 'UTF-8', 1))."', '".$db->escape($ip)."'";
+		$sql .= ", '".$db->escape($useragent)."'";
 		$sql .= ", ".($result['ticket'] > 0 ? (int) $result['ticket'] : "NULL").", ".($result['eco'] > 0 ? (int) $result['eco'] : "NULL");
 		$sql .= ", '".$db->idate($now)."')";
 		$ok = $db->query($sql);
@@ -295,10 +300,11 @@ class DesignTraceProofApproval
 	 * @param	array<string,mixed>	$proof		Entry of fetchProofs()
 	 * @param	string				$comment	Customer's comment
 	 * @param	string				$actor		Who asked
+	 * @param	string				$ip			Customer's IP
 	 * @param	string				$error		Error message if KO
 	 * @return	int								Ticket id, <0 if KO
 	 */
-	private static function openTicket($db, $user, $socid, $revision, $proof, $comment, $actor, &$error)
+	private static function openTicket($db, $user, $socid, $revision, $proof, $comment, $actor, $ip, &$error)
 	{
 		global $langs;
 
@@ -312,7 +318,7 @@ class DesignTraceProofApproval
 		$ticket->category_code = self::getDictionaryDefault($db, 'c_ticket_category');
 		$ticket->severity_code = self::getDictionaryDefault($db, 'c_ticket_severity');
 		$ticket->fk_statut = Ticket::STATUS_NOT_READ;
-		$ticket->ip = getUserRemoteIP();
+		$ticket->ip = $ip;
 		if ($ticket->create($user) <= 0) {
 			$error = $ticket->error ?: implode(', ', $ticket->errors);
 			return -1;

@@ -275,11 +275,17 @@ class DesignTraceLicensing
 	 * @param	string	$channel	DesignTraceClientAccess::CHANNEL_* or 'backoffice'
 	 * @param	string	$actor		Who (portal login, API actor)
 	 * @param	string	$error		Error, filled on failure
+	 * @param	?string	$ip			Customer's IP as seen by a proxying backend (evidence only), null = this request's
+	 * @param	?string	$useragent	Customer's user agent as seen by a proxying backend, null = this request's
 	 * @return	int					Id of the acceptance, <0 if KO
 	 */
-	public static function accept($db, $socid, $element, $docid, $designid, $versionid, $channel, $actor, &$error)
+	public static function accept($db, $socid, $element, $docid, $designid, $versionid, $channel, $actor, &$error, $ip = null, $useragent = null)
 	{
 		global $conf, $langs;
+
+		dol_include_once('/designtrace/class/clientaccess.class.php');
+		$ip = DesignTraceClientAccess::resolveClientIp($ip);
+		$useragent = DesignTraceClientAccess::resolveUserAgent($useragent);
 
 		$langs->load('designtrace@designtrace');
 		$error = '';
@@ -309,15 +315,15 @@ class DesignTraceLicensing
 		$sql = "INSERT INTO ".$db->prefix()."designtrace_licenceaccept (entity, fk_licenceversion, fk_licence, fk_design, element, fk_element, fk_soc, channel, actor, ip, useragent, wording_sha256, date_accept)";
 		$sql .= " VALUES (".((int) $conf->entity).", ".((int) $info['version']->id).", ".((int) $info['licence']->id).", ".((int) $designid);
 		$sql .= ", '".$db->escape($element)."', ".((int) $docid).", ".((int) $socid).", '".$db->escape($channel)."'";
-		$sql .= ", '".$db->escape(dol_trunc((string) $actor, 128, 'right', 'UTF-8', 1))."', '".$db->escape(getUserRemoteIP())."'";
-		$sql .= ", '".$db->escape(dol_trunc((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 255, 'right', 'UTF-8', 1))."', '".$db->escape($hash)."', '".$db->idate($now)."')";
+		$sql .= ", '".$db->escape(dol_trunc((string) $actor, 128, 'right', 'UTF-8', 1))."', '".$db->escape($ip)."'";
+		$sql .= ", '".$db->escape($useragent)."', '".$db->escape($hash)."', '".$db->idate($now)."')";
 		if (!$db->query($sql)) {
 			$error = $db->lasterror();
 			$db->rollback();
 			return -1;
 		}
 		$id = (int) $db->last_insert_id($db->prefix().'designtrace_licenceaccept');
-		$filename = self::writeAcceptancePdf($db, $doc, $info, $wording, $hash, $now, $channel, $actor);
+		$filename = self::writeAcceptancePdf($db, $doc, $info, $wording, $hash, $now, $channel, $actor, $ip);
 		if ($filename === '') {
 			$error = $langs->trans('ErrorLicencePdf');
 			$db->rollback();
@@ -326,7 +332,7 @@ class DesignTraceLicensing
 		$db->query("UPDATE ".$db->prefix()."designtrace_licenceaccept SET filename = '".$db->escape($filename)."' WHERE rowid = ".$id);
 		// A licence allowing portfolio use counts as consent when the customer said nothing yet
 		dol_include_once('/designtrace/class/portfolio.class.php');
-		if (DesignTracePortfolio::consentFromLicence($db, (int) $designid, $info['version'], $element, (int) $docid, $actor) < 0) {
+		if (DesignTracePortfolio::consentFromLicence($db, (int) $designid, $info['version'], $element, (int) $docid, $actor, $ip) < 0) {
 			$error = $db->lasterror();
 			$db->rollback();
 			return -1;
@@ -346,9 +352,10 @@ class DesignTraceLicensing
 	 * @param	int					$date		Acceptance date
 	 * @param	string				$channel	Channel
 	 * @param	string				$actor		Who
+	 * @param	string				$ip			Customer's IP
 	 * @return	string						File name, '' if KO
 	 */
-	private static function writeAcceptancePdf($db, $doc, $info, $wording, $hash, $date, $channel, $actor)
+	private static function writeAcceptancePdf($db, $doc, $info, $wording, $hash, $date, $channel, $actor, $ip)
 	{
 		global $conf, $langs, $mysoc;
 
@@ -390,7 +397,7 @@ class DesignTraceLicensing
 		$pdf->writeHTML($wording, true, false, true, false, '');
 		$pdf->Ln(4);
 		$pdf->SetFont($font, '', 8);
-		$pdf->MultiCell(0, 4, $langs->transnoentities('LicencePdfAccepted', dol_print_date($date, 'dayhourtext'), $actor, $channel, getUserRemoteIP(), $hash).(is_object($mysoc) ? "\n".$mysoc->name : ''), 0, 'L');
+		$pdf->MultiCell(0, 4, $langs->transnoentities('LicencePdfAccepted', dol_print_date($date, 'dayhourtext'), $actor, $channel, $ip, $hash).(is_object($mysoc) ? "\n".$mysoc->name : ''), 0, 'L');
 		$pdf->Output($dir.'/'.$filename, 'F');
 		dolChmod($dir.'/'.$filename);
 

@@ -30,6 +30,7 @@
  */
 
 dol_include_once('/designtrace/class/design.class.php');
+dol_include_once('/designtrace/class/clientaccess.class.php');
 
 /**
  * Portfolio consent and gallery
@@ -93,9 +94,10 @@ class DesignTracePortfolio
 	 * @param	int		$docid		Document id
 	 * @param	int		$fkuser		Staff user who recorded it (0 = the customer)
 	 * @param	string	$note		Note (how it was given...)
+	 * @param	?string	$ip			Customer's IP as seen by a proxying backend (log only), null = this request's
 	 * @return	int					>0 if OK, 0 if unchanged, <0 if KO
 	 */
-	public static function setConsent($db, $designid, $consent, $channel, $actor, $element = '', $docid = 0, $fkuser = 0, $note = '')
+	public static function setConsent($db, $designid, $consent, $channel, $actor, $element = '', $docid = 0, $fkuser = 0, $note = '', $ip = null)
 	{
 		global $conf;
 
@@ -122,7 +124,7 @@ class DesignTracePortfolio
 			$sql .= ", ".($element !== '' ? "'".$db->escape($element)."'" : "NULL").", ".((int) $docid);
 			$sql .= ", '".$db->escape($channel)."', '".$db->escape(dol_trunc((string) $actor, 128, 'right', 'UTF-8', 1))."'";
 			$sql .= ", ".((int) $fkuser > 0 ? (int) $fkuser : "NULL").", ".($note !== '' ? "'".$db->escape($note)."'" : "NULL");
-			$sql .= ", '".$db->escape(getUserRemoteIP())."', '".$db->idate($now)."')";
+			$sql .= ", '".$db->escape(DesignTraceClientAccess::resolveClientIp($ip))."', '".$db->idate($now)."')";
 			$ok = $db->query($sql);
 		}
 		if (!$ok) {
@@ -180,14 +182,15 @@ class DesignTracePortfolio
 	 * @param	string			$element	Document type
 	 * @param	int				$docid		Document id
 	 * @param	string			$actor		Who accepted
+	 * @param	?string			$ip			Customer's IP (as for the acceptance), null = this request's
 	 * @return	int							>0 if consent recorded, 0 if not, <0 if KO
 	 */
-	public static function consentFromLicence($db, $designid, $version, $element, $docid, $actor)
+	public static function consentFromLicence($db, $designid, $version, $element, $docid, $actor, $ip = null)
 	{
 		if (empty($version) || (int) $version->perm_portfolio !== 1 || self::getConsent($db, $designid) !== self::CONSENT_NONE) {
 			return 0;
 		}
-		return self::setConsent($db, $designid, self::CONSENT_GRANTED, self::CHANNEL_LICENCE, $actor, $element, $docid, 0, $version->ref);
+		return self::setConsent($db, $designid, self::CONSENT_GRANTED, self::CHANNEL_LICENCE, $actor, $element, $docid, 0, $version->ref, $ip);
 	}
 
 	/**

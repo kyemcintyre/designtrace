@@ -85,6 +85,32 @@ class DesignTraceClientAccess
 	}
 
 	/**
+	 * IP to record for the customer: the one a proxying backend passed, if it is a valid IP, else
+	 * the remote IP of this request. For logs and evidence only, never for access decisions.
+	 *
+	 * @param	?string	$ip		IP passed by the caller (client_ip), null or '' = none
+	 * @return	string
+	 */
+	public static function resolveClientIp($ip = null)
+	{
+		$ip = trim((string) $ip);
+		return ($ip !== '' && filter_var($ip, FILTER_VALIDATE_IP) !== false) ? $ip : getUserRemoteIP();
+	}
+
+	/**
+	 * User agent to record for the customer: the one a proxying backend passed, else this request's;
+	 * one line, at most 255 characters
+	 *
+	 * @param	?string	$useragent	User agent passed by the caller (user_agent), null or '' = none
+	 * @return	string
+	 */
+	public static function resolveUserAgent($useragent = null)
+	{
+		$useragent = ((string) $useragent === '' ? (string) ($_SERVER['HTTP_USER_AGENT'] ?? '') : (string) $useragent);
+		return dol_trunc(str_replace(array("\r", "\n"), ' ', $useragent), 255, 'right', 'UTF-8', 1);
+	}
+
+	/**
 	 * Origins allowed to fetch view links from a browser (CORS), from the setup
 	 *
 	 * @return	string[]	e.g. https://kyemcintyre.net
@@ -241,20 +267,16 @@ class DesignTraceClientAccess
 	 * @param	string		$channel	self::CHANNEL_*
 	 * @param	string		$actor		Who downloaded (portal login, contact passed by the API...)
 	 * @param	?string		$ip			Customer's IP as seen by a proxying backend (log only, never for access);
-	 *									null or not a valid IP = the remote IP of this request
-	 * @param	?string		$useragent	Customer's user agent as seen by a proxying backend; null = this request's
+	 *									null or not a valid IP = the remote IP of this request (resolveClientIp())
+	 * @param	?string		$useragent	Customer's user agent as seen by a proxying backend; null or '' = this request's
 	 * @return	int						Id of the log row, <0 on error
 	 */
 	public static function logDownload($db, $row, $socid, $channel, $actor = '', $ip = null, $useragent = null)
 	{
 		global $conf;
 
-		$ip = trim((string) $ip);
-		if ($ip === '' || filter_var($ip, FILTER_VALIDATE_IP) === false) {
-			$ip = getUserRemoteIP();
-		}
-		$useragent = ($useragent === null ? (string) ($_SERVER['HTTP_USER_AGENT'] ?? '') : (string) $useragent);
-		$useragent = dol_trunc(str_replace(array("\r", "\n"), ' ', $useragent), 255, 'right', 'UTF-8', 1);
+		$ip = self::resolveClientIp($ip);
+		$useragent = self::resolveUserAgent($useragent);
 
 		$sql = "INSERT INTO ".$db->prefix()."designtrace_download";
 		$sql .= " (entity, fk_revisionfile, fk_revision, filename, sha256, fk_soc, element, fk_element, channel, actor, ip, useragent, date_download)";

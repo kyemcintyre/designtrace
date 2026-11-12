@@ -29,7 +29,9 @@
  *    when the customer's browser can reach Dolibarr; it checks the rules again when used;
  *  - streamed back to the caller (GET .../files/{fileid}/content, logged as "API (direct)"), for a
  *    backend that proxies files because Dolibarr is not reachable from outside.
- * The same service user reads the portfolio gallery (designs whose customer consented).
+ * The same service user reads the portfolio gallery (designs whose customer consented). Customer actions
+ * (licence acceptance, consent, proof decisions) take optional client_ip and user_agent: the
+ * customer's as seen by such a backend, recorded as evidence instead of the backend's own.
  */
 
 use Luracast\Restler\RestException;
@@ -309,6 +311,8 @@ class DesignTrace extends DolibarrApi
 	 * @param	int		$design_id	Design id (from the licence list)
 	 * @param	int		$version_id	Licence version id shown to the customer
 	 * @param	string	$actor		Who accepts, for the log (e.g. the portal login)
+	 * @param	string	$client_ip	Customer's IP address as seen by the calling backend, recorded only {@from body}
+	 * @param	string	$user_agent	Customer's browser as seen by the calling backend, recorded only {@from body}
 	 * @return	array				id of the acceptance, date
 	 * @phan-return array<string,int>
 	 * @phpstan-return array<string,int>
@@ -320,7 +324,7 @@ class DesignTrace extends DolibarrApi
 	 * @throws RestException 404 Document not found
 	 * @throws RestException 409 Licence changed or nothing to accept
 	 */
-	public function acceptLicence($socid, $element, $docid, $design_id, $version_id, $actor = '')
+	public function acceptLicence($socid, $element, $docid, $design_id, $version_id, $actor = '', $client_ip = '', $user_agent = '')
 	{
 		$socid = $this->checkCustomer($socid);
 		$doc = $this->checkLicenceDocument($socid, $element, $docid);
@@ -329,7 +333,7 @@ class DesignTrace extends DolibarrApi
 			$actor = 'api:'.DolibarrApiAccess::$user->login;
 		}
 		$error = '';
-		$id = DesignTraceLicensing::accept($this->db, $socid, $doc->element, (int) $doc->id, (int) $design_id, (int) $version_id, DesignTraceClientAccess::CHANNEL_API, $actor, $error);
+		$id = DesignTraceLicensing::accept($this->db, $socid, $doc->element, (int) $doc->id, (int) $design_id, (int) $version_id, DesignTraceClientAccess::CHANNEL_API, $actor, $error, (string) $client_ip, (string) $user_agent);
 		if ($id <= 0) {
 			throw new RestException(409, $error);
 		}
@@ -390,6 +394,8 @@ class DesignTrace extends DolibarrApi
 	 * @param	string	$decision	approve or changes {@from body}
 	 * @param	string	$comment	Customer's comment (required for changes) {@from body}
 	 * @param	string	$actor		Who decided, for the log {@from body}
+	 * @param	string	$client_ip	Customer's IP address as seen by the calling backend, recorded only {@from body}
+	 * @param	string	$user_agent	Customer's browser as seen by the calling backend, recorded only {@from body}
 	 * @return	array				id of the decision, ticket_id, eco_id (0 if none)
 	 * @phan-return array<string,int>
 	 * @phpstan-return array<string,int>
@@ -400,7 +406,7 @@ class DesignTrace extends DolibarrApi
 	 * @throws RestException 403 Not allowed
 	 * @throws RestException 409 Not available or already approved
 	 */
-	public function decideProof($socid, $element, $docid, $revid, $decision, $comment = '', $actor = '')
+	public function decideProof($socid, $element, $docid, $revid, $decision, $comment = '', $actor = '', $client_ip = '', $user_agent = '')
 	{
 		$socid = $this->checkCustomer($socid);
 		$type = DesignTraceClientAccess::normaliseElement($element);
@@ -417,7 +423,7 @@ class DesignTrace extends DolibarrApi
 			$actor = 'api:'.DolibarrApiAccess::$user->login;
 		}
 		$error = '';
-		$res = DesignTraceProofApproval::decide($this->db, DolibarrApiAccess::$user, $socid, (int) $revid, $type, (int) $docid, $values[$decision], (string) $comment, DesignTraceClientAccess::CHANNEL_API, $actor, $error);
+		$res = DesignTraceProofApproval::decide($this->db, DolibarrApiAccess::$user, $socid, (int) $revid, $type, (int) $docid, $values[$decision], (string) $comment, DesignTraceClientAccess::CHANNEL_API, $actor, $error, (string) $client_ip, (string) $user_agent);
 		if (!is_array($res)) {
 			throw new RestException(409, $error);
 		}
@@ -519,6 +525,7 @@ class DesignTrace extends DolibarrApi
 	 * @param	int		$design_id	Design on the document {@from body}
 	 * @param	string	$consent	granted or refused {@from body}
 	 * @param	string	$actor		Who answered, for the log (e.g. the site's user) {@from body}
+	 * @param	string	$client_ip	Customer's IP address as seen by the calling backend, recorded only {@from body}
 	 * @return	array				design_id, consent, changed (false when it was already the answer)
 	 * @phan-return array<string,mixed>
 	 * @phpstan-return array<string,mixed>
@@ -530,7 +537,7 @@ class DesignTrace extends DolibarrApi
 	 * @throws RestException 404 Document or design not found
 	 * @throws RestException 503 System error
 	 */
-	public function setConsent($socid, $element, $docid, $design_id, $consent, $actor = '')
+	public function setConsent($socid, $element, $docid, $design_id, $consent, $actor = '', $client_ip = '')
 	{
 		$socid = $this->checkCustomer($socid);
 		$doc = $this->checkLicenceDocument($socid, $element, $docid);
@@ -547,7 +554,7 @@ class DesignTrace extends DolibarrApi
 		if ($actor === '') {
 			$actor = 'api:'.DolibarrApiAccess::$user->login;
 		}
-		$res = DesignTracePortfolio::setConsent($this->db, (int) $design_id, $values[$consent], DesignTracePortfolio::CHANNEL_API, $actor, $doc->element, (int) $doc->id);
+		$res = DesignTracePortfolio::setConsent($this->db, (int) $design_id, $values[$consent], DesignTracePortfolio::CHANNEL_API, $actor, $doc->element, (int) $doc->id, 0, '', (string) $client_ip);
 		if ($res < 0) {
 			throw new RestException(503, 'Error saving consent');
 		}
