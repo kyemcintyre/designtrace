@@ -287,6 +287,11 @@ class Component extends CommonObject
 		}
 		$this->ref = $ref;
 
+		// createCommon() stores an empty date_creation back on the object as a DB string, which a
+		// later updateCommon() on the same object shifts by the timezone offset: give it a timestamp
+		if (empty($this->date_creation)) {
+			$this->date_creation = dol_now();
+		}
 		return $this->createCommon($user, $notrigger);
 	}
 
