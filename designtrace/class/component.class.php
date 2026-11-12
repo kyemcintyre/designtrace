@@ -95,6 +95,10 @@ class Component extends CommonObject
 	const DRAWING_PROOF = 2;
 	const DRAWING_TDS = 3;
 
+	const SOURCING_PRINT = 1;	// 3D printed in-house
+	const SOURCING_MAKE = 2;	// Made in-house another way (machined, laser cut, ...)
+	const SOURCING_BUY = 3;		// Bought in
+
 	/**
 	 *  'type' field format:
 	 *  	'integer', 'integer:ObjectClass:PathToClass[:AddCreateButtonOrNot[:Filter[:Sortfield]]]',
@@ -153,6 +157,9 @@ class Component extends CommonObject
 		"drawing_type" => array("type" => "integer", "label" => "DrawingType", "enabled" => "1", 'position' => 26, 'notnull' => 0, "visible" => "1", "arrayofkeyval" => array("1" => "DrawingTypeConcept", "2" => "DrawingTypeProof", "3" => "DrawingTypeTDS"), "validate" => "1", "help" => "DrawingTypeHelp"),
 		"label" => array("type" => "varchar(255)", "label" => "Label", "enabled" => "1", 'position' => 30, 'notnull' => 0, "visible" => "1", "alwayseditable" => "1", "searchall" => "1", "css" => "minwidth300", "cssview" => "wordbreak", "showoncombobox" => "2", "validate" => "1",),
 		"fk_product" => array("type" => "integer:Product:product/class/product.class.php:1", "label" => "Product", "picto" => "product", "enabled" => "isModEnabled('product') || isModEnabled('service')", 'position' => 40, 'notnull' => -1, "visible" => "-1", "index" => "1", "css" => "maxwidth500 widthcentpercentminusxx", "csslist" => "tdoverflowmax150", "validate" => "1", "help" => "ComponentProductHelp"),
+		"sourcing" => array("type" => "integer", "label" => "Sourcing", "enabled" => "1", 'position' => 42, 'notnull' => 0, "visible" => "1", "index" => "1", "arrayofkeyval" => array("1" => "SourcingPrint", "2" => "SourcingMake", "3" => "SourcingBuy"), "validate" => "1", "help" => "SourcingHelp"),
+		"finish" => array("type" => "varchar(255)", "label" => "FinishColour", "enabled" => "1", 'position' => 44, 'notnull' => 0, "visible" => "-1", "searchall" => "1", "css" => "minwidth300", "validate" => "1", "help" => "FinishColourHelp"),
+		"weight" => array("type" => "double(24,8)", "label" => "WeightGrams", "enabled" => "1", 'position' => 46, 'notnull' => 0, "visible" => "-1", "css" => "maxwidth100", "validate" => "1", "help" => "WeightGramsHelp"),
 		"description" => array("type" => "text", "label" => "Description", "enabled" => "1", 'position' => 60, 'notnull' => 0, "visible" => "3", "validate" => "1",),
 		"note_public" => array("type" => "html", "label" => "NotePublic", "enabled" => "1", 'position' => 61, 'notnull' => 0, "visible" => "0", "cssview" => "wordbreak", "validate" => "1",),
 		"note_private" => array("type" => "html", "label" => "NotePrivate", "enabled" => "1", 'position' => 62, 'notnull' => 0, "visible" => "0", "cssview" => "wordbreak", "validate" => "1",),
@@ -173,6 +180,18 @@ class Component extends CommonObject
 	public $drawing_type;
 	public $label;
 	public $fk_product;
+	/**
+	 * @var ?int How the part is obtained (SOURCING_*), not for drawings
+	 */
+	public $sourcing;
+	/**
+	 * @var ?string Finish or colour, not for drawings
+	 */
+	public $finish;
+	/**
+	 * @var ?float Weight in grams, not for drawings
+	 */
+	public $weight;
 	public $description;
 	public $note_public;
 	public $note_private;
@@ -324,6 +343,22 @@ class Component extends CommonObject
 			return -1;
 		}
 		$this->drawing_type = $drawingtype;
+
+		if ($this->type == self::TYPE_DRAWING) {
+			// Sourcing, finish and weight describe a physical part: meaningless for a drawing
+			$this->sourcing = null;
+			$this->finish = null;
+			$this->weight = null;
+		} elseif (!empty($this->sourcing) && !in_array((int) $this->sourcing, array(self::SOURCING_PRINT, self::SOURCING_MAKE, self::SOURCING_BUY), true)) {
+			$this->error = $langs->trans('ErrorBadValueForParameter', (string) $this->sourcing, $langs->transnoentitiesnoconv('Sourcing'));
+			$this->errors[] = $this->error;
+			return -1;
+		}
+		if ($this->weight !== null && $this->weight !== '' && (float) $this->weight < 0) {
+			$this->error = $langs->trans('ErrorDesignTraceNegative', $langs->transnoentitiesnoconv('WeightGrams'));
+			$this->errors[] = $this->error;
+			return -1;
+		}
 
 		return 1;
 	}

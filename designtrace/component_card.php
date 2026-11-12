@@ -94,6 +94,7 @@ include_once DOL_DOCUMENT_ROOT.'/core/class/html.formcompany.class.php';
 include_once DOL_DOCUMENT_ROOT.'/core/class/html.formfile.class.php';
 include_once DOL_DOCUMENT_ROOT.'/core/class/html.formprojet.class.php';
 dol_include_once('/designtrace/class/component.class.php');
+dol_include_once('/designtrace/lib/designtrace.lib.php');
 dol_include_once('/designtrace/lib/designtrace_component.lib.php');
 
 // Load translation files required by the page
@@ -306,20 +307,24 @@ if ($action == 'create') {
 
 	print '</form>';
 
-	// Drawing type only applies to drawings: show it only when the type is Drawing,
-	// and clear it when hidden so a value picked earlier is not submitted.
+	// Drawing type only applies to drawings, make/buy, finish and weight only to parts and
+	// assemblies: show the rows that fit the chosen type, and clear the others so a value
+	// picked earlier is not submitted.
 	print '<script type="text/javascript">
 	jQuery(document).ready(function() {
-		function designtraceToggleDrawingType() {
-			if (jQuery("#type").val() == "'.Component::TYPE_DRAWING.'") {
-				jQuery("tr.field_drawing_type").show();
+		function designtraceToggleTypeFields() {
+			var isdrawing = (jQuery("#type").val() == "'.Component::TYPE_DRAWING.'");
+			jQuery("tr.field_drawing_type").toggle(isdrawing);
+			jQuery("tr.field_sourcing, tr.field_finish, tr.field_weight").toggle(!isdrawing);
+			if (isdrawing) {
+				jQuery("#sourcing").val("-1").trigger("change");
+				jQuery("#finish, #weight").val("");
 			} else {
-				jQuery("tr.field_drawing_type").hide();
 				jQuery("#drawing_type").val("-1").trigger("change");
 			}
 		}
-		designtraceToggleDrawingType();
-		jQuery("#type").on("change", designtraceToggleDrawingType);
+		designtraceToggleTypeFields();
+		jQuery("#type").on("change", designtraceToggleTypeFields);
 	});
 	</script>';
 
@@ -345,11 +350,9 @@ if (($id || $ref) && $action == 'edit') {
 
 	print '<table class="border centpercent tableforfieldedit">'."\n";
 
-	// Common attributes (the type cannot change once numbered; drawing type only applies to drawings)
+	// Common attributes (the type cannot change once numbered; hide fields that do not fit it)
 	$object->fields['type']['noteditable'] = 1;
-	if ((int) $object->type != Component::TYPE_DRAWING) {
-		unset($object->fields['drawing_type']);
-	}
+	designtraceHideComponentTypeFields($object);
 	include DOL_DOCUMENT_ROOT.'/core/tpl/commonfields_edit.tpl.php';
 
 	// Other attributes
@@ -461,7 +464,10 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 	$morehtmlref .= '</div>';
 
 
+	// Banner, with the first image of the Documents tab as thumbnail
+	ob_start();
 	dol_banner_tab($object, 'ref', $linkback, 1, 'ref', 'ref', $morehtmlref);
+	print designtraceBannerWithThumbnail($object, 'component', ob_get_clean());
 
 	print '<div class="fichecenter">';
 	print '<div class="fichehalfleft">';
@@ -472,9 +478,7 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 	//$keyforbreak='fieldkeytoswitchonsecondcolumn';	// We change column just before this field
 	//unset($object->fields['fk_project']);				// Hide field already shown in banner
 	//unset($object->fields['fk_soc']);					// Hide field already shown in banner
-	if ((int) $object->type != Component::TYPE_DRAWING) {
-		unset($object->fields['drawing_type']);		// Drawing type only applies to drawings
-	}
+	designtraceHideComponentTypeFields($object);	// Hide fields that do not fit the type
 	include DOL_DOCUMENT_ROOT.'/core/tpl/commonfields_view.tpl.php';
 
 	// Other attributes. Fields from hook formObjectOptions and Extrafields.

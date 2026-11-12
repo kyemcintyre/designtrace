@@ -84,3 +84,50 @@ function designtraceAdminPrepareHead()
 
 	return $head;
 }
+
+/**
+ * Show the first image of an object's Documents tab in place of the picto in its card banner.
+ *
+ * dol_banner_tab() only shows photos for core objects, so the card captures its output and
+ * swaps the "No photo" block for this thumbnail. The first image follows the order set in
+ * the Documents tab (drag and drop), like product photos; the small thumbnail Dolibarr makes
+ * on upload is used when it exists. Clicking it opens the full image.
+ *
+ * @param	CommonObject	$object		Design or Component
+ * @param	string			$subdir		Documents sub-directory of the object type ('design', 'component')
+ * @param	string			$bannerhtml	HTML printed by dol_banner_tab()
+ * @return	string						Banner HTML, with the thumbnail if the object has an image
+ */
+function designtraceBannerWithThumbnail($object, $subdir, $bannerhtml)
+{
+	global $conf;
+
+	include_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
+
+	$entity = (empty($object->entity) ? $conf->entity : $object->entity);
+	if (empty($object->ref) || empty($conf->designtrace->multidir_output[$entity])) {
+		return $bannerhtml;
+	}
+
+	$relativedir = $subdir.'/'.dol_sanitizeFileName($object->ref);
+	$dir = $conf->designtrace->multidir_output[$entity].'/'.$relativedir;
+	$filearray = dol_dir_list($dir, 'files', 0, '\.(gif|jpe?g|png|webp)$', '(\.meta|_preview.*\.png)$', 'name', SORT_ASC, 1);
+	if (empty($filearray)) {
+		return $bannerhtml;
+	}
+	completeFileArrayWithDatabaseInfo($filearray, preg_replace('/^'.preg_quote(DOL_DATA_ROOT.'/', '/').'/', '', $dir), $object);
+	$filearray = dol_sort_array($filearray, 'position_name', 'asc', 1);
+	$file = $filearray[0]['name'];
+
+	$thumb = getImageFileNameForSize($file, '_small');	// thumbs/name_small.ext
+	$shown = (file_exists($dir.'/'.$thumb) ? $thumb : $file);
+	$url = DOL_URL_ROOT.'/viewimage.php?modulepart=designtrace&entity='.((int) $entity).'&file=';
+
+	$photo = '<div class="floatleft inline-block valignmiddle divphotoref">';
+	$photo .= '<a href="'.$url.urlencode($relativedir.'/'.$file).'" target="_blank" rel="noopener noreferrer">';
+	$photo .= '<img class="photoref photowithmargin" style="max-height: 80px; max-width: 120px;" alt="'.dol_escape_htmltag($file).'" src="'.$url.urlencode($relativedir.'/'.$shown).'">';
+	$photo .= '</a></div>';
+
+	// The picto block dol_banner_tab() prints when it has no photo of its own
+	return preg_replace('/<!-- No photo to show -->\s*<div class="floatleft inline-block valignmiddle divphotoref"><div class="photoref">.*?<\/div><\/div>/s', $photo, $bannerhtml, 1);
+}

@@ -94,6 +94,7 @@ include_once DOL_DOCUMENT_ROOT.'/core/class/html.formcompany.class.php';
 include_once DOL_DOCUMENT_ROOT.'/core/class/html.formfile.class.php';
 include_once DOL_DOCUMENT_ROOT.'/core/class/html.formprojet.class.php';
 dol_include_once('/designtrace/class/design.class.php');
+dol_include_once('/designtrace/lib/designtrace.lib.php');
 dol_include_once('/designtrace/lib/designtrace_design.lib.php');
 
 // Load translation files required by the page
@@ -292,7 +293,10 @@ if ($action == 'create') {
 
 	print '<table class="border centpercent tableforfieldcreate">'."\n";
 
-	// Common attributes
+	// Common attributes (the designer defaults to the current user)
+	if (!GETPOSTISSET('fk_user_designer')) {
+		$_GET['fk_user_designer'] = $user->id;
+	}
 	include DOL_DOCUMENT_ROOT.'/core/tpl/commonfields_add.tpl.php';
 
 	// Other attributes
@@ -440,7 +444,10 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 	$morehtmlref .= '</div>';
 
 
+	// Banner, with the first image of the Documents tab as thumbnail
+	ob_start();
 	dol_banner_tab($object, 'ref', $linkback, 1, 'ref', 'ref', $morehtmlref);
+	print designtraceBannerWithThumbnail($object, 'design', ob_get_clean());
 
 	print '<div class="fichecenter">';
 	print '<div class="fichehalfleft">';

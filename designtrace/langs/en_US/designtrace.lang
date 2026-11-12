@@ -54,6 +54,8 @@ DesignStatusArchived = Archived
 DesignArchive = Archive
 DesignReactivate = Reactivate
 DesignTraceNumRefModelDesc = Returns a number of the form %s, one sequence that never resets
+Designer = Designer
+DesignerHelp = Who is responsible for the design. Defaults to the person who creates it.
 
 #
 # Component
@@ -74,6 +76,15 @@ DrawingTypeConcept = Concept
 DrawingTypeProof = Proof
 DrawingTypeTDS = TDS
 ComponentProductHelp = Optional link to the product sold from this component
+Sourcing = Make / buy
+SourcingHelp = How this part is obtained. Not used for drawings.
+SourcingPrint = Print in-house
+SourcingMake = Make in-house
+SourcingBuy = Buy in
+FinishColour = Finish / colour
+FinishColourHelp = For example "Galaxy black PLA, matte" or "Anodised blue". Not used for drawings.
+WeightGrams = Weight (g)
+WeightGramsHelp = Weight of one finished part in grams. Not used for drawings.
 ComponentStatusActive = Active
 ComponentStatusObsolete = Obsolete
 ComponentMakeObsolete = Make obsolete
@@ -82,6 +93,7 @@ ErrorComponentTypeCannotChange = The type of a component cannot be changed once 
 ErrorDrawingTypeOnlyForDrawings = Only drawings can have a drawing type.
 ErrorComponentHasNoDraftStatus = Components have no draft status.
 ErrorComponentNumberingFailed = Could not generate the component number.
+ErrorDesignTraceNegative = %s cannot be negative.
 
 #
 # Component revision
@@ -109,7 +121,22 @@ ConfirmRevisionRelease = Release %s? A released revision is read-only: any later
 RevisionMakeObsolete = Make obsolete
 RevisionUndoObsolete = Undo obsolete
 RevisionNewFromThis = New revision from this one
-ConfirmRevisionNewFromThis = Create a new draft revision from %s? Notes, material, process and machine are copied.
+ConfirmRevisionNewFromThis = Create a new draft revision from %s? Notes, material, process, machine and print settings are copied.
+ChangeReason = Reason for change
+ChangeReasonHelp = Why this revision exists. Describe the change itself in the change notes.
+ChangeReasonInitial = Initial release
+ChangeReasonCustomer = Customer request
+ChangeReasonFix = Fix (defect or fit problem)
+ChangeReasonImprovement = Improvement
+ChangeReasonProcess = Manufacturing or process change
+ChangeReasonOther = Other
+LayerHeight = Layer height (mm)
+NozzleSize = Nozzle size (mm)
+InfillPercent = Infill (%)
+PrintTime = Print time
+FilamentUsed = Filament used (g)
+PrintSettingsHelp = Print settings for 3D printed parts, usually from the slicer. Leave empty if not printed.
+ErrorInfillOver100 = Infill cannot be more than 100 %.
 ErrorRevisionIsReadOnly = %s is released and read-only. Create a new revision to make changes.
 ErrorRevisionReleasedCannotBeDeleted = %s is released and cannot be deleted.
 ErrorRevisionAlreadyOpen = %s already has a draft or in-review revision. Release or delete it first.

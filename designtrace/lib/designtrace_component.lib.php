@@ -113,3 +113,20 @@ function componentPrepareHead($object)
 
 	return $head;
 }
+
+/**
+ * Remove from $object->fields the fields that do not apply to the component's type, so the
+ * card and edit form do not show them: drawing type for parts and assemblies, make/buy,
+ * finish and weight for drawings.
+ *
+ * @param	Component	$object		Component (its type must be loaded)
+ * @return	void
+ */
+function designtraceHideComponentTypeFields($object)
+{
+	if ((int) $object->type == Component::TYPE_DRAWING) {
+		unset($object->fields['sourcing'], $object->fields['finish'], $object->fields['weight']);
+	} else {
+		unset($object->fields['drawing_type']);
+	}
+}

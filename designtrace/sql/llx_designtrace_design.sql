@@ -22,6 +22,7 @@ CREATE TABLE llx_designtrace_design(
 	label varchar(255), 
 	fk_soc integer, 
 	fk_project integer, 
+	fk_user_designer integer, 
 	description text, 
 	note_public text, 
 	note_private text, 

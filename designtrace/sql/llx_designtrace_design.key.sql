@@ -20,6 +20,7 @@ ALTER TABLE llx_designtrace_design ADD INDEX idx_designtrace_design_entity (enti
 ALTER TABLE llx_designtrace_design ADD UNIQUE INDEX uk_designtrace_design_ref (ref, entity);
 ALTER TABLE llx_designtrace_design ADD INDEX idx_designtrace_design_fk_soc (fk_soc);
 ALTER TABLE llx_designtrace_design ADD INDEX idx_designtrace_design_fk_project (fk_project);
+ALTER TABLE llx_designtrace_design ADD INDEX idx_designtrace_design_fk_user_designer (fk_user_designer);
 ALTER TABLE llx_designtrace_design ADD INDEX idx_designtrace_design_status (status);
 -- END MODULEBUILDER INDEXES
 
