@@ -216,6 +216,7 @@ ErrorLinkChildObsolete = %s is obsolete: link to a current revision instead.
 ErrorRevisionChildrenNotReviewed = %s links to drafts (%s): submit them for review first.
 ErrorRevisionChildrenNotReleased = %s links to revisions that are not released (%s): release them first.
 ErrorRevisionUsedAsChild = %s is linked from %s: remove those links first.
+ErrorRevisionParentsInReview = %s is linked from revisions in review (%s): send them back to draft first.
 ErrorLinkToItself = A component cannot link to itself.
 ErrorLinkUsesTypes = Uses links go from an assembly to a part or an assembly.
 ErrorLinkDepictsTypes = Depicts links go from a drawing to a part or an assembly.

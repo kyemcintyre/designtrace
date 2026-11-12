@@ -655,8 +655,16 @@ class ComponentRevision extends CommonObject
 	 */
 	public function setDraft($user, $notrigger = 0)
 	{
+		global $langs;
+
 		if ((int) $this->status !== self::STATUS_INREVIEW) {
 			return 0;
+		}
+		// A parent in review must not end up depending on a draft
+		$parents = $this->getParentsInStatus(array(self::STATUS_INREVIEW));
+		if ($parents) {
+			$langs->load('designtrace@designtrace');
+			return $this->setErrorAndFail($langs->trans('ErrorRevisionParentsInReview', $this->ref, implode(', ', $parents)));
 		}
 
 		return $this->setStatusCommon($user, self::STATUS_DRAFT, $notrigger, 'DESIGNTRACE_COMPONENTREVISION_UNVALIDATE');
@@ -960,6 +968,30 @@ class ComponentRevision extends CommonObject
 		$sql .= " WHERE l.fk_parent = ".((int) $this->id);
 		$sql .= " AND c.status IN (".$this->db->sanitize(implode(',', array_map('intval', $statuses))).")";
 		$sql .= " ORDER BY c.ref";
+		$resql = $this->db->query($sql);
+		while ($resql && ($obj = $this->db->fetch_object($resql))) {
+			$refs[] = $obj->ref;
+		}
+		return $refs;
+	}
+
+	/**
+	 *	Refs of the parent revisions linking to this revision that are in one of the given statuses
+	 *
+	 *	@param	int[]	$statuses	Parent statuses
+	 *	@return	string[]			Parent revision refs
+	 */
+	public function getParentsInStatus($statuses)
+	{
+		$refs = array();
+		if (empty($this->id) || empty($statuses)) {
+			return $refs;
+		}
+		$sql = "SELECT p.ref FROM ".$this->db->prefix()."designtrace_componentlink as l";
+		$sql .= " INNER JOIN ".$this->db->prefix().$this->table_element." as p ON p.rowid = l.fk_parent";
+		$sql .= " WHERE l.fk_child = ".((int) $this->id);
+		$sql .= " AND p.status IN (".$this->db->sanitize(implode(',', array_map('intval', $statuses))).")";
+		$sql .= " ORDER BY p.ref";
 		$resql = $this->db->query($sql);
 		while ($resql && ($obj = $this->db->fetch_object($resql))) {
 			$refs[] = $obj->ref;

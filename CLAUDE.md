@@ -150,7 +150,8 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
   (fk_ack_revision = child revision acknowledged). Children can be draft, in review or
   released (not obsolete); a parent cannot be submitted for review while a child is a draft,
   nor released while a child is not released (`getBlockingChildren()`, buttons disabled with
-  the reason), and a linked draft cannot be deleted. One link per child component per parent
+  the reason), a child cannot go back to draft while a parent is in review, and a linked
+  draft cannot be deleted. One link per child component per parent
   revision; no cycles between components; links are edited on draft/in-review parents only. "New revision from this one" copies links (same pins); drafts
   show "Rev X available" (only when the current revision is newer than the pin) with Pin / Pin all.
   - Current revision of a component = its latest released one (`getCurrentRevisionIds()`).

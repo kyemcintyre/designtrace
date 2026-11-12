@@ -528,7 +528,9 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 
 			// Back to draft (In review -> Draft)
 			if ($object->status == $object::STATUS_INREVIEW) {
-				print dolGetButtonAction('', $langs->trans('SetToDraft'), 'default', $_SERVER["PHP_SELF"].'?id='.$object->id.'&action=confirm_setdraft&confirm=yes&token='.newToken(), '', $permissiontoadd);
+				$parentsinreview = $object->getParentsInStatus(array($object::STATUS_INREVIEW));
+				$reason = ($parentsinreview ? $langs->trans('ErrorRevisionParentsInReview', $object->ref, implode(', ', $parentsinreview)) : '');
+				print dolGetButtonAction($reason, $langs->trans('SetToDraft'), 'default', $_SERVER["PHP_SELF"].'?id='.$object->id.'&action=confirm_setdraft&confirm=yes&token='.newToken(), '', $permissiontoadd && empty($parentsinreview));
 			}
 
 			// Modify (draft and in review only)
