@@ -1,0 +1,22 @@
+{
+  "branches": ["main"],
+  "tagFormat": "v${version}",
+  "plugins": [
+    ["@semantic-release/commit-analyzer", { "preset": "conventionalcommits" }],
+    ["@semantic-release/release-notes-generator", { "preset": "conventionalcommits" }],
+    ["@semantic-release/changelog", {
+      "changelogFile": "designtrace/ChangeLog.md",
+      "changelogTitle": "# Changelog"
+    }],
+    ["@semantic-release/exec", {
+      "prepareCmd": "php .github/scripts/set-version.php ${nextRelease.version} && php .github/scripts/package.php dist"
+    }],
+    ["@semantic-release/git", {
+      "assets": ["designtrace/core/modules/modDesignTrace.class.php", "designtrace/ChangeLog.md"],
+      "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+    }],
+    ["@semantic-release/github", {
+      "assets": [{ "path": "dist/module_designtrace-*.zip", "label": "Dolibarr module package (module_designtrace-${nextRelease.version}.zip)" }]
+    }]
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "name": "designtrace-release",
+  "private": true,
+  "description": "Release tooling for DesignTrace (semantic-release). Not part of the Dolibarr module.",
+  "license": "GPL-3.0-or-later",
+  "author": "Kye McIntyre (https://kyemcintyre.net)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kyemcintyre/designtrace.git"
+  },
+  "scripts": {
+    "release": "semantic-release"
+  },
+  "devDependencies": {
+    "@semantic-release/changelog": "^7.0.0",
+    "@semantic-release/exec": "^7.1.0",
+    "@semantic-release/git": "^11.0.1",
+    "conventional-changelog-conventionalcommits": "^10.4.1",
+    "semantic-release": "^25.0.9"
+  }
+}

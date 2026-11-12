@@ -1,0 +1,42 @@
+# Dolibarr and MariaDB for the CI test job: the same images as the devcontainer, with the repo
+# mounted as Dolibarr's custom/ folder. Throwaway credentials, used only inside the CI runner.
+name: designtrace-ci
+
+services:
+  mariadb:
+    image: mariadb:11.4
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: dolidb
+      MARIADB_USER: dolidbuser
+      MARIADB_PASSWORD: dolidbpass
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  dolibarr:
+    image: dolibarr/dolibarr:${DOLIBARR_VERSION:-24.0.2-php8.2}
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    environment:
+      DOLI_INSTALL_AUTO: "1"
+      DOLI_PROD: "0"
+      DOLI_INIT_DEMO: "0"
+      DOLI_DB_TYPE: mysqli
+      DOLI_DB_HOST: mariadb
+      DOLI_DB_HOST_PORT: "3306"
+      DOLI_DB_NAME: dolidb
+      DOLI_DB_USER: dolidbuser
+      DOLI_DB_PASSWORD: dolidbpass
+      DOLI_URL_ROOT: "http://localhost:8080"
+      DOLI_ADMIN_LOGIN: admin
+      DOLI_ADMIN_PASSWORD: admin
+      DOLI_INSTANCE_UNIQUE_ID: designtrace-ci
+      PHP_INI_DATE_TIMEZONE: Australia/Sydney
+    ports:
+      - "8080:80"
+    volumes:
+      - ../..:/var/www/html/custom

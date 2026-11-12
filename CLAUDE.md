@@ -13,7 +13,8 @@ The full design spec is the doc "DesignTrace — Dolibarr CAD Design Module":
 https://claude.ai/artifact/VqHHcUWuZMMkj7CCUdZAU4 (data model diagram, every feature, build
 phases). Treat it as the source of truth for scope; this file is the summary.
 
-Owner: Kye McIntyre (Kye's Workshop, kyemcintyre.net). He prefers working step by step, checking
+Owner and creator: Kye McIntyre (Kye's Workshop, kyemcintyre.net); module descriptor, README and
+headers credit him (Module Builder's upstream copyright lines stay, as GPL requires). He prefers working step by step, checking
 each step before the next, and wants **whole files** shown when a file changes, not snippets.
 
 ## Layout and environment
@@ -362,9 +363,30 @@ New objects can be generated without the GUI by POSTing Module Builder's `initob
 - Fields with `'alwayseditable' => '1'` are shown raw on the card (inline edit): codes instead of
   labels for selects. Only use it for text.
 
+## Tests, releases
+
+- PHPUnit 10.5 (dev-only, `composer install` at the repo root) in `designtrace/test/phpunit/`, run
+  with `su -s /bin/sh www-data -c "php designtrace/test/phpunit/run-tests.php"` (not
+  `vendor/bin/phpunit`: Dolibarr must be loaded in the global scope first). Tests extend
+  `DesignTraceTestCase`: one rolled-back transaction per test, new document folders deleted,
+  `setConst()` for settings, fixture helpers (`newCustomerScenario()` builds the portal case).
+  Add or update tests with every feature or fix.
+- `.github/workflows/ci.yml`: PHP 8.1-8.3 lint, the suite on Dolibarr 24.0.2 + MariaDB 11.4
+  (`.github/ci/`), and on `main` semantic-release (`.releaserc.json`, Node tooling in
+  `package.json`, never shipped). It sets `$this->version` (`.github/scripts/set-version.php`),
+  prepends `designtrace/ChangeLog.md`, builds `module_designtrace-X.Y.Z.zip`
+  (`.github/scripts/package.php`: git-tracked files of `designtrace/` minus test, build, `.tx`,
+  AGENTS.md, modulebuilder.txt), commits `chore(release)`, tags `vX.Y.Z`, publishes the GitHub
+  release. Versions started at tag `v0.1.0`. Never edit `$this->version` by hand.
+- `designtrace/AGENTS.md` is Dolibarr's Module Builder template; where it disagrees with this file
+  (committing, tests), this file and Kye's instructions win.
+
 ## Conventions
 
 - Use `$user->hasRight()` and `isModEnabled()`, never `$user->rights->…` or
   `$conf->module->enabled` (deprecated in 23).
 - Filters through Dolibarr APIs use Universal Search Syntax.
-- Commit messages: short imperative subject, body explaining why.
+- Commit messages: **Conventional Commits** (they drive the release version): `feat:` new
+  behaviour, `fix:` bug fix, `docs:`/`test:`/`ci:`/`chore:`/`refactor:` no release, optional scope
+  (`fix(cadtime): ...`); `!` or a `BREAKING CHANGE:` footer only for a real break (it jumps to the
+  next major, 1.0.0 from 0.x). Short imperative subject, body explaining why.

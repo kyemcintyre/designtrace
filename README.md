@@ -10,6 +10,9 @@ can see.
 
 It is CAD-agnostic: FreeCAD, Fusion, SolidWorks or plain PDFs all work.
 
+Created and maintained by **Kye McIntyre** ([Kye's Workshop](https://kyemcintyre.net)), who owns
+the project.
+
 > **Status:** early development, not ready for production use.
 
 ## Requirements
@@ -20,8 +23,11 @@ It is CAD-agnostic: FreeCAD, Fusion, SolidWorks or plain PDFs all work.
 
 ## Installation
 
-Copy the `designtrace` folder into your Dolibarr `htdocs/custom/` directory,
-then enable **DesignTrace** in Home → Setup → Modules.
+Download `module_designtrace-x.y.z.zip` from the
+[releases page](https://github.com/kyemcintyre/designtrace/releases) and upload it in
+Home → Setup → Modules → **Deploy/install external app/module**, then enable **DesignTrace**.
+Or copy the `designtrace` folder into your Dolibarr `htdocs/custom/` directory.
+See [designtrace/README.md](designtrace/README.md) for setup after enabling.
 
 ## Development
 
@@ -39,6 +45,35 @@ only.
 
 To reset to a clean install, run `docker compose down -v` from
 `.devcontainer/` and reopen the container.
+
+### Tests
+
+The PHPUnit suite (`designtrace/test/phpunit/`) runs inside a working Dolibarr with the module
+enabled. Each test runs in a transaction that is rolled back, so the database is left as it was.
+
+```sh
+composer install
+su -s /bin/sh www-data -c "php designtrace/test/phpunit/run-tests.php"
+```
+
+Pass PHPUnit options after the script, e.g. `--filter Licensing`. GitHub Actions runs the same
+suite on Dolibarr 24.0.2 and MariaDB 11.4 for every push and pull request.
+
+### Releases
+
+Releases are made by [semantic-release](https://semantic-release.gitbook.io/) when `main` is pushed
+and the tests pass. Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+| Commit | Release |
+|---|---|
+| `fix: ...` | patch (0.1.0 → 0.1.1) |
+| `feat: ...` | minor (0.1.0 → 0.2.0) |
+| `feat!: ...` or a `BREAKING CHANGE:` footer | major (0.x → 1.0.0) |
+| `docs:`, `test:`, `ci:`, `chore:`, `refactor:` ... | none |
+
+semantic-release writes the version into the module descriptor (`$this->version`) and
+`designtrace/ChangeLog.md`, commits them, tags `vX.Y.Z` and publishes a GitHub release with
+`module_designtrace-X.Y.Z.zip`. Build a package by hand with `php .github/scripts/package.php`.
 
 ## Licence
 
