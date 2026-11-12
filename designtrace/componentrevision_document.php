@@ -267,7 +267,7 @@ llxHeader('', $title, $help_url, '', 0, 0, '', '', '', 'mod-designtrace page-car
 
 $head = componentrevisionPrepareHead($object);
 
-print dol_get_fiche_head($head, 'document', $langs->trans("ComponentRevision"), -1, $object->picto, 0, '', '', 0, '', 1);
+print dol_get_fiche_head($head, 'document', $langs->trans("ComponentRevision"), -1, $object->picto, 0, '', '', 0, '', 0);
 
 $component = $object->fetchComponentChecked();
 $linkback = '<a href="'.dol_buildpath('/designtrace/componentrevision_list.php', 1).'?restore_lastsearch_values=1">'.$langs->trans("BackToList").'</a>';

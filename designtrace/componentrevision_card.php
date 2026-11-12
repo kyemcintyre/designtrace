@@ -444,7 +444,7 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 
 	$head = componentrevisionPrepareHead($object);
 
-	print dol_get_fiche_head($head, 'card', $langs->trans("ComponentRevision"), -1, $object->picto, 0, '', '', 0, '', 1);
+	print dol_get_fiche_head($head, 'card', $langs->trans("ComponentRevision"), -1, $object->picto, 0, '', '', 0, '', 0);
 
 
 	// Object card

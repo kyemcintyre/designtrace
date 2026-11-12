@@ -192,7 +192,7 @@ llxHeader('', $title, $help_url, '', 0, 0, '', '', '', 'mod-designtrace page-car
 // Show tabs
 $head = designPrepareHead($object);
 
-print dol_get_fiche_head($head, 'document', $langs->trans("Design"), -1, $object->picto, 0, '', '', 0, '', 1);
+print dol_get_fiche_head($head, 'document', $langs->trans("Design"), -1, $object->picto, 0, '', '', 0, '', 0);
 
 
 // Build file list

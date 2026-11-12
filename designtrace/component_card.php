@@ -422,7 +422,7 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 
 	$head = componentPrepareHead($object);
 
-	print dol_get_fiche_head($head, 'card', $langs->trans("Component"), -1, $object->picto, 0, '', '', 0, '', 1);
+	print dol_get_fiche_head($head, 'card', $langs->trans("Component"), -1, $object->picto, 0, '', '', 0, '', 0);
 
 
 	// Object card
