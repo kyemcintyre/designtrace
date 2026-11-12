@@ -306,6 +306,23 @@ if ($action == 'create') {
 
 	print '</form>';
 
+	// Drawing type only applies to drawings: show it only when the type is Drawing,
+	// and clear it when hidden so a value picked earlier is not submitted.
+	print '<script type="text/javascript">
+	jQuery(document).ready(function() {
+		function designtraceToggleDrawingType() {
+			if (jQuery("#type").val() == "'.Component::TYPE_DRAWING.'") {
+				jQuery("tr.field_drawing_type").show();
+			} else {
+				jQuery("tr.field_drawing_type").hide();
+				jQuery("#drawing_type").val("-1").trigger("change");
+			}
+		}
+		designtraceToggleDrawingType();
+		jQuery("#type").on("change", designtraceToggleDrawingType);
+	});
+	</script>';
+
 	//dol_set_focus('input[name="ref"]');
 }
 
@@ -328,7 +345,11 @@ if (($id || $ref) && $action == 'edit') {
 
 	print '<table class="border centpercent tableforfieldedit">'."\n";
 
-	// Common attributes
+	// Common attributes (the type cannot change once numbered; drawing type only applies to drawings)
+	$object->fields['type']['noteditable'] = 1;
+	if ((int) $object->type != Component::TYPE_DRAWING) {
+		unset($object->fields['drawing_type']);
+	}
 	include DOL_DOCUMENT_ROOT.'/core/tpl/commonfields_edit.tpl.php';
 
 	// Other attributes
@@ -451,6 +472,9 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 	//$keyforbreak='fieldkeytoswitchonsecondcolumn';	// We change column just before this field
 	//unset($object->fields['fk_project']);				// Hide field already shown in banner
 	//unset($object->fields['fk_soc']);					// Hide field already shown in banner
+	if ((int) $object->type != Component::TYPE_DRAWING) {
+		unset($object->fields['drawing_type']);		// Drawing type only applies to drawings
+	}
 	include DOL_DOCUMENT_ROOT.'/core/tpl/commonfields_view.tpl.php';
 
 	// Other attributes. Fields from hook formObjectOptions and Extrafields.
