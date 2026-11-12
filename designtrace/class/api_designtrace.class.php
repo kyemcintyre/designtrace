@@ -30,6 +30,7 @@
 use Luracast\Restler\RestException;
 
 dol_include_once('/designtrace/class/clientaccess.class.php');
+dol_include_once('/designtrace/class/licensing.class.php');
 
 /**
  * API class for DesignTrace customer files (named DesignTrace so the endpoints are /designtrace/...)
@@ -153,6 +154,123 @@ class DesignTrace extends DolibarrApi
 			'filesize' => (int) $row->filesize,
 			'sha256' => $row->sha256,
 		);
+	}
+
+	/**
+	 * List the licences on a quote or order
+	 *
+	 * One entry per design on the document: the licence that applies (the document's override,
+	 * else the design's), the version that counts (the accepted one, else the current one) with
+	 * its wording (variables filled in), its permissions, and the acceptance if any.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	string	$element	quote or order
+	 * @param	int		$docid		Id of the quote or order
+	 * @return	array				Licences
+	 * @phan-return array<int,array<string,mixed>>
+	 * @phpstan-return array<int,array<string,mixed>>
+	 *
+	 * @url	GET customers/{socid}/documents/{element}/{docid}/licences
+	 *
+	 * @throws RestException 400 Bad document type
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Document not found
+	 */
+	public function listLicences($socid, $element, $docid)
+	{
+		$socid = $this->checkCustomer($socid);
+		$doc = $this->checkLicenceDocument($socid, $element, $docid);
+		$result = array();
+		foreach (DesignTraceLicensing::fetchDocumentLicences($this->db, $doc->element, (int) $doc->id) as $designid => $info) {
+			if (!$info['licence'] || !$info['version']) {
+				continue;
+			}
+			$version = $info['version'];
+			$acc = $info['acceptance'];
+			$date = $acc ? (int) $acc->date_accept : dol_now();
+			$permissions = array();
+			foreach (LicenceVersion::getPermissionKeys() as $key) {
+				$permissions[substr($key, 5)] = ((int) $version->$key === 1);
+			}
+			$result[] = array(
+				'design_id' => (int) $designid,
+				'design_ref' => $info['design']['ref'],
+				'design_label' => $info['design']['label'],
+				'licence_code' => $info['licence']->ref,
+				'licence_name' => $info['licence']->label,
+				'version_id' => (int) $version->id,
+				'version' => (int) $version->version,
+				'version_ref' => $version->ref,
+				'wording_html' => $version->renderWording(DesignTraceLicensing::getWordingValues($doc, $info['design'], $date)),
+				'permissions' => $permissions,
+				'accepted' => ($acc ? array('date' => (int) $acc->date_accept, 'actor' => $acc->actor, 'channel' => $acc->channel) : null),
+			);
+		}
+		return $result;
+	}
+
+	/**
+	 * Record that the customer accepts a licence on a quote or order
+	 *
+	 * Pass the version_id shown to the customer: if the licence changed since, the call is
+	 * refused (409) so the customer can read the new wording first. The acceptance is logged
+	 * (version, who, when, IP) and a PDF copy is attached to the document.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	string	$element	quote or order
+	 * @param	int		$docid		Id of the quote or order
+	 * @param	int		$design_id	Design id (from the licence list)
+	 * @param	int		$version_id	Licence version id shown to the customer
+	 * @param	string	$actor		Who accepts, for the log (e.g. the portal login)
+	 * @return	array				id of the acceptance, date
+	 * @phan-return array<string,int>
+	 * @phpstan-return array<string,int>
+	 *
+	 * @url	POST customers/{socid}/documents/{element}/{docid}/licences/accept
+	 *
+	 * @throws RestException 400 Bad document type
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Document not found
+	 * @throws RestException 409 Licence changed or nothing to accept
+	 */
+	public function acceptLicence($socid, $element, $docid, $design_id, $version_id, $actor = '')
+	{
+		$socid = $this->checkCustomer($socid);
+		$doc = $this->checkLicenceDocument($socid, $element, $docid);
+		$actor = trim((string) $actor);
+		if ($actor === '') {
+			$actor = 'api:'.DolibarrApiAccess::$user->login;
+		}
+		$error = '';
+		$id = DesignTraceLicensing::accept($this->db, $socid, $doc->element, (int) $doc->id, (int) $design_id, (int) $version_id, DesignTraceClientAccess::CHANNEL_API, $actor, $error);
+		if ($id <= 0) {
+			throw new RestException(409, $error);
+		}
+		return array('id' => (int) $id, 'date' => dol_now());
+	}
+
+	/**
+	 * Quote or order of this customer, for licences
+	 *
+	 * @param	int		$socid		Customer id
+	 * @param	string	$element	quote or order
+	 * @param	int		$docid		Document id
+	 * @return	CommonObject
+	 *
+	 * @throws RestException 400 Bad document type
+	 * @throws RestException 404 Document not found
+	 */
+	private function checkLicenceDocument($socid, $element, $docid)
+	{
+		$type = DesignTraceClientAccess::normaliseElement($element);
+		if (!in_array($type, array('propal', 'commande'), true)) {
+			throw new RestException(400, 'Bad document type, use quote or order');
+		}
+		$doc = DesignTraceLicensing::fetchDocument($this->db, $type, (int) $docid);
+		if (!$doc || (int) $doc->socid !== (int) $socid || (int) $doc->status <= 0) {
+			throw new RestException(404, 'Document not found');
+		}
+		return $doc;
 	}
 
 	/**

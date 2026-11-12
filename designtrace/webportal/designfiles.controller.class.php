@@ -23,10 +23,12 @@
  * Registered by the initController hook (ActionsDesignTrace). Lists the files the logged-in
  * customer can see, grouped by quote, order or ticket (DesignTraceClientAccess rules), and serves
  * downloads itself (?controller=designfiles&action=download&file=ID) so every download goes through
- * the same checks and is logged.
+ * the same checks and is logged. Quotes and orders also show the licence of each design, which the
+ * customer can read and accept (logged with the exact version, PDF copy on the document).
  */
 
 dol_include_once('/designtrace/class/clientaccess.class.php');
+dol_include_once('/designtrace/class/licensing.class.php');
 
 /**
  * Controller for the Design files page of the Web portal
@@ -37,6 +39,16 @@ class DesignFilesController extends Controller
 	 * @var stdClass[]	Visible files
 	 */
 	public $rows = array();
+
+	/**
+	 * @var array<string,array<int,array<string,mixed>>>	Licences per document ("element_id" => fetchDocumentLicences())
+	 */
+	public $licences = array();
+
+	/**
+	 * @var array<string,array{element:string,doc_id:int,doc_ref:string}>	Documents shown, newest first
+	 */
+	public $docs = array();
 
 	/**
 	 * @var string	Document type filter
@@ -106,8 +118,57 @@ class DesignFilesController extends Controller
 			}
 		}
 
+		// Accept a licence (POST, with the box ticked)
+		if ($context->action == 'acceptlicence' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+			if (!GETPOST('agree', 'alpha')) {
+				$context->setEventMessage($langs->trans('WebPortalLicenceTickToAccept'), 'errors');
+			} else {
+				$error = '';
+				$element = DesignTraceClientAccess::normaliseElement(GETPOST('licence_element', 'aZ09'));
+				$res = DesignTraceLicensing::accept($this->db, $socid, $element, GETPOSTINT('licence_docid'), GETPOSTINT('licence_design'), GETPOSTINT('licence_version'), DesignTraceClientAccess::CHANNEL_WEBPORTAL, $this->getActor(), $error);
+				if ($res > 0) {
+					$context->setEventMessage($langs->trans('WebPortalLicenceAccepted'), 'mesgs');
+				} else {
+					$context->setEventMessage($error, 'errors');
+				}
+			}
+		}
+
 		$rows = DesignTraceClientAccess::fetchVisibleFiles($this->db, $socid, $this->element, $this->docid);
 		$this->rows = is_array($rows) ? $rows : array();
+
+		// Documents to show: those with visible files, and quotes/orders with designs under a licence
+		foreach ($this->rows as $row) {
+			$this->docs[$row->element.'_'.$row->doc_id] = array('element' => $row->element, 'doc_id' => (int) $row->doc_id, 'doc_ref' => $row->doc_ref);
+		}
+		$channels = DesignTraceClientAccess::getChannels();
+		foreach (DesignTraceLicensing::getDocumentTypes() as $element => $def) {
+			if (($this->element !== '' && $this->element !== $element) || !isModEnabled($channels[$element]['module'])) {
+				continue;
+			}
+			$sql = "SELECT DISTINCT d.rowid, d.ref FROM ".$this->db->prefix()."element_element as ee";
+			$sql .= " INNER JOIN ".$this->db->prefix().$def['table']." as d ON d.rowid = ee.fk_source";
+			$sql .= " WHERE ee.sourcetype = '".$this->db->escape($element)."' AND ee.targettype IN ('designtrace_design', 'designtrace_componentrevision')";
+			$sql .= " AND d.fk_soc = ".((int) $socid)." AND d.fk_statut NOT IN (".implode(',', array_map('intval', $channels[$element]['hidden'])).")";
+			$sql .= " AND d.entity IN (".getEntity($element == 'commande' ? 'order' : $element).")";
+			if ($this->docid > 0) {
+				$sql .= " AND d.rowid = ".((int) $this->docid);
+			}
+			$resql = $this->db->query($sql);
+			while ($resql && ($obj = $this->db->fetch_object($resql))) {
+				$licences = array_filter(DesignTraceLicensing::fetchDocumentLicences($this->db, $element, (int) $obj->rowid), function ($info) {
+					return $info['licence'] && $info['version'];
+				});
+				if ($licences) {
+					$key = $element.'_'.$obj->rowid;
+					$this->licences[$key] = $licences;
+					$this->docs[$key] = array('element' => $element, 'doc_id' => (int) $obj->rowid, 'doc_ref' => $obj->ref);
+				}
+			}
+		}
+		uasort($this->docs, function ($a, $b) {
+			return $b['doc_id'] <=> $a['doc_id'];
+		});
 
 		return 1;
 	}
@@ -156,46 +217,110 @@ class DesignFilesController extends Controller
 			print '<p><a href="'.dolPrintHTMLForAttributeUrl($context->getControllerUrl('designfiles')).'">&larr; '.$langs->trans('WebPortalDesignFilesAll').'</a></p>';
 		}
 
-		if (empty($this->rows)) {
+		if (empty($this->docs)) {
 			print '<p>'.$langs->trans('WebPortalDesignFilesNone').'</p>';
 		}
 
 		$channels = DesignTraceClientAccess::getChannels();
-		$groups = array();
+		$files = array();
 		foreach ($this->rows as $row) {
-			$groups[$row->element.'_'.$row->doc_id][] = $row;
+			$files[$row->element.'_'.$row->doc_id][] = $row;
 		}
-		foreach ($groups as $rows) {
-			$first = $rows[0];
-			$label = isset($channels[$first->element]) ? $langs->trans($channels[$first->element]['label']) : $first->element;
+		foreach ($this->docs as $key => $doc) {
+			$label = isset($channels[$doc['element']]) ? $langs->trans($channels[$doc['element']]['label']) : $doc['element'];
 			print '<article>';
-			print '<header><strong>'.dol_escape_htmltag($label.' '.$first->doc_ref).'</strong></header>';
-			print '<table class="table table-hover" width="100%">';
-			print '<thead><tr>';
-			print '<th>'.$langs->trans('Component').'</th>';
-			print '<th>'.$langs->trans('Revision').'</th>';
-			print '<th>'.$langs->trans('File').'</th>';
-			print '<th style="text-align: right; white-space: nowrap;">'.$langs->trans('Size').'</th>';
-			print '</tr></thead><tbody>';
-			foreach ($rows as $row) {
-				$url = $context->getControllerUrl('designfiles', array('action' => 'download', 'file' => (int) $row->file_id, 'element' => $row->element, 'docid' => (int) $row->doc_id));
-				print '<tr>';
-				print '<td data-label="'.dolPrintHTMLForAttribute($langs->trans('Component')).'">'.dol_escape_htmltag($row->comp_ref).' <small>'.dol_escape_htmltag((string) $row->comp_label).'</small></td>';
-				print '<td data-label="'.dolPrintHTMLForAttribute($langs->trans('Revision')).'">'.dol_escape_htmltag($row->rev);
-				if ((int) $row->rev_status !== ComponentRevision::STATUS_RELEASED) {
-					print ' <small>('.$langs->trans('WebPortalDesignFilePreview').')</small>';
-				}
-				print '</td>';
-				print '<td data-label="'.dolPrintHTMLForAttribute($langs->trans('File')).'"><a href="'.dolPrintHTMLForAttributeUrl($url).'" download>'.dol_escape_htmltag($row->filename).'</a></td>';
-				print '<td data-label="'.dolPrintHTMLForAttribute($langs->trans('Size')).'" style="text-align: right; white-space: nowrap;">'.RevisionFile::formatSize((int) $row->filesize).'</td>';
-				print '</tr>';
+			print '<header><strong>'.dol_escape_htmltag($label.' '.$doc['doc_ref']).'</strong></header>';
+			if (!empty($this->licences[$key])) {
+				$this->printLicences($context, $doc, $this->licences[$key]);
 			}
-			print '</tbody></table>';
+			if (!empty($files[$key])) {
+				$this->printFiles($context, $files[$key]);
+			}
 			print '</article>';
 		}
 
 		print '</main>';
 
 		$this->loadTemplate('footer');
+	}
+
+	/**
+	 * Files of one document
+	 *
+	 * @param	Context		$context	Web portal context
+	 * @param	stdClass[]	$rows		Visible files of the document
+	 * @return	void
+	 */
+	private function printFiles($context, $rows)
+	{
+		global $langs;
+
+		print '<table class="table table-hover" width="100%">';
+		print '<thead><tr>';
+		print '<th>'.$langs->trans('Component').'</th>';
+		print '<th>'.$langs->trans('Revision').'</th>';
+		print '<th>'.$langs->trans('File').'</th>';
+		print '<th style="text-align: right; white-space: nowrap;">'.$langs->trans('Size').'</th>';
+		print '</tr></thead><tbody>';
+		foreach ($rows as $row) {
+			$url = $context->getControllerUrl('designfiles', array('action' => 'download', 'file' => (int) $row->file_id, 'element' => $row->element, 'docid' => (int) $row->doc_id));
+			print '<tr>';
+			print '<td data-label="'.dolPrintHTMLForAttribute($langs->trans('Component')).'">'.dol_escape_htmltag($row->comp_ref).' <small>'.dol_escape_htmltag((string) $row->comp_label).'</small></td>';
+			print '<td data-label="'.dolPrintHTMLForAttribute($langs->trans('Revision')).'">'.dol_escape_htmltag($row->rev);
+			if ((int) $row->rev_status !== ComponentRevision::STATUS_RELEASED) {
+				print ' <small>('.$langs->trans('WebPortalDesignFilePreview').')</small>';
+			}
+			print '</td>';
+			print '<td data-label="'.dolPrintHTMLForAttribute($langs->trans('File')).'"><a href="'.dolPrintHTMLForAttributeUrl($url).'" download>'.dol_escape_htmltag($row->filename).'</a></td>';
+			print '<td data-label="'.dolPrintHTMLForAttribute($langs->trans('Size')).'" style="text-align: right; white-space: nowrap;">'.RevisionFile::formatSize((int) $row->filesize).'</td>';
+			print '</tr>';
+		}
+		print '</tbody></table>';
+	}
+
+	/**
+	 * Licences of the designs on one quote or order: accepted ones, and the wording with an
+	 * accept form for the others
+	 *
+	 * @param	Context								$context	Web portal context
+	 * @param	array{element:string,doc_id:int,doc_ref:string}	$doc	Document
+	 * @param	array<int,array<string,mixed>>		$licences	From DesignTraceLicensing::fetchDocumentLicences()
+	 * @return	void
+	 */
+	private function printLicences($context, $doc, $licences)
+	{
+		global $langs;
+
+		$document = DesignTraceLicensing::fetchDocument($this->db, $doc['element'], $doc['doc_id']);
+		if (!$document) {
+			return;
+		}
+		foreach ($licences as $designid => $info) {
+			$version = $info['version'];
+			print '<section class="designtrace-licence">';
+			print '<p><strong>'.$langs->trans('WebPortalLicenceFor', dol_escape_htmltag($info['licence']->label), dol_escape_htmltag($info['design']['ref'].' '.$info['design']['label'])).'</strong> <small>('.dol_escape_htmltag($version->ref).')</small></p>';
+			if ($info['acceptance']) {
+				print '<p>&#10003; '.$langs->trans('WebPortalLicenceAcceptedOn', dol_print_date($info['acceptance']->date_accept, 'dayhour')).'</p>';
+			} else {
+				$wording = $version->renderWording(DesignTraceLicensing::getWordingValues($document, $info['design'], dol_now()));
+				$perms = array();
+				foreach ($version->getPermissions() as $label => $value) {
+					$perms[] = ($value ? '&#10003; ' : '&#10007; ').dol_escape_htmltag($label);
+				}
+				print '<p><small>'.implode(' &middot; ', $perms).'</small></p>';
+				print '<div style="max-height: 300px; overflow-y: auto; border: 1px solid #ccc; padding: 0.5em; margin-bottom: 0.5em;">'.$wording.'</div>';
+				print '<form method="POST" action="'.dolPrintHTMLForAttributeUrl($context->getControllerUrl('designfiles', array('element' => $doc['element'], 'docid' => $doc['doc_id']), false)).'">';
+				print $context->getFormToken();
+				print '<input type="hidden" name="action" value="acceptlicence">';
+				print '<input type="hidden" name="licence_element" value="'.dol_escape_htmltag($doc['element']).'">';
+				print '<input type="hidden" name="licence_docid" value="'.((int) $doc['doc_id']).'">';
+				print '<input type="hidden" name="licence_design" value="'.((int) $designid).'">';
+				print '<input type="hidden" name="licence_version" value="'.((int) $version->id).'">';
+				print '<label><input type="checkbox" name="agree" value="1"> '.$langs->trans('WebPortalLicenceAgree').'</label> ';
+				print '<button type="submit">'.$langs->trans('WebPortalLicenceAccept').'</button>';
+				print '</form>';
+			}
+			print '</section>';
+		}
 	}
 }

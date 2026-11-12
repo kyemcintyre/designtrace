@@ -142,6 +142,7 @@ class Design extends CommonObject
 		"fk_soc" => array("type" => "integer:Societe:societe/class/societe.class.php:1:((status:=:1) AND (entity:IN:__SHARED_ENTITIES__))", "label" => "ThirdParty", "picto" => "company", "enabled" => "isModEnabled('societe')", 'position' => 50, 'notnull' => -1, "visible" => "1", "index" => "1", "css" => "maxwidth500 widthcentpercentminusxx", "csslist" => "tdoverflowmax150", "validate" => "1",),
 		"fk_project" => array("type" => "integer:Project:projet/class/project.class.php:1", "label" => "Project", "picto" => "project", "enabled" => "isModEnabled('project')", 'position' => 52, 'notnull' => -1, "visible" => "-1", "index" => "1", "css" => "maxwidth500 widthcentpercentminusxx", "csslist" => "tdoverflowmax150", "validate" => "1",),
 		"fk_user_designer" => array("type" => "integer:User:user/class/user.class.php:0:(t.statut:=:1)", "label" => "Designer", "picto" => "user", "enabled" => "1", 'position' => 54, 'notnull' => 0, "visible" => "1", "index" => "1", "foreignkey" => "user.rowid", "css" => "maxwidth500 widthcentpercentminusxx", "csslist" => "tdoverflowmax150", "validate" => "1", "help" => "DesignerHelp"),
+		"fk_licence" => array("type" => "integer:Licence:designtrace/class/licence.class.php:0:(t.status:=:1)", "label" => "Licence", "picto" => "fa-file-signature", "enabled" => "1", 'position' => 56, 'notnull' => -1, "visible" => "1", "index" => "1", "css" => "maxwidth500 widthcentpercentminusxx", "csslist" => "tdoverflowmax150", "help" => "DesignLicenceHelp",),
 		"description" => array("type" => "text", "label" => "Description", "enabled" => "1", 'position' => 60, 'notnull' => 0, "visible" => "3", "validate" => "1",),
 		"note_public" => array("type" => "html", "label" => "NotePublic", "enabled" => "1", 'position' => 61, 'notnull' => 0, "visible" => "0", "cssview" => "wordbreak", "validate" => "1",),
 		"note_private" => array("type" => "html", "label" => "NotePrivate", "enabled" => "1", 'position' => 62, 'notnull' => 0, "visible" => "0", "cssview" => "wordbreak", "validate" => "1",),
@@ -164,6 +165,7 @@ class Design extends CommonObject
 	 * @var ?int Designer responsible for the design (defaults to the creator)
 	 */
 	public $fk_user_designer;
+	public $fk_licence;
 	public $description;
 	public $note_public;
 	public $note_private;

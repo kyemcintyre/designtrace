@@ -72,6 +72,28 @@ class InterfaceDesignTraceTriggers extends DolibarrTriggers
 		}
 		dol_syslog("Trigger '".$this->name."' for action '".$action."' launched by ".__FILE__.". id=".$object->id." links carried over: ".$result);
 
+		// An order made from a quote also keeps the quote's licence override and acceptances
+		if ($action === 'ORDER_CREATE') {
+			dol_include_once('/designtrace/class/licensing.class.php');
+			$quotes = array();
+			$origintype = (!empty($object->origin_type) ? $object->origin_type : (!empty($object->origin) ? $object->origin : ''));
+			if ($origintype == 'propal' && !empty($object->origin_id)) {
+				$quotes[] = (int) $object->origin_id;
+			}
+			if (!empty($object->linked_objects['propal'])) {
+				foreach ((array) $object->linked_objects['propal'] as $id) {
+					$quotes[] = (int) $id;
+				}
+			}
+			foreach (array_unique($quotes) as $quoteid) {
+				if (DesignTraceLicensing::carryOver($this->db, $user, $object, $quoteid) < 0) {
+					$this->error = $this->db->lasterror();
+					$this->errors[] = $this->error;
+					return -1;
+				}
+			}
+		}
+
 		return $result > 0 ? 1 : 0;
 	}
 }

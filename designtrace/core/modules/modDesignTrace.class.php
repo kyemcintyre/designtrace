@@ -372,6 +372,21 @@ class modDesignTrace extends DolibarrModules
 		$this->rights[$r][4] = 'changeorder';
 		$this->rights[$r][5] = 'delete';
 		$r++;
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (5 * 10) + 0 + 1);
+		$this->rights[$r][1] = 'Read licence templates of DesignTrace';
+		$this->rights[$r][4] = 'licence';
+		$this->rights[$r][5] = 'read';
+		$r++;
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (5 * 10) + 1 + 1);
+		$this->rights[$r][1] = 'Manage licence templates of DesignTrace (create, new versions, activate)';
+		$this->rights[$r][4] = 'licence';
+		$this->rights[$r][5] = 'write';
+		$r++;
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (5 * 10) + 2 + 1);
+		$this->rights[$r][1] = 'Delete licence templates of DesignTrace (never used ones only)';
+		$this->rights[$r][4] = 'licence';
+		$this->rights[$r][5] = 'delete';
+		$r++;
 
 		/* END MODULEBUILDER PERMISSIONS */
 
@@ -639,6 +654,54 @@ class modDesignTrace extends DolibarrModules
 			'object' => 'ChangeOrder'
 		);
 		/* END MODULEBUILDER LEFTMENU CHANGEORDER */
+		/* BEGIN MODULEBUILDER LEFTMENU LICENCE */
+		$this->menu[$r++] = array(
+			'fk_menu' => 'fk_mainmenu=designtrace',
+			'type' => 'left',
+			'titre' => 'LicenceTemplates',
+			'prefix' => img_picto('', $this->picto, 'class="paddingright pictofixedwidth valignmiddle"'),
+			'mainmenu' => 'designtrace',
+			'leftmenu' => 'licence',
+			'url' => '/designtrace/licence_list.php',
+			'langs' => 'designtrace@designtrace',
+			'position' => 1000 + $r,
+			'enabled' => 'isModEnabled("designtrace")',
+			'perms' => '$user->hasRight("designtrace", "licence", "read")',
+			'target' => '',
+			'user' => 2,
+			'object' => 'Licence'
+		);
+		$this->menu[$r++] = array(
+			'fk_menu' => 'fk_mainmenu=designtrace,fk_leftmenu=licence',
+			'type' => 'left',
+			'titre' => 'ListOfLicences',
+			'mainmenu' => 'designtrace',
+			'leftmenu' => 'designtrace_licence_list',
+			'url' => '/designtrace/licence_list.php',
+			'langs' => 'designtrace@designtrace',
+			'position' => 1000 + $r,
+			'enabled' => 'isModEnabled("designtrace")',
+			'perms' => '$user->hasRight("designtrace", "licence", "read")',
+			'target' => '',
+			'user' => 2,
+			'object' => 'Licence'
+		);
+		$this->menu[$r++] = array(
+			'fk_menu' => 'fk_mainmenu=designtrace,fk_leftmenu=licence',
+			'type' => 'left',
+			'titre' => 'NewLicence',
+			'mainmenu' => 'designtrace',
+			'leftmenu' => 'designtrace_licence_new',
+			'url' => '/designtrace/licence_card.php?action=create',
+			'langs' => 'designtrace@designtrace',
+			'position' => 1000 + $r,
+			'enabled' => 'isModEnabled("designtrace")',
+			'perms' => '$user->hasRight("designtrace", "licence", "write")',
+			'target' => '',
+			'user' => 2,
+			'object' => 'Licence'
+		);
+		/* END MODULEBUILDER LEFTMENU LICENCE */
 		/* BEGIN MODULEBUILDER LEFTMENU MYOBJECT */
 		/*
 		$this->menu[$r++]=array(
@@ -857,7 +920,61 @@ class modDesignTrace extends DolibarrModules
 			}
 		}
 
-		return $this->_init($sql, $options);
+		$result = $this->_init($sql, $options);
+		if ($result > 0) {
+			$this->createStarterLicences();
+		}
+		return $result;
+	}
+
+	/**
+	 * Create the starter licence templates of the spec the first time the module is activated
+	 * (when no licence template exists). Their wording is a placeholder: it must be written and
+	 * checked by a lawyer before use. A failure is only logged.
+	 *
+	 * @return	void
+	 */
+	private function createStarterLicences()
+	{
+		global $user, $langs;
+
+		$resql = $this->db->query("SELECT COUNT(rowid) as nb FROM ".$this->db->prefix()."designtrace_licence");
+		$obj = $resql ? $this->db->fetch_object($resql) : null;
+		if (!$obj || (int) $obj->nb > 0 || !is_object($user) || empty($user->id)) {
+			return;
+		}
+		dol_include_once('/designtrace/class/licence.class.php');
+		$langs->load('designtrace@designtrace');
+		$wording = '<p><strong>'.$langs->transnoentities('LicenceStarterWording').'</strong></p><p>{customer} - {design} - {revision} - {scope} - {date}</p>';
+		// personal, commercial, resell, modify, source, exclusive, attribution, portfolio
+		$starters = array(
+			'FULL' => array('LicenceStarterFull', array(1, 1, 1, 1, 1, 1, 0, 0), ''),
+			'PERSONAL' => array('LicenceStarterPersonal', array(1, 0, 0, 0, 0, 0, 0, 1), ''),
+			'COMMERCIAL' => array('LicenceStarterCommercial', array(1, 1, 1, 0, 0, 0, 0, 1), ''),
+			'EXCLUSIVE' => array('LicenceStarterExclusive', array(1, 1, 1, 0, 0, 1, 0, 0), 'LicenceStarterExclusiveNote'),
+			'PRINTS' => array('LicenceStarterPrints', array(1, 0, 0, 0, 0, 0, 0, 1), ''),
+		);
+		foreach ($starters as $code => $def) {
+			$licence = new Licence($this->db);
+			$licence->ref = $code;
+			$licence->label = $langs->transnoentities($def[0]);
+			$licence->description = ($def[2] ? $langs->transnoentities($def[2]) : '');
+			$licence->context['nofirstversion'] = 1;
+			if ($licence->create($user) <= 0) {
+				dol_syslog(__METHOD__.' '.$licence->error, LOG_WARNING);
+				continue;
+			}
+			$version = new LicenceVersion($this->db);
+			$version->fk_licence = $licence->id;
+			$version->wording = $wording;
+			$version->change_note = $langs->transnoentities('LicenceStarterNote');
+			foreach (LicenceVersion::getPermissionKeys() as $i => $key) {
+				$version->$key = $def[1][$i];
+			}
+			if ($version->create($user) <= 0 || $version->activate($user) <= 0) {
+				dol_syslog(__METHOD__.' '.$version->error, LOG_WARNING);
+			}
+		}
 	}
 
 	/**

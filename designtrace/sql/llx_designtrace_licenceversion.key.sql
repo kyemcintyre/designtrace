@@ -1,0 +1,23 @@
+-- Copyright (C) 2026		Kye McIntyre
+--
+-- This program is free software: you can redistribute it and/or modify
+-- it under the terms of the GNU General Public License as published by
+-- the Free Software Foundation, either version 3 of the License, or
+-- (at your option) any later version.
+--
+-- This program is distributed in the hope that it will be useful,
+-- but WITHOUT ANY WARRANTY; without even the implied warranty of
+-- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-- GNU General Public License for more details.
+--
+-- You should have received a copy of the GNU General Public License
+-- along with this program.  If not, see https://www.gnu.org/licenses/.
+
+
+
+ALTER TABLE llx_designtrace_licenceversion ADD INDEX idx_designtrace_licenceversion_rowid (rowid);
+ALTER TABLE llx_designtrace_licenceversion ADD INDEX idx_designtrace_licenceversion_entity (entity);
+ALTER TABLE llx_designtrace_licenceversion ADD UNIQUE INDEX uk_designtrace_licenceversion_ref (ref, entity);
+ALTER TABLE llx_designtrace_licenceversion ADD UNIQUE INDEX uk_designtrace_licenceversion_version (fk_licence, version);
+ALTER TABLE llx_designtrace_licenceversion ADD INDEX idx_designtrace_licenceversion_status (status);
+ALTER TABLE llx_designtrace_licenceversion ADD CONSTRAINT llx_designtrace_licenceversion_fk_licence FOREIGN KEY (fk_licence) REFERENCES llx_designtrace_licence(rowid);

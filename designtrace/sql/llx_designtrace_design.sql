@@ -23,6 +23,7 @@ CREATE TABLE llx_designtrace_design(
 	fk_soc integer, 
 	fk_project integer, 
 	fk_user_designer integer, 
+	fk_licence integer, 
 	description text, 
 	note_public text, 
 	note_private text, 

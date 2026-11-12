@@ -25,8 +25,8 @@
  *  - the file's revision is linked to one of the customer's quotes, orders or tickets
  *    (not a draft or cancelled document),
  *  - that link is client-visible (llx_designtrace_docaccess, no row = visible),
- *  - the file is a presentation file (production files never, source files not until licences
- *    say so),
+ *  - the file is a presentation file, or a source file when the licence that counts for its
+ *    design on that quote or order allows source files (DesignTraceLicensing); production never,
  *  - the file is "Visible now", or "Visible on completion" and the document is a delivered
  *    (closed) order.
  */
@@ -85,8 +85,9 @@ class DesignTraceClientAccess
 	 */
 	public static function isRoleShareable($role)
 	{
-		// Production files never; source files only once licence templates allow it (phase 6)
-		return ((int) $role === RevisionFile::ROLE_PRESENTATION);
+		// Production files never; source files only where the licence allows them (checked per
+		// document in fetchVisibleFiles())
+		return in_array((int) $role, array(RevisionFile::ROLE_PRESENTATION, RevisionFile::ROLE_SOURCE), true);
 	}
 
 	/**
@@ -114,7 +115,7 @@ class DesignTraceClientAccess
 			$completed = empty($def['completed']) ? '0 = 1' : 'd.fk_statut IN ('.implode(',', array_map('intval', $def['completed'])).')';
 			$sql = "SELECT f.rowid as file_id, f.filename, f.role, f.format, f.filesize, f.sha256, f.visibility,";
 			$sql .= " r.rowid as rev_id, r.ref as rev_ref, r.rev, r.status as rev_status, r.date_release,";
-			$sql .= " c.rowid as comp_id, c.ref as comp_ref, c.label as comp_label, c.type as comp_type,";
+			$sql .= " c.rowid as comp_id, c.ref as comp_ref, c.label as comp_label, c.type as comp_type, c.fk_design as design_id,";
 			$sql .= " ee.sourcetype as element, d.rowid as doc_id, d.ref as doc_ref, d.fk_statut as doc_status";
 			$sql .= " FROM ".$db->prefix()."element_element as ee";
 			$sql .= " INNER JOIN ".$db->prefix().$def['table']." as d ON d.rowid = ee.fk_source";
@@ -127,7 +128,7 @@ class DesignTraceClientAccess
 			$sql .= " AND d.entity IN (".getEntity($channel == 'commande' ? 'order' : $channel).")";
 			$sql .= " AND d.fk_statut NOT IN (".implode(',', array_map('intval', $def['hidden'])).")";
 			$sql .= " AND (a.rowid IS NULL OR a.client_visible = 1)";
-			$sql .= " AND f.role = ".((int) RevisionFile::ROLE_PRESENTATION);
+			$sql .= " AND f.role IN (".((int) RevisionFile::ROLE_PRESENTATION).", ".((int) RevisionFile::ROLE_SOURCE).")";
 			$sql .= " AND (f.visibility = ".((int) RevisionFile::VISIBILITY_NOW)." OR (f.visibility = ".((int) RevisionFile::VISIBILITY_ON_COMPLETION)." AND ".$completed."))";
 			if ((int) $docid > 0) {
 				$sql .= " AND d.rowid = ".((int) $docid);
@@ -142,6 +143,12 @@ class DesignTraceClientAccess
 				return -1;
 			}
 			while ($obj = $db->fetch_object($resql)) {
+				if ((int) $obj->role === RevisionFile::ROLE_SOURCE) {
+					dol_include_once('/designtrace/class/licensing.class.php');
+					if (!DesignTraceLicensing::allowsSourceFiles($db, $channel, (int) $obj->doc_id, (int) $obj->design_id)) {
+						continue;
+					}
+				}
 				$rows[] = $obj;
 			}
 			$db->free($resql);

@@ -394,7 +394,7 @@ foreach ($records as $file) {
 
 	print '<td class="nowraponall">';
 	if (!DesignTraceClientAccess::isRoleShareable((int) $file->role)) {
-		print '<span class="opacitymedium">'.$form->textwithpicto($langs->trans('FileVisibilityNever'), $langs->trans((int) $file->role === RevisionFile::ROLE_PRODUCTION ? 'FileVisibilityNeverProduction' : 'FileVisibilityNeverSource')).'</span>';
+		print '<span class="opacitymedium">'.$form->textwithpicto($langs->trans('FileVisibilityNever'), $langs->trans('FileVisibilityNeverProduction')).'</span>';
 	} elseif ($permissiontomanagevisibility) {
 		print '<form method="POST" action="'.$selfurl.'" class="inline-block">';
 		print '<input type="hidden" name="token" value="'.newToken().'">';
@@ -408,6 +408,9 @@ foreach ($records as $file) {
 		print '</form>';
 	} else {
 		print dol_escape_htmltag(isset($visibilities[(int) $file->visibility]) ? $visibilities[(int) $file->visibility] : '');
+	}
+	if ((int) $file->role === RevisionFile::ROLE_SOURCE && (int) $file->visibility !== RevisionFile::VISIBILITY_HIDDEN) {
+		print '<br><span class="opacitymedium small">'.$langs->trans('FileVisibilitySourceNote').'</span>';
 	}
 	print '</td>';
 

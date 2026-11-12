@@ -86,8 +86,8 @@ portfolio consent, opening STEP/3MF in the portal's 3D viewer.
 3. Links and flagging. **Done.**
 4. Dolibarr links (quotes, orders, invoices, projects, BOMs, tickets). **Done.**
 5. Client visibility, Web portal section, REST API, download log. **Done.**
-6. ECOs and licence templates. **← next**
-7. Workshop features (proof approval, reorder, time tracking, ownership, portfolio, viewer).
+6. ECOs and licence templates. **Done.**
+7. Workshop features (proof approval, reorder, time tracking, ownership, portfolio, viewer). **← next**
 
 ## Phase 1 as built
 
@@ -204,7 +204,42 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
     file, latest 50).
 - No automated customer emails (Kye's decision): he tells customers with Dolibarr's own "Send
   email" on the quote/order. Do not add email on release, visibility change or delivered update.
-- Not yet: source files for customers (licences, phase 6); linking from the document side (only from the revision, plus "Create design");
+- **Change orders** (phase 6, `ChangeOrder`, `llx_designtrace_changeorder`): `ECO-0001` given at
+  creation (`mod_changeorder_standard`; ref has no `(PROV)` default or core renames the object),
+  summary (label), reason 1 customer … 6 other, customer, requester, description. Draft (0) →
+  Approved (1, right `changeorder approve`, stores approver and date, needs an affected component)
+  → Implemented (2) → Closed (3); Cancelled (9); Reopen steps back. Affected components
+  (`llx_designtrace_changeorder_component`) editable while Draft/Approved; Needs update flags are
+  suggested. Revisions have `fk_eco` (open ECOs only, adds the component if missing, not copied by
+  clone); history shows "from ECO-0012: summary" (`designtraceRevisionCause()`). Setting
+  `DESIGNTRACE_RELEASE_REQUIRES_ECO`: a revision after the first needs an Approved/Implemented ECO.
+  "Raise ECO" on tickets (hook `ticketcard`) links the ticket and adds the components of revisions
+  linked to it. Update delivered revision can name an ECO.
+- **Licences** (phase 6): `Licence` template (code `ref`, name, Enabled 1 / Disabled 9; deletable
+  only if never used) with `LicenceVersion`s (`CODE-vN`, wording html with {customer} {design}
+  {revision} {date} {scope}, perm_personal/commercial/resell/modify/source/exclusive/attribution/
+  portfolio, change note; Draft 0 editable → Current 1 → Superseded 9, read-only). "New version"
+  copies the current one; one draft at a time. Five starter templates (FULL, PERSONAL, COMMERCIAL,
+  EXCLUSIVE, PRINTS) are created on activation when none exist, with placeholder wording.
+  Rights `licence read/write/delete` (versions use them too).
+  - Design `fk_licence`; a quote/order can override it for all its designs
+    (`llx_designtrace_doclicence`, "Licence" row on the quote/order card via `formObjectOptions`/
+    `doActions` hooks). `class/licensing.class.php` (`DesignTraceLicensing`): designs of a
+    document (direct links and linked revisions), the licence that applies, the version that
+    counts (accepted one, else current; an acceptance under another template does not count).
+  - Source files reach a customer (quotes/orders only) when that version has `perm_source`.
+  - Acceptance (`llx_designtrace_licenceaccept`, no FKs): Web portal Design files page (tick +
+    Accept) or API `POST customers/{socid}/documents/{quote|order}/{docid}/licences/accept`
+    (design_id, version_id must still be the one that counts, else 409); list with
+    `GET .../licences`. Logs version, who, channel, IP, user agent, wording SHA-256 and writes a PDF
+    (`<REF>-licence-<DSN>-<CODE-vN>.pdf`) in the document's folder (quotes: `documents/propale/`).
+    ORDER_CREATE copies the quote's override, acceptances and PDFs to the order.
+- **Home page** (`designtraceindex.php`): counts, open ECOs, designs in progress (draft designs or
+  revisions in draft/review), latest downloads. **Download log** page (`download_list.php`, left
+  menu): filters and CSV export (`action=exportcsv` + token).
+- Not yet: acceptance tied to Dolibarr's own online quote signature (customers accept on the
+  Design files page or through the API); per-design "optional" licence permissions (make a variant
+  template); linking from the document side (only from the revision, plus "Create design");
   components on the project overview.
 - Not yet: ECO and customer approval on revisions (phases 6–7), per-type prefix settings
   (prefixes are fixed in the standard rules; the generated "advanced" mask rules ignore type).
@@ -246,6 +281,13 @@ New objects can be generated without the GUI by POSTing Module Builder's `initob
   class `DesignTrace`.
 - Web portal: `Context::getControllerUrl()` returns a raw URL; print it with
   `dolPrintHTMLForAttributeUrl()` (`dolPrintHTMLForAttribute()` double-encodes `&`).
+- Generating a new object rewrites the PERMISSIONS block from the whole file: it duplicated the
+  custom rights placed after the block with wrong ids. Diff `modDesignTrace.class.php` after every
+  generation and restore the block.
+- A ref field with `'default' => '(PROV)'` makes `createCommon()` set `$this->ref = '(PROVn)'` even
+  when a real number was stored: drop the default for objects numbered at creation.
+- When copying a page header, keep the `@var` docblock closed (`*/`): an unclosed one silently
+  comments out the access checks below it.
 
 ## Conventions
 

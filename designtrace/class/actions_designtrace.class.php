@@ -129,6 +129,127 @@ class ActionsDesignTrace extends CommonHookActions
 
 
 	/**
+	 *	Quote and order cards: set the licence that overrides the designs' ones
+	 *
+	 *	@param	array<string,mixed>	$parameters		Hook parameters
+	 *	@param	CommonObject		$object			Quote or order shown
+	 *	@param	string				$action			Current action
+	 *	@param	HookManager			$hookmanager	Hook manager
+	 *	@return	int									0
+	 */
+	public function doActions($parameters, &$object, &$action, $hookmanager)
+	{
+		global $langs, $user;
+
+		$contexts = explode(':', $parameters['context']);
+		if ($action != 'designtrace_setlicence' || (!in_array('propalcard', $contexts) && !in_array('ordercard', $contexts))) {
+			return 0;
+		}
+		if (!isModEnabled('designtrace') || empty($object->id) || !in_array($object->element, array('propal', 'commande'), true)) {
+			return 0;
+		}
+		dol_include_once('/designtrace/class/licensing.class.php');
+		$langs->load('designtrace@designtrace');
+		if (!$this->canSetDocumentLicence($object)) {
+			setEventMessages($langs->trans('NotEnoughPermissions'), null, 'errors');
+		} elseif (DesignTraceLicensing::setOverride($this->db, $user, $object->element, (int) $object->id, GETPOSTINT('designtrace_licence')) > 0) {
+			setEventMessages($langs->trans('LicenceOverrideSaved'), null, 'mesgs');
+		} else {
+			setEventMessages($this->db->lasterror(), null, 'errors');
+		}
+		$action = '';
+		return 0;
+	}
+
+	/**
+	 *	Whether the user can set the licence of a quote or order
+	 *
+	 *	@param	CommonObject	$object		Quote or order
+	 *	@return	bool
+	 */
+	private function canSetDocumentLicence($object)
+	{
+		global $user;
+
+		$right = ($object->element == 'propal' ? $user->hasRight('propal', 'creer') : $user->hasRight('commande', 'creer'));
+		return $right && $user->hasRight('designtrace', 'design', 'write') && $user->hasRight('designtrace', 'licence', 'read');
+	}
+
+	/**
+	 *	Rows for the quote and order cards: the licence of each design on the document (its own or
+	 *	the document's override), the version that counts and whether the customer accepted it
+	 *
+	 *	@param	CommonObject	$object		Quote or order
+	 *	@param	string			$action		Current action
+	 *	@return	string						HTML rows ('' if nothing to show)
+	 */
+	private function getDocumentLicenceRows($object, $action)
+	{
+		global $conf, $langs, $user, $form;
+
+		if (!isModEnabled('designtrace') || empty($object->id) || !$user->hasRight('designtrace', 'licence', 'read')) {
+			return '';
+		}
+		dol_include_once('/designtrace/class/licensing.class.php');
+		$langs->load('designtrace@designtrace');
+		$licences = DesignTraceLicensing::fetchDocumentLicences($this->db, $object->element, (int) $object->id);
+		$override = DesignTraceLicensing::getOverride($this->db, $object->element, (int) $object->id);
+		if (empty($licences) && $override <= 0) {
+			return '';
+		}
+		$selfurl = $_SERVER['PHP_SELF'].'?id='.((int) $object->id);
+		$canset = $this->canSetDocumentLicence($object);
+
+		$out = '<tr><td class="titlefield">';
+		$out .= '<table class="nobordernopadding centpercent"><tr><td>'.$form->textwithpicto($langs->trans('Licence'), $langs->trans('DocumentLicenceHelp')).'</td>';
+		if ($canset && $action != 'designtrace_editlicence') {
+			$out .= '<td class="right"><a class="editfielda reposition" href="'.$selfurl.'&action=designtrace_editlicence&token='.newToken().'">'.img_edit($langs->transnoentitiesnoconv('LicenceOverrideSet'), 1).'</a></td>';
+		}
+		$out .= '</tr></table></td><td>';
+		if ($canset && $action == 'designtrace_editlicence') {
+			$out .= '<form method="POST" action="'.$selfurl.'" class="inline-block">';
+			$out .= '<input type="hidden" name="token" value="'.newToken().'">';
+			$out .= '<input type="hidden" name="action" value="designtrace_setlicence">';
+			$out .= $form->selectarray('designtrace_licence', Licence::getEnabledList($this->db), $override, $langs->trans('LicenceOverrideNone'), 0, 0, '', 0, 0, 0, '', 'minwidth200');
+			$out .= ' <input type="submit" class="button smallpaddingimp" value="'.dol_escape_htmltag($langs->trans('Save')).'">';
+			$out .= '</form><br>';
+		}
+		$entity = (empty($object->entity) ? $conf->entity : $object->entity);
+		$modulepart = ($object->element == 'propal' ? 'propal' : 'commande');
+		$lines = array();
+		foreach ($licences as $info) {
+			$line = dol_escape_htmltag($info['design']['ref']).': ';
+			if (!$info['licence']) {
+				$line .= '<span class="opacitymedium">'.$langs->trans('LicenceNone').'</span>';
+			} else {
+				$line .= $info['licence']->getNomUrl(1);
+				$line .= ' <span class="opacitymedium">('.$langs->trans($info['source'] == 'document' ? 'LicenceFromDocument' : 'LicenceFromDesign').')</span>';
+				if (!$info['version']) {
+					$line .= ' '.img_warning().' <span class="warning">'.$langs->trans('LicenceNoCurrentVersion').'</span>';
+				} elseif ($info['acceptance']) {
+					$acc = $info['acceptance'];
+					$line .= '<br>'.img_picto('', 'fa-check-circle', 'class="pictofixedwidth" style="color: green"').$langs->trans('LicenceAcceptedOn', $info['version']->ref, dol_print_date($acc->date_accept, 'dayhour'), dol_escape_htmltag((string) $acc->actor));
+					if (!empty($acc->filename)) {
+						$line .= ' <a href="'.DOL_URL_ROOT.'/document.php?modulepart='.$modulepart.'&entity='.((int) $entity).'&file='.urlencode(dol_sanitizeFileName($object->ref).'/'.$acc->filename).'">'.img_mime($acc->filename).'</a>';
+					}
+				} else {
+					$line .= '<br><span class="opacitymedium">'.$langs->trans('LicenceNotAcceptedYet', $info['version']->ref).'</span>';
+				}
+			}
+			$lines[] = $line;
+		}
+		if (empty($lines) && $override > 0) {
+			$licence = new Licence($this->db);
+			$licence->fetch($override);
+			$lines[] = $licence->getNomUrl(1).' <span class="opacitymedium">('.$langs->trans('LicenceFromDocument').')</span>';
+		}
+		$out .= implode('<br>', $lines);
+		$out .= '</td></tr>';
+		return $out;
+	}
+
+
+	/**
 	 *	On a BOM card, show the design revision(s) of the assembly it is linked to, with a warning
 	 *	when the assembly has a newer revision or needs updating.
 	 *
@@ -143,6 +264,10 @@ class ActionsDesignTrace extends CommonHookActions
 		global $langs, $user;
 
 		$contexts = explode(':', $parameters['context']);
+		if ((in_array('propalcard', $contexts) || in_array('ordercard', $contexts)) && in_array($object->element, array('propal', 'commande'), true)) {
+			$this->resprints = $this->getDocumentLicenceRows($object, $action);
+			return 0;
+		}
 		if (!in_array('bomcard', $contexts) || !isModEnabled('designtrace') || empty($object->id) || $object->element != 'bom') {
 			return 0;
 		}
