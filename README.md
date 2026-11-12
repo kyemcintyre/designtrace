@@ -71,9 +71,11 @@ and the tests pass. Commit messages follow [Conventional Commits](https://www.co
 | `feat!: ...` or a `BREAKING CHANGE:` footer | major (0.x → 1.0.0) |
 | `docs:`, `test:`, `ci:`, `chore:`, `refactor:` ... | none |
 
-semantic-release writes the version into the module descriptor (`$this->version`) and
-`designtrace/ChangeLog.md`, commits them, tags `vX.Y.Z` and publishes a GitHub release with
-`module_designtrace-X.Y.Z.zip`. Build a package by hand with `php .github/scripts/package.php`.
+semantic-release tags `vX.Y.Z` and publishes a GitHub release with
+`module_designtrace-X.Y.Z.zip` attached. Nothing is committed back: the repo's descriptor says
+`$this->version = 'development'`, and only the copy in the zip carries the release version, with
+the release notes at the top of its `ChangeLog.md`. Pull requests also build a zip as a build
+artifact (kept 14 days). Build one by hand with `php .github/scripts/package.php 1.2.3 dist`.
 
 ## Licence
 

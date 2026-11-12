@@ -16,16 +16,25 @@
  */
 
 /**
- * Build the Dolibarr module package: <outdir>/module_designtrace-<version>.zip, holding the
- * designtrace/ folder as Dolibarr's "Deploy external module" expects. The version is read from the
- * module descriptor (set by set-version.php). Only files tracked by git are packaged, with their
- * working-tree content, minus development files (tests, Module Builder and agent files).
+ * Build the Dolibarr module package <outdir>/module_designtrace-<version>.zip, holding the
+ * designtrace/ folder as Dolibarr's "Deploy external module" expects.
  *
- *     php .github/scripts/package.php [outdir]       (default: dist)
+ *     php .github/scripts/package.php <x.y.z> [outdir] [release-notes.md]
+ *
+ * The version is never committed: the repo's descriptor says 'development', and only the copy in
+ * the zip gets $this->version = '<x.y.z>'. With release notes, the zip's ChangeLog.md starts with
+ * them (above the earlier entries). Only files tracked by git are packaged (working-tree content), minus development files.
+ * Run by semantic-release, which attaches the zip to the GitHub release of tag v<x.y.z>.
  */
 
 $root = dirname(__DIR__, 2);
-$outdir = $argv[1] ?? 'dist';
+$version = $argv[1] ?? '';
+$outdir = $argv[2] ?? 'dist';
+$notesFile = $argv[3] ?? '';
+if (!preg_match('/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/', $version)) {
+	fwrite(STDERR, "Usage: php package.php <x.y.z> [outdir] [release-notes.md]\n");
+	exit(1);
+}
 if ($outdir[0] !== '/') {
 	$outdir = $root.'/'.$outdir;
 }
@@ -41,12 +50,24 @@ $exclude = array(
 	'#(^|/)\.gitkeep$#',
 );
 
-$descriptor = file_get_contents($root.'/designtrace/core/modules/modDesignTrace.class.php');
-if (!preg_match("/\\\$this->version\\s*=\\s*'(\\d+\\.\\d+\\.\\d+[^']*)'\\s*;/", (string) $descriptor, $m)) {
-	fwrite(STDERR, "No x.y.z version in the module descriptor\n");
+// Files whose content changes in the package
+$descriptorPath = 'designtrace/core/modules/modDesignTrace.class.php';
+$descriptor = (string) file_get_contents($root.'/'.$descriptorPath);
+$pattern = "/(\\\$this->version\\s*=\\s*)'[^']*'(\\s*;)/";
+if (preg_match_all($pattern, $descriptor) !== 1) {
+	fwrite(STDERR, "Expected exactly one \$this->version = '...'; in ".$descriptorPath."\n");
 	exit(1);
 }
-$version = $m[1];
+$override = array($descriptorPath => preg_replace($pattern, "\${1}'".$version."'\${2}", $descriptor));
+
+if ($notesFile !== '') {
+	$notes = trim((string) file_get_contents($notesFile));
+	$changelog = (string) file_get_contents($root.'/designtrace/ChangeLog.md');
+	// The notes go above the first release heading, under the title and intro
+	$pos = strpos($changelog, "\n## ");
+	$override['designtrace/ChangeLog.md'] = ($pos === false ? rtrim($changelog)."\n\n".$notes."\n"
+		: substr($changelog, 0, $pos + 1).$notes."\n\n".substr($changelog, $pos + 1));
+}
 
 exec('git -C '.escapeshellarg($root).' ls-files -z -- designtrace', $out, $rc);
 if ($rc !== 0) {
@@ -74,14 +95,17 @@ foreach ($files as $path) {
 			continue 2;
 		}
 	}
-	if (!is_file($root.'/'.$path)) {
+	if (isset($override[$path])) {
+		$zip->addFromString($path, $override[$path]);
+	} elseif (is_file($root.'/'.$path)) {
+		$zip->addFile($root.'/'.$path, $path);
+	} else {
 		continue;	// Deleted in the working tree
 	}
-	$zip->addFile($root.'/'.$path, $path);
 	$count++;
 }
 if (!$zip->close()) {
 	fwrite(STDERR, "Could not write ".$zipfile."\n");
 	exit(1);
 }
-echo "Packaged ".$count." files into ".$zipfile."\n";
+echo "Packaged ".$count." files (version ".$version.") into ".$zipfile."\n";

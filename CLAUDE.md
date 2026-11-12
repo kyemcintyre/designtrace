@@ -373,11 +373,11 @@ New objects can be generated without the GUI by POSTing Module Builder's `initob
   Add or update tests with every feature or fix.
 - `.github/workflows/ci.yml`: PHP 8.1-8.3 lint, the suite on Dolibarr 24.0.2 + MariaDB 11.4
   (`.github/ci/`), and on `main` semantic-release (`.releaserc.json`, Node tooling in
-  `package.json`, never shipped). It sets `$this->version` (`.github/scripts/set-version.php`),
-  prepends `designtrace/ChangeLog.md`, builds `module_designtrace-X.Y.Z.zip`
-  (`.github/scripts/package.php`: git-tracked files of `designtrace/` minus test, build, `.tx`,
-  AGENTS.md, modulebuilder.txt), commits `chore(release)`, tags `vX.Y.Z`, publishes the GitHub
-  release. Versions started at tag `v0.1.0`. Never edit `$this->version` by hand.
+  `package.json`, never shipped): tag `vX.Y.Z` + GitHub release with `module_designtrace-X.Y.Z.zip`
+  (`.github/scripts/package.php <version> [outdir] [notes]`: git-tracked files of `designtrace/`
+  minus test, build, `.tx`, AGENTS.md, modulebuilder.txt; `$this->version` and the release notes
+  on top of ChangeLog.md are set **in the zip only**). Nothing is committed back to main (Kye's
+  choice): the repo's `$this->version` stays `'development'`. Versions start after tag `v0.1.0`.
 - `designtrace/AGENTS.md` is Dolibarr's Module Builder template; where it disagrees with this file
   (committing, tests), this file and Kye's instructions win.
 

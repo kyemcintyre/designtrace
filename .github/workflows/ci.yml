@@ -100,7 +100,7 @@ jobs:
         with:
           php-version: '8.1'
           coverage: none
-      - run: php .github/scripts/package.php dist
+      - run: php .github/scripts/package.php "0.0.0-ci.${{ github.run_number }}" dist
       - uses: actions/upload-artifact@v4
         with:
           name: module_designtrace
@@ -113,9 +113,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      issues: write
-      pull-requests: write
+      contents: write   # the tag and the GitHub release
     steps:
       - uses: actions/checkout@v4
         with:

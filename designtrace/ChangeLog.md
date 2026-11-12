@@ -1,5 +1,8 @@
 # Changelog
 
+Each release's notes are on the [releases page](https://github.com/kyemcintyre/designtrace/releases)
+and at the top of this file in its package.
+
 ## 0.1.0 (2026-11-12)
 
 First version, by Kye McIntyre: designs, components and revisions; files with roles and hashes;
