@@ -84,8 +84,8 @@ portfolio consent, opening STEP/3MF in the portal's 3D viewer.
 1. Core objects (Design, Component, ComponentRevision), workflow, numbering. **Done.**
 2. Files: roles, hashing, read-only released revisions. **Done.**
 3. Links and flagging. **Done.**
-4. Dolibarr links (quotes, orders, invoices, projects, BOMs, tickets). **← next**
-5. Client visibility, Web portal section, REST API, download log.
+4. Dolibarr links (quotes, orders, invoices, projects, BOMs, tickets). **Done.**
+5. Client visibility, Web portal section, REST API, download log. **← next**
 6. ECOs and licence templates.
 7. Workshop features (proof approval, reorder, time tracking, ownership, portfolio, viewer).
 
@@ -163,6 +163,18 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
   - Shown on the revision card (links block, release warning for outdated pins), component
     card (flag box, Where used), design card (roll-up, External dependencies) and the global
     `needsupdate_list.php` (left menu "Needs update"). Display code in `lib/designtrace_links.lib.php`.
+- **Dolibarr document links** (phase 4, `class/doclinks.class.php`): revisions link to quotes
+  (drawings, any open status), orders and invoices (any component, released), BOMs (assemblies,
+  released) and tickets (released) through `llx_element_element` (document as source, target
+  `designtrace_componentrevision`; use `$doc->getElementType()`, e.g. BOM is `bom_bom`).
+  Added from the revision card ("Link to a document"); shown on the document side by
+  `componentrevision/tpl/linkedobjectblock.tpl.php` with "newer revision available" and flags.
+  The trigger `interface_99_modDesignTrace_DesignTraceTriggers` (ORDER_CREATE, BILL_CREATE)
+  copies revision and design links from the quote/order the new document is made from. The
+  `bomcard` hook (formObjectOptions) shows the BOM's assembly revision with warnings. Component
+  has `fk_project` (defaults to the design's). The design-level quote/order link stays as is.
+- Not yet: per-link client visibility (phase 5); linking from the document side (only from
+  the revision, plus "Create design"); components on the project overview.
 - Not yet: ECO and customer approval on revisions (phases 6–7), per-type prefix settings
   (prefixes are fixed in the standard rules; the generated "advanced" mask rules ignore type).
 
@@ -187,7 +199,9 @@ New objects can be generated without the GUI by POSTing Module Builder's `initob
   setting that is on by default must be stored negated with `fieldParams['revertonoff']`.
 - Without multicompany, `entity` fields are disabled and not fetched: use
   `empty($object->entity) ? $conf->entity : $object->entity`.
-- Module parts (hooks, tpl, ...) are only registered on activation. Deactivate and activate
+- Core objects with a `$module` (BOM...) are stored in `element_element` as `module_element`
+  (`bom_bom`); their `entity` is not fetched without multicompany either.
+- Module parts (hooks, tpl, triggers) are only registered on activation. Deactivate and activate
   in **separate** PHP processes: in one process `$conf` still says enabled and
   `activateModule()` silently does nothing.
 - Re-run module activation to create tables and rights; `modDesignTrace` is reachable via

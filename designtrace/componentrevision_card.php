@@ -241,6 +241,7 @@ if (empty($reshook)) {
 	// Links to child revisions and their flags (redirects when it handles the action)
 	if ($object->id > 0) {
 		designtraceDoLinkActions($action, $object, $user);
+		designtraceDoDocLinkActions($action, $object, $user);
 	}
 
 	// Other special actions
@@ -616,6 +617,9 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 			// backward compatibility
 			$somethingshown = $form->showLinkedObjectBlock($object, $tmparray);
 		}
+
+		// Link this revision to a quote, order, invoice, BOM or ticket
+		designtracePrintDocLinkForm($object);
 
 		print '</div><div class="fichehalfright">';
 

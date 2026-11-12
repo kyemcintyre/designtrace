@@ -21,6 +21,7 @@ ALTER TABLE llx_designtrace_component ADD UNIQUE INDEX uk_designtrace_component_
 ALTER TABLE llx_designtrace_component ADD INDEX idx_designtrace_component_fk_design (fk_design);
 ALTER TABLE llx_designtrace_component ADD INDEX idx_designtrace_component_type (type);
 ALTER TABLE llx_designtrace_component ADD INDEX idx_designtrace_component_fk_product (fk_product);
+ALTER TABLE llx_designtrace_component ADD INDEX idx_designtrace_component_fk_project (fk_project);
 ALTER TABLE llx_designtrace_component ADD INDEX idx_designtrace_component_sourcing (sourcing);
 ALTER TABLE llx_designtrace_component ADD INDEX idx_designtrace_component_status (status);
 -- END MODULEBUILDER INDEXES

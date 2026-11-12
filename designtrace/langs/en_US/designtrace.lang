@@ -226,6 +226,24 @@ ErrorLinkCycle = %s already leads to %s through its links: this link would creat
 ErrorLinkNotFlagged = This link does not need an update.
 
 #
+# Links to Dolibarr documents
+#
+DocLinkTitle = Link to a document
+DocLinkHelp = Link this exact revision to a quote (drawings), an order or invoice (any component), a BOM (assemblies) or a ticket. The link shows on both sides, and the document warns when a newer revision exists. Orders made from a quote, and invoices made from an order, keep the links.
+DocLinkButton = Link
+DocLinkAdded = %s linked.
+DocLinkReleasedOnly = Only released revisions can be linked to this kind of document.
+DocLinkNewerRevision = Newer revision available: rev %s
+DesignRevision = Design revision
+BomNewerRevision = %s has a newer revision: rev %s
+BomAssemblyNeedsUpdate = %s needs updating: a component it uses has a newer revision.
+BomAssemblyIndirect = %s is indirectly affected by a component that needs updating.
+ComponentProjectHelp = Project the component belongs to. Defaults to the design's project.
+ErrorDocLinkNotAllowed = %s cannot be linked to this kind of document.
+ErrorDocLinkNeedsReleased = %s is not released: only released revisions can be linked to a %s.
+ErrorDocLinkExists = %s is already linked to %s.
+
+#
 # Revision files
 #
 RevisionFiles = Files

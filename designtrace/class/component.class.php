@@ -157,6 +157,7 @@ class Component extends CommonObject
 		"drawing_type" => array("type" => "integer", "label" => "DrawingType", "enabled" => "1", 'position' => 26, 'notnull' => 0, "visible" => "1", "arrayofkeyval" => array("1" => "DrawingTypeConcept", "2" => "DrawingTypeProof", "3" => "DrawingTypeTDS"), "validate" => "1", "help" => "DrawingTypeHelp"),
 		"label" => array("type" => "varchar(255)", "label" => "Label", "enabled" => "1", 'position' => 30, 'notnull' => 0, "visible" => "1", "alwayseditable" => "1", "searchall" => "1", "css" => "minwidth300", "cssview" => "wordbreak", "showoncombobox" => "2", "validate" => "1",),
 		"fk_product" => array("type" => "integer:Product:product/class/product.class.php:1", "label" => "Product", "picto" => "product", "enabled" => "isModEnabled('product') || isModEnabled('service')", 'position' => 40, 'notnull' => -1, "visible" => "-1", "index" => "1", "css" => "maxwidth500 widthcentpercentminusxx", "csslist" => "tdoverflowmax150", "validate" => "1", "help" => "ComponentProductHelp"),
+		"fk_project" => array("type" => "integer:Project:projet/class/project.class.php:1", "label" => "Project", "picto" => "project", "enabled" => "isModEnabled('project')", 'position' => 41, 'notnull' => -1, "visible" => "-1", "index" => "1", "css" => "maxwidth500 widthcentpercentminusxx", "csslist" => "tdoverflowmax150", "validate" => "1", "help" => "ComponentProjectHelp"),
 		"sourcing" => array("type" => "integer", "label" => "Sourcing", "enabled" => "1", 'position' => 42, 'notnull' => 0, "visible" => "1", "index" => "1", "arrayofkeyval" => array("1" => "SourcingPrint", "2" => "SourcingMake", "3" => "SourcingBuy"), "validate" => "1", "help" => "SourcingHelp"),
 		"finish" => array("type" => "varchar(255)", "label" => "FinishColour", "enabled" => "1", 'position' => 44, 'notnull' => 0, "visible" => "-1", "searchall" => "1", "css" => "minwidth300", "validate" => "1", "help" => "FinishColourHelp"),
 		"weight" => array("type" => "double(24,8)", "label" => "WeightGrams", "enabled" => "1", 'position' => 46, 'notnull' => 0, "visible" => "-1", "css" => "maxwidth100", "validate" => "1", "help" => "WeightGramsHelp"),
@@ -180,6 +181,10 @@ class Component extends CommonObject
 	public $drawing_type;
 	public $label;
 	public $fk_product;
+	/**
+	 * @var ?int Project of the component; defaults to the design's project
+	 */
+	public $fk_project;
 	/**
 	 * @var ?int How the part is obtained (SOURCING_*), not for drawings
 	 */
@@ -259,6 +264,15 @@ class Component extends CommonObject
 	{
 		if ($this->checkTypeFields() < 0) {
 			return -1;
+		}
+
+		// Project: the design's one unless another is given
+		if (empty($this->fk_project) || (int) $this->fk_project <= 0) {
+			dol_include_once('/designtrace/class/design.class.php');
+			$design = new Design($this->db);
+			if (!empty($this->fk_design) && $design->fetch((int) $this->fk_design) > 0 && !empty($design->fk_project)) {
+				$this->fk_project = (int) $design->fk_project;
+			}
 		}
 
 		// The number is given at creation, not on validation: files are named after it

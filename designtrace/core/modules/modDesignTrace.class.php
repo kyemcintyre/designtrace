@@ -108,7 +108,7 @@ class modDesignTrace extends DolibarrModules
 		//	)
 		$this->module_parts = array(
 			// Set this to 1 if module has its own trigger directory (core/triggers)
-			'triggers' => 0,
+			'triggers' => 1,	// Carry design revision links from quotes to orders and invoices
 			// Set this to 1 if module has its own login method file (core/login)
 			'login' => 0,
 			// Set this to 1 if module has its own substitution function file (core/substitutions)
@@ -138,6 +138,7 @@ class modDesignTrace extends DolibarrModules
 			'hooks' => array(
 				'propalcard',	// "Create design" button
 				'ordercard',
+				'bomcard',		// Design revision of the BOM, warning when it needs updating
 			),
 			/* END MODULEBUILDER HOOKSCONTEXTS */
 			// Set this to 1 if features of module are opened to external users

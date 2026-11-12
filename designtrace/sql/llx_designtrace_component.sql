@@ -24,6 +24,7 @@ CREATE TABLE llx_designtrace_component(
 	drawing_type integer, 
 	label varchar(255), 
 	fk_product integer, 
+	fk_project integer, 
 	sourcing integer, 
 	finish varchar(255), 
 	weight double(24,8), 

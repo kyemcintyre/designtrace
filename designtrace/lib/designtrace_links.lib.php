@@ -480,3 +480,83 @@ function designtraceLinkIsOutdated($row)
 {
 	return !empty($row->current_rev_id) && (int) $row->current_rev_id > (int) $row->fk_child;
 }
+
+/**
+ * Handle the "link to a document" action of the revision card (linkdoc), then redirect
+ *
+ * @param	string				$action		Action
+ * @param	ComponentRevision	$object		Revision
+ * @param	User				$user		Current user
+ * @return	void
+ */
+function designtraceDoDocLinkActions($action, $object, $user)
+{
+	global $langs;
+
+	if ($action != 'linkdoc') {
+		return;
+	}
+	dol_include_once('/designtrace/class/doclinks.class.php');
+	if (!$user->hasRight('designtrace', 'componentrevision', 'write')) {
+		setEventMessages($langs->trans('NotEnoughPermissions'), null, 'errors');
+	} else {
+		$element = GETPOST('docelement', 'aZ09');
+		$docid = GETPOSTINT('docid_'.$element);
+		if (DesignTraceDocLinks::link($user, $object, $element, $docid) > 0) {
+			setEventMessages($langs->trans('DocLinkAdded', $object->ref), null, 'mesgs');
+		} else {
+			setEventMessages($object->error, $object->errors, 'errors');
+		}
+	}
+	header('Location: '.dol_buildpath('/designtrace/componentrevision_card.php', 1).'?id='.((int) $object->id));
+	exit;
+}
+
+/**
+ * Print the form to link a revision to a quote, order, invoice, BOM or ticket (one row per kind
+ * of document allowed for this component type)
+ *
+ * @param	ComponentRevision	$object		Revision
+ * @return	void
+ */
+function designtracePrintDocLinkForm($object)
+{
+	global $db, $langs, $user, $form;
+
+	dol_include_once('/designtrace/class/doclinks.class.php');
+	if (!$user->hasRight('designtrace', 'componentrevision', 'write') || (int) $object->status === ComponentRevision::STATUS_OBSOLETE) {
+		return;
+	}
+	$component = $object->fetchComponentChecked();
+	if (!is_object($component)) {
+		return;
+	}
+	$elements = DesignTraceDocLinks::getAllowedElements($component, $user);
+	$rules = DesignTraceDocLinks::getRules();
+	$url = dol_buildpath('/designtrace/componentrevision_card.php', 1).'?id='.((int) $object->id);
+
+	print '<br>';
+	print load_fiche_titre($form->textwithpicto($langs->trans('DocLinkTitle'), $langs->trans('DocLinkHelp')), '', 'fa-link');
+	print '<table class="noborder centpercent">';
+	foreach ($elements as $element) {
+		$rule = $rules[$element];
+		$allowed = ($rule['statuses'] !== DesignTraceDocLinks::RELEASED_ONLY || (int) $object->status === ComponentRevision::STATUS_RELEASED);
+		print '<tr class="oddeven"><td class="nowraponall titlefield">'.img_picto('', $rule['picto'], 'class="pictofixedwidth"').$langs->trans($rule['label']).'</td><td>';
+		if ($allowed) {
+			print '<form method="POST" action="'.$url.'" class="inline-block">';
+			print '<input type="hidden" name="token" value="'.newToken().'">';
+			print '<input type="hidden" name="action" value="linkdoc">';
+			print '<input type="hidden" name="docelement" value="'.dol_escape_htmltag($element).'">';
+			print DesignTraceDocLinks::selectDocument($db, $element, 'docid_'.$element);
+			print ' <input type="submit" class="button small" value="'.dol_escape_htmltag($langs->trans('DocLinkButton')).'">';
+			print '</form>';
+		} else {
+			print '<span class="opacitymedium">'.$langs->trans('DocLinkReleasedOnly').'</span>';
+		}
+		print '</td></tr>';
+	}
+	if (empty($elements)) {
+		print '<tr class="oddeven"><td><span class="opacitymedium">'.$langs->trans('None').'</span></td></tr>';
+	}
+	print '</table>';
+}
