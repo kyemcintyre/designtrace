@@ -96,7 +96,7 @@ $where = " WHERE dl.entity IN (".getEntity('designtrace_download').")";
 if ($search_soc > 0) {
 	$where .= " AND dl.fk_soc = ".((int) $search_soc);
 }
-if (in_array($search_channel, array(DesignTraceClientAccess::CHANNEL_WEBPORTAL, DesignTraceClientAccess::CHANNEL_API), true)) {
+if (array_key_exists($search_channel, DesignTraceClientAccess::getChannelLabels())) {
 	$where .= " AND dl.channel = '".$db->escape($search_channel)."'";
 }
 if ($search_file !== '') {
@@ -136,7 +136,7 @@ while ($obj = $db->fetch_object($resql)) {
 }
 
 $channels = DesignTraceClientAccess::getChannels();
-$channellabels = array(DesignTraceClientAccess::CHANNEL_WEBPORTAL => $langs->trans('DownloadChannelWebportal'), DesignTraceClientAccess::CHANNEL_API => $langs->trans('DownloadChannelApi'));
+$channellabels = DesignTraceClientAccess::getChannelLabels();
 
 // CSV export of the filtered log
 if ($export) {

@@ -313,7 +313,7 @@ if ($canrev) {
 			print $socstatic->getNomUrl(1);
 		}
 		print '</td>';
-		print '<td>'.$langs->trans($obj->channel == DesignTraceClientAccess::CHANNEL_API ? 'DownloadChannelApi' : 'DownloadChannelWebportal').'</td>';
+		print '<td>'.dol_escape_htmltag(DesignTraceClientAccess::getChannelLabels()[$obj->channel] ?? $obj->channel).'</td>';
 		print '<td class="right nowraponall">'.dol_print_date($db->jdate($obj->date_download), 'dayhour').'</td></tr>';
 	}
 	if (!$nb) {

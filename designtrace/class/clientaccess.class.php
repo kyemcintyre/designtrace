@@ -42,6 +42,7 @@ class DesignTraceClientAccess
 {
 	const CHANNEL_WEBPORTAL = 'webportal';
 	const CHANNEL_API = 'api';
+	const CHANNEL_VIEWER = 'viewer';	// Opened in the My workshop 3D viewer (a view link of the API)
 
 	/**
 	 * Default lifetime of a signed download link, in seconds
@@ -62,6 +63,40 @@ class DesignTraceClientAccess
 			'commande' => array('table' => 'commande', 'hidden' => array(-1, 0), 'completed' => array(3), 'label' => 'Order', 'picto' => 'order', 'module' => 'order'),
 			'ticket' => array('table' => 'ticket', 'hidden' => array(9), 'completed' => array(), 'label' => 'Ticket', 'picto' => 'ticket', 'module' => 'ticket'),
 		);
+	}
+
+	/**
+	 * Labels of the download log channels
+	 *
+	 * @return	array<string,string>
+	 */
+	public static function getChannelLabels()
+	{
+		global $langs;
+
+		$langs->load('designtrace@designtrace');
+		return array(
+			self::CHANNEL_WEBPORTAL => $langs->trans('DownloadChannelWebportal'),
+			self::CHANNEL_API => $langs->trans('DownloadChannelApi'),
+			self::CHANNEL_VIEWER => $langs->trans('DownloadChannelViewer'),
+		);
+	}
+
+	/**
+	 * Origins allowed to fetch view links from a browser (CORS), from the setup
+	 *
+	 * @return	string[]	e.g. https://kyemcintyre.net
+	 */
+	public static function getViewerOrigins()
+	{
+		$origins = array();
+		foreach (preg_split('/[\s,]+/', getDolGlobalString('DESIGNTRACE_VIEWER_ORIGINS')) as $origin) {
+			$origin = rtrim(trim($origin), '/');
+			if (preg_match('#^https?://[a-z0-9.-]+(:[0-9]+)?$#i', $origin)) {
+				$origins[] = strtolower($origin);
+			}
+		}
+		return $origins;
 	}
 
 	/**
@@ -520,12 +555,16 @@ class DesignTraceClientAccess
 	/**
 	 * Signature of a download link
 	 *
-	 * @param	array<string,int|string>	$params		f (file id), s (customer id), e (expiry), t (document type), d (document id), a (actor), n (entity)
+	 * @param	array<string,int|string>	$params		f (file id), s (customer id), e (expiry), t (document type), d (document id), a (actor), n (entity),
+	 *												v (1 = view link for the 3D viewer, optional)
 	 * @return	string
 	 */
 	public static function sign($params)
 	{
 		$payload = implode('|', array((int) $params['f'], (int) $params['s'], (int) $params['e'], (string) $params['t'], (int) $params['d'], (string) $params['a'], (int) $params['n']));
+		if (!empty($params['v'])) {
+			$payload .= '|view';	// Only added for view links, so download links keep their signature
+		}
 		return hash_hmac('sha256', $payload, self::getSecret());
 	}
 
@@ -535,9 +574,10 @@ class DesignTraceClientAccess
 	 * @param	stdClass	$row		Row from fetchVisibleFiles()
 	 * @param	int			$socid		Customer id
 	 * @param	string		$actor		Who asks (logged with the download)
+	 * @param	bool		$view		View link: served inline, fetchable by the 3D viewer's site (CORS)
 	 * @return	array{url:string,expires:int}
 	 */
-	public static function buildSignedUrl($row, $socid, $actor = '')
+	public static function buildSignedUrl($row, $socid, $actor = '', $view = false)
 	{
 		global $conf;
 
@@ -550,6 +590,9 @@ class DesignTraceClientAccess
 			'a' => (string) $actor,
 			'n' => (int) $conf->entity,
 		);
+		if ($view) {
+			$params['v'] = 1;
+		}
 		$params['sig'] = self::sign($params);
 		return array('url' => dol_buildpath('/designtrace/public/download.php', 2).'?'.http_build_query($params, '', '&'), 'expires' => (int) $params['e']);
 	}
@@ -567,7 +610,7 @@ class DesignTraceClientAccess
 				return 'Bad link';
 			}
 		}
-		$params += array('t' => '', 'd' => 0, 'a' => '');
+		$params += array('t' => '', 'd' => 0, 'a' => '', 'v' => '');
 		if (!hash_equals(self::sign($params), (string) $params['sig'])) {
 			return 'Bad signature';
 		}

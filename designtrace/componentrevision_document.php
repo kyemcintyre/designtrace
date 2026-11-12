@@ -490,7 +490,7 @@ if (!empty($downloads)) {
 		print '<td class="nowraponall">'.(isset($channels[$dl->element]) ? $langs->trans($channels[$dl->element]['label']).' ' : '');
 		$docref = DesignTraceClientAccess::getDocumentNomUrl($db, (string) $dl->element, (int) $dl->fk_element);
 		print $docref.'</td>';
-		print '<td>'.$langs->trans($dl->channel == DesignTraceClientAccess::CHANNEL_API ? 'DownloadChannelApi' : 'DownloadChannelWebportal').'</td>';
+		print '<td>'.dol_escape_htmltag(DesignTraceClientAccess::getChannelLabels()[$dl->channel] ?? $dl->channel).'</td>';
 		print '<td class="tdoverflowmax150">'.dol_escape_htmltag((string) $dl->actor).'</td>';
 		print '<td class="nowraponall">'.dol_escape_htmltag((string) $dl->ip).'</td>';
 		print '</tr>';

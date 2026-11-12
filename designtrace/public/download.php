@@ -24,6 +24,8 @@
  *	entity and expiry). The visibility rules are checked again here, so a file hidden after the
  *	link was made is refused. Every customer download is logged. Links of type "portfolio" serve
  *	gallery images of designs whose customer consented (not logged: they are public on the site).
+ *	View links (v=1) serve a 3D file inline to the My workshop viewer, with a CORS header for the
+ *	origins set up in DESIGNTRACE_VIEWER_ORIGINS, and are logged as "3D viewer".
  */
 
 if (!defined('NOLOGIN')) {
@@ -89,6 +91,7 @@ $params = array(
 	'd' => GETPOSTINT('d'),
 	'a' => GETPOST('a', 'alphanohtml'),
 	'n' => GETPOSTINT('n'),
+	'v' => GETPOSTINT('v'),
 	'sig' => GETPOST('sig', 'aZ09'),
 );
 
@@ -118,5 +121,18 @@ if ($fullpath === '' || !is_file(dol_osencode($fullpath))) {
 	httponly_accessforbidden('File not found', 404);
 }
 
-DesignTraceClientAccess::logDownload($db, $row, (int) $params['s'], DesignTraceClientAccess::CHANNEL_API, (string) $params['a']);
-DesignTraceClientAccess::sendFile($fullpath, $row->filename);
+// View link: a 3D file opened by the My workshop viewer, which fetches it from the browser
+$view = !empty($params['v']);
+if ($view) {
+	if (!DesignTraceClientAccess::is3dFormat((string) $row->format)) {
+		httponly_accessforbidden('Not a 3D file', 403);
+	}
+	$origin = strtolower(rtrim((string) ($_SERVER['HTTP_ORIGIN'] ?? ''), '/'));
+	if ($origin !== '' && in_array($origin, DesignTraceClientAccess::getViewerOrigins(), true)) {
+		header('Access-Control-Allow-Origin: '.$origin);
+		header('Vary: Origin');
+	}
+}
+
+DesignTraceClientAccess::logDownload($db, $row, (int) $params['s'], $view ? DesignTraceClientAccess::CHANNEL_VIEWER : DesignTraceClientAccess::CHANNEL_API, (string) $params['a']);
+DesignTraceClientAccess::sendFile($fullpath, $row->filename, $view);

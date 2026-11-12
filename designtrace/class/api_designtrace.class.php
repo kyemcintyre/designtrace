@@ -115,24 +115,31 @@ class DesignTrace extends DolibarrApi
 	 *
 	 * The link works without login until it expires (setup: link lifetime, 5 minutes by default).
 	 * The rules are checked again when it is used, and the download is logged with the actor.
+	 * With purpose=view (3D files only, viewer_3d in the file lists) the link is for the 3D viewer:
+	 * the file is served inline, the browser may fetch it from the origins set up in DesignTrace
+	 * (CORS), and it is logged as opened in the 3D viewer.
 	 *
 	 * @param	int		$socid		Customer (third party) id
 	 * @param	int		$fileid		File id (file_id in the file lists)
 	 * @param	string	$element	Document type the file is downloaded through (optional): quote, order or ticket
 	 * @param	int		$docid		Document id (optional)
 	 * @param	string	$actor		Who downloads, for the log (e.g. the portal login or contact id)
-	 * @return	array				url, expires (timestamp), filename, filesize, sha256
+	 * @param	string	$purpose	download (default) or view
+	 * @return	array				url, expires (timestamp), filename, filesize, sha256, purpose
 	 * @phan-return array<string,mixed>
 	 * @phpstan-return array<string,mixed>
 	 *
 	 * @url	GET customers/{socid}/files/{fileid}/link
 	 *
-	 * @throws RestException 400 Bad document type
+	 * @throws RestException 400 Bad document type or purpose, or not a 3D file
 	 * @throws RestException 403 Not allowed
 	 * @throws RestException 404 File not visible to this customer
 	 */
-	public function getDownloadLink($socid, $fileid, $element = '', $docid = 0, $actor = '')
+	public function getDownloadLink($socid, $fileid, $element = '', $docid = 0, $actor = '', $purpose = 'download')
 	{
+		if (!in_array($purpose, array('download', 'view'), true)) {
+			throw new RestException(400, 'Bad purpose, use download or view');
+		}
 		$socid = $this->checkCustomer($socid);
 		$type = '';
 		if ($element !== '') {
@@ -149,7 +156,10 @@ class DesignTrace extends DolibarrApi
 		if ($actor === '') {
 			$actor = 'api:'.DolibarrApiAccess::$user->login;
 		}
-		$link = DesignTraceClientAccess::buildSignedUrl($row, $socid, $actor);
+		if ($purpose == 'view' && !DesignTraceClientAccess::is3dFormat((string) $row->format)) {
+			throw new RestException(400, 'Only 3D files (viewer_3d) can be opened in the viewer');
+		}
+		$link = DesignTraceClientAccess::buildSignedUrl($row, $socid, $actor, $purpose == 'view');
 
 		return array(
 			'url' => $link['url'],
@@ -157,6 +167,7 @@ class DesignTrace extends DolibarrApi
 			'filename' => $row->filename,
 			'filesize' => (int) $row->filesize,
 			'sha256' => $row->sha256,
+			'purpose' => $purpose,
 		);
 	}
 

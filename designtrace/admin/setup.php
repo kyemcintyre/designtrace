@@ -163,6 +163,12 @@ $item->fieldAttr['min'] = '10';
 $item->helpText = $langs->trans('DESIGNTRACE_LINK_TTLTooltip', DesignTraceClientAccess::DEFAULT_LINK_TTL);
 $item->cssClass = 'maxwidth100';
 
+// Sites whose 3D viewer may fetch view links from the browser (CORS)
+$item = $formSetup->newItem('DESIGNTRACE_VIEWER_ORIGINS');
+$item->fieldAttr['placeholder'] = 'https://example.com';
+$item->helpText = $langs->trans('DESIGNTRACE_VIEWER_ORIGINSTooltip');
+$item->cssClass = 'minwidth300';
+
 // What a customer's change request on a proof opens (ticket by default)
 $item = $formSetup->newItem('DESIGNTRACE_PROOF_CHANGES_ACTION')->setAsSelect(array(
 	'ticket' => $langs->trans('ProofChangesActionTicket'),

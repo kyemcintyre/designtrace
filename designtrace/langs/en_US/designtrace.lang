@@ -620,3 +620,10 @@ ErrorCadTimeNoProject = Link a project to the design, component or ECO first.
 ErrorCadTimeProjectNotOpen = The project must be validated (open) to log time.
 ErrorCadTimeBadTask = That task is not in this project.
 ErrorCadTimeInvoiced = This time is on an invoice and can no longer be deleted.
+
+#
+# 3D viewer (phase 7)
+#
+DownloadChannelViewer = 3D viewer (My workshop)
+DESIGNTRACE_VIEWER_ORIGINS = Sites allowed to open files in their 3D viewer
+DESIGNTRACE_VIEWER_ORIGINSTooltip = Origins (scheme and host, e.g. https://kyemcintyre.net), separated by commas, whose pages may fetch view links of client-visible STEP, 3MF and other 3D files from the browser. The API gives a view link with purpose=view. Leave empty if your viewer fetches files from the server side.
