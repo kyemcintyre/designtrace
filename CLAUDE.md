@@ -147,10 +147,12 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
   (revisions), link_type 1 Uses (assembly → part/assembly, qty) / 2 Depicts (drawing →
   part/assembly) / 3 References (any), note, flag_status 0 none / 1 Needs update / 2 Indirectly
   affected / 3 Acknowledged, flag_note ("PRT-0002 A → B", "via ASM-0001"), ack fields
-  (fk_ack_revision = child revision acknowledged). Children must be released; one link per
-  child component per parent revision; no cycles between components; links are edited on
-  draft/in-review parents only. "New revision from this one" copies links (same pins); drafts
-  show "Rev X available" with Pin / Pin all.
+  (fk_ack_revision = child revision acknowledged). Children can be draft, in review or
+  released (not obsolete); a parent cannot be submitted for review while a child is a draft,
+  nor released while a child is not released (`getBlockingChildren()`, buttons disabled with
+  the reason), and a linked draft cannot be deleted. One link per child component per parent
+  revision; no cycles between components; links are edited on draft/in-review parents only. "New revision from this one" copies links (same pins); drafts
+  show "Rev X available" (only when the current revision is newer than the pin) with Pin / Pin all.
   - Current revision of a component = its latest released one (`getCurrentRevisionIds()`).
     Only links of current revisions carry flags. `ComponentLink::recomputeFlags()` recomputes
     everything (direct, then indirect propagated upward, acknowledgements) and runs after

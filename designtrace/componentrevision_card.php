@@ -538,12 +538,16 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 
 			// Submit for review (Draft -> In review)
 			if ($object->status == $object::STATUS_DRAFT) {
-				print dolGetButtonAction('', $langs->trans('RevisionSubmitForReview'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=confirm_validate&confirm=yes&token='.newToken(), '', $permissiontoadd);
+				$blocking = $object->getBlockingChildren(array($object::STATUS_DRAFT));
+				$reason = ($blocking ? $langs->trans('ErrorRevisionChildrenNotReviewed', $object->ref, implode(', ', $blocking)) : '');
+				print dolGetButtonAction($reason, $langs->trans('RevisionSubmitForReview'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=confirm_validate&confirm=yes&token='.newToken(), '', $permissiontoadd && empty($blocking));
 			}
 
 			// Release (Draft or In review -> Released), asks for confirmation
 			if ($object->status == $object::STATUS_DRAFT || $object->status == $object::STATUS_INREVIEW) {
-				print dolGetButtonAction($permissiontorelease ? '' : $langs->trans('NotEnoughPermissions'), $langs->trans('RevisionRelease'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=release&token='.newToken(), '', $permissiontorelease);
+				$blocking = $object->getBlockingChildren(array($object::STATUS_DRAFT, $object::STATUS_INREVIEW));
+				$reason = ($permissiontorelease ? ($blocking ? $langs->trans('ErrorRevisionChildrenNotReleased', $object->ref, implode(', ', $blocking)) : '') : $langs->trans('NotEnoughPermissions'));
+				print dolGetButtonAction($reason, $langs->trans('RevisionRelease'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=release&token='.newToken(), '', $permissiontorelease && empty($blocking));
 			}
 
 			// Make obsolete (Released -> Obsolete) / Undo obsolete (Obsolete -> Released)

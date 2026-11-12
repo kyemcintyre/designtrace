@@ -564,6 +564,18 @@ class ComponentRevision extends CommonObject
 		if ((int) $this->status >= self::STATUS_RELEASED) {
 			return $this->setErrorAndFail($langs->trans('ErrorRevisionReleasedCannotBeDeleted', $this->ref));
 		}
+		// A draft other revisions link to cannot disappear under them
+		$parents = array();
+		$sql = "SELECT p.ref FROM ".$this->db->prefix()."designtrace_componentlink as l";
+		$sql .= " INNER JOIN ".$this->db->prefix().$this->table_element." as p ON p.rowid = l.fk_parent";
+		$sql .= " WHERE l.fk_child = ".((int) $this->id)." ORDER BY p.ref";
+		$resql = $this->db->query($sql);
+		while ($resql && ($obj = $this->db->fetch_object($resql))) {
+			$parents[] = $obj->ref;
+		}
+		if ($parents) {
+			return $this->setErrorAndFail($langs->trans('ErrorRevisionUsedAsChild', $this->ref, implode(', ', $parents)));
+		}
 
 		$this->db->begin();
 		$result = 1;
@@ -618,9 +630,17 @@ class ComponentRevision extends CommonObject
 	 */
 	public function validate($user, $notrigger = 0)
 	{
+		global $langs;
+
 		if ((int) $this->status !== self::STATUS_DRAFT) {
 			dol_syslog(get_class($this)."::validate action abandoned: not a draft", LOG_WARNING);
 			return 0;
+		}
+		// Nothing goes to review while it depends on a draft
+		$blocking = $this->getBlockingChildren(array(self::STATUS_DRAFT));
+		if ($blocking) {
+			$langs->load('designtrace@designtrace');
+			return $this->setErrorAndFail($langs->trans('ErrorRevisionChildrenNotReviewed', $this->ref, implode(', ', $blocking)));
 		}
 
 		return $this->setStatusCommon($user, self::STATUS_INREVIEW, $notrigger, 'DESIGNTRACE_COMPONENTREVISION_SUBMIT');
@@ -659,6 +679,12 @@ class ComponentRevision extends CommonObject
 		if (!in_array((int) $this->status, array(self::STATUS_DRAFT, self::STATUS_INREVIEW), true)) {
 			dol_syslog(get_class($this)."::release action abandoned: status ".$this->status, LOG_WARNING);
 			return 0;
+		}
+		// Nothing is released while it depends on something not released
+		$blocking = $this->getBlockingChildren(array(self::STATUS_DRAFT, self::STATUS_INREVIEW));
+		if ($blocking) {
+			$langs->load('designtrace@designtrace');
+			return $this->setErrorAndFail($langs->trans('ErrorRevisionChildrenNotReleased', $this->ref, implode(', ', $blocking)));
 		}
 		if (getDolGlobalInt('DESIGNTRACE_RELEASE_REQUIRES_SOURCE')) {
 			dol_include_once('/designtrace/class/revisionfile.class.php');
@@ -914,6 +940,31 @@ class ComponentRevision extends CommonObject
 		$this->component = $component;
 
 		return $component;
+	}
+
+	/**
+	 *	Refs of the child revisions this revision links to that are in one of the given statuses
+	 *	(used to refuse review while a child is a draft, and release while a child is not released)
+	 *
+	 *	@param	int[]	$statuses	Child statuses that block
+	 *	@return	string[]			Child revision refs
+	 */
+	public function getBlockingChildren($statuses)
+	{
+		$refs = array();
+		if (empty($this->id) || empty($statuses)) {
+			return $refs;
+		}
+		$sql = "SELECT c.ref FROM ".$this->db->prefix()."designtrace_componentlink as l";
+		$sql .= " INNER JOIN ".$this->db->prefix().$this->table_element." as c ON c.rowid = l.fk_child";
+		$sql .= " WHERE l.fk_parent = ".((int) $this->id);
+		$sql .= " AND c.status IN (".$this->db->sanitize(implode(',', array_map('intval', $statuses))).")";
+		$sql .= " ORDER BY c.ref";
+		$resql = $this->db->query($sql);
+		while ($resql && ($obj = $this->db->fetch_object($resql))) {
+			$refs[] = $obj->ref;
+		}
+		return $refs;
 	}
 
 	/**

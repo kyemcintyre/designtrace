@@ -79,7 +79,7 @@ function designtraceDoLinkActions($action, $object, $user)
 		// Pin the current revision of the child (one link, or all outdated ones)
 		$count = 0;
 		foreach (ComponentLink::fetchForParent($db, $object->id) as $row) {
-			if (($action == 'pinlink' && (int) $row->rowid !== (int) $link->id) || !$row->current_rev_id || (int) $row->current_rev_id === (int) $row->fk_child) {
+			if (($action == 'pinlink' && (int) $row->rowid !== (int) $link->id) || !designtraceLinkIsOutdated($row)) {
 				continue;
 			}
 			$tmp = new ComponentLink($db);
@@ -152,7 +152,7 @@ function designtraceCountOutdatedLinks($object)
 
 	$count = 0;
 	foreach (ComponentLink::fetchForParent($db, $object->id) as $row) {
-		if ($row->current_rev_id && (int) $row->current_rev_id !== (int) $row->fk_child) {
+		if (designtraceLinkIsOutdated($row)) {
 			$count++;
 		}
 	}
@@ -176,10 +176,11 @@ function designtracePrintRevisionLinks($object, $form)
 	$url = dol_buildpath('/designtrace/componentrevision_card.php', 1).'?id='.((int) $object->id);
 	$component = $object->fetchComponentChecked();
 	$rows = ComponentLink::fetchForParent($db, $object->id);
+	$staticrevision = new ComponentRevision($db);
 
 	$outdated = 0;
 	foreach ($rows as $row) {
-		if ($row->current_rev_id && (int) $row->current_rev_id !== (int) $row->fk_child) {
+		if (designtraceLinkIsOutdated($row)) {
 			$outdated++;
 		}
 	}
@@ -218,7 +219,10 @@ function designtracePrintRevisionLinks($object, $form)
 
 		print '<td class="nowraponall">';
 		print '<a href="'.dol_buildpath('/designtrace/componentrevision_card.php', 1).'?id='.((int) $row->fk_child).'">'.dol_escape_htmltag($row->child_ref).'</a>';
-		if ($row->current_rev_id && (int) $row->current_rev_id !== (int) $row->fk_child) {
+		if ((int) $row->child_status !== ComponentRevision::STATUS_RELEASED) {
+			print ' '.$staticrevision->LibStatut((int) $row->child_status, 5);
+		}
+		if (designtraceLinkIsOutdated($row)) {
 			print ' <span class="warning">'.img_warning('', '', 'paddingleft').' '.$langs->trans('LinkNewerAvailable', dol_escape_htmltag($row->current_rev)).'</span>';
 			if ($canedit) {
 				print ' <a class="button smallpaddingimp" href="'.$url.'&action=pinlink&linkid='.((int) $row->rowid).'&token='.newToken().'">'.$langs->trans('LinkUpdateToCurrent', dol_escape_htmltag($row->current_rev)).'</a>';
@@ -261,8 +265,8 @@ function designtracePrintRevisionLinks($object, $form)
 }
 
 /**
- * Print the form to add a link to a draft revision. The child list holds the released
- * revisions of every other component, current revision first and preselected per component.
+ * Print the form to add a link to a draft revision. The child list holds the draft, in-review
+ * and released revisions of every other component, newest first, with their state.
  *
  * @param	ComponentRevision	$object		Revision (parent)
  * @param	Component			$component	Its component
@@ -274,22 +278,28 @@ function designtracePrintAddLinkForm($object, $component, $form, $url)
 {
 	global $db, $langs;
 
-	$sql = "SELECT r.rowid, r.ref, r.rev, c.ref as comp_ref, c.label as comp_label, c.type as comp_type, d.ref as design_ref";
+	$sql = "SELECT r.rowid, r.ref, r.rev, r.status, c.ref as comp_ref, c.label as comp_label, c.type as comp_type, d.ref as design_ref";
 	$sql .= " FROM ".$db->prefix()."designtrace_componentrevision as r";
 	$sql .= " INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
 	$sql .= " INNER JOIN ".$db->prefix()."designtrace_design as d ON d.rowid = c.fk_design";
-	$sql .= " WHERE r.status = ".ComponentRevision::STATUS_RELEASED;
+	$sql .= " WHERE r.status IN (".ComponentRevision::STATUS_DRAFT.", ".ComponentRevision::STATUS_INREVIEW.", ".ComponentRevision::STATUS_RELEASED.")";
 	$sql .= " AND c.rowid <> ".((int) $component->id);
 	$sql .= " AND c.entity IN (".getEntity('component').")";
 	$sql .= " ORDER BY c.ref ASC, r.rowid DESC";
 	$options = array();
-	$seen = array();
+	$seenreleased = array();
 	$resql = $db->query($sql);
 	while ($resql && ($obj = $db->fetch_object($resql))) {
-		$iscurrent = !isset($seen[$obj->comp_ref]);
-		$seen[$obj->comp_ref] = true;
-		$label = $obj->ref.' - '.$obj->comp_label.' ['.$obj->design_ref.']'.($iscurrent ? '' : ' ('.$langs->trans('NotCurrentRevision').')');
-		$options[(int) $obj->rowid] = array('label' => $label, 'data-html' => dol_escape_htmltag($label), 'class' => $iscurrent ? '' : 'opacitymedium');
+		if ((int) $obj->status === ComponentRevision::STATUS_DRAFT) {
+			$state = ' ('.$langs->trans('Draft').')';
+		} elseif ((int) $obj->status === ComponentRevision::STATUS_INREVIEW) {
+			$state = ' ('.$langs->trans('RevisionStatusInReview').')';
+		} else {
+			$state = (isset($seenreleased[$obj->comp_ref]) ? ' ('.$langs->trans('NotCurrentRevision').')' : '');
+			$seenreleased[$obj->comp_ref] = true;
+		}
+		$label = $obj->ref.' - '.$obj->comp_label.' ['.$obj->design_ref.']'.$state;
+		$options[(int) $obj->rowid] = array('label' => $label, 'data-html' => dol_escape_htmltag($label));
 	}
 
 	$types = array(ComponentLink::TYPE_REFERENCES => $langs->trans('LinkTypeReferences'));
@@ -433,7 +443,7 @@ function designtracePrintDesignLinks($design)
 		print '<tr class="oddeven">';
 		print '<td class="tdoverflowmax200"><a href="'.dol_buildpath('/designtrace/component_card.php', 1).'?id='.((int) $row->comp_id).'">'.img_picto('', 'fa-cube', 'class="pictofixedwidth"').dol_escape_htmltag($row->comp_ref).'</a> <span class="opacitymedium">'.dol_escape_htmltag((string) $row->comp_label).'</span></td>';
 		print '<td><a href="'.dol_buildpath('/designtrace/design_card.php', 1).'?id='.((int) $row->design_id).'">'.dol_escape_htmltag($row->design_ref).'</a></td>';
-		print '<td class="nowraponall">'.dol_escape_htmltag($row->child_ref).($row->current_rev_id && (int) $row->current_rev_id !== (int) $row->fk_child ? ' '.img_warning($langs->trans('LinkNewerAvailable', $row->current_rev)) : '').'</td>';
+		print '<td class="nowraponall">'.dol_escape_htmltag($row->child_ref).(designtraceLinkIsOutdated($row) ? ' '.img_warning($langs->trans('LinkNewerAvailable', $row->current_rev)) : '').'</td>';
 		print '<td class="nowraponall"><a href="'.dol_buildpath('/designtrace/componentrevision_card.php', 1).'?id='.((int) $row->fk_parent).'">'.dol_escape_htmltag($row->parent_ref).'</a> <span class="opacitymedium">'.ComponentLink::getTypeLabel((int) $row->link_type).'</span></td>';
 		print '<td class="nowraponall">'.ComponentLink::getFlagBadge((int) $row->flag_status, (string) $row->flag_note).'</td>';
 		print '</tr>';
@@ -457,4 +467,16 @@ function designtraceFormatQty($qty)
 
 	$text = rtrim(rtrim(number_format((float) $qty, 8, '.', ''), '0'), '.');
 	return str_replace('.', $langs->transnoentitiesnoconv('SeparatorDecimal'), $text);
+}
+
+/**
+ * Tell if a link pins an older revision than its child's current (latest released) one. A
+ * pinned draft or in-review revision is newer, so it is not outdated.
+ *
+ * @param	stdClass	$row	Row from ComponentLink::fetchForParent() and the like
+ * @return	bool
+ */
+function designtraceLinkIsOutdated($row)
+{
+	return !empty($row->current_rev_id) && (int) $row->current_rev_id > (int) $row->fk_child;
 }

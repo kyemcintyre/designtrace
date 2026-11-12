@@ -29,8 +29,10 @@ dol_include_once('/designtrace/class/component.class.php');
 /**
  *	Link between two component revisions, and the "Needs update" flag it carries.
  *
- *	A link pins an exact child revision. Links belong to the parent revision: they are added
- *	and removed while it is a draft or in review, and locked once it is released.
+ *	A link pins an exact child revision, which may still be a draft or in review: the parent
+ *	cannot be submitted for review while a child is a draft, nor released while a child is not
+ *	released (ComponentRevision::validate() and release()). Links belong to the parent revision:
+ *	they are added and removed while it is a draft or in review, and locked once it is released.
  *
  *	Flags (see recomputeFlags()) are only meaningful on the links of each component's
  *	current revision, its latest released one:
@@ -134,7 +136,7 @@ class ComponentLink extends CommonObject
 	}
 
 	/**
-	 * Create a link from a draft or in-review parent revision to a released child revision.
+	 * Create a link from a draft or in-review parent revision to a child revision.
 	 *
 	 * @param	User		$user			User that creates
 	 * @param	int<0,1>	$notrigger		0=launch triggers, 1=disable triggers
@@ -215,7 +217,8 @@ class ComponentLink extends CommonObject
 
 	/**
 	 * Check the link before saving it:
-	 * - the parent revision is a draft or in review, the child revision is released;
+	 * - the parent revision is a draft or in review, the child revision is not obsolete (a draft
+ *   or in-review child is fine: the parent just cannot be reviewed or released before it);
 	 * - parent and child are different components and the type fits them (Uses: an assembly
 	 *   uses a part or an assembly; Depicts: a drawing shows a part or an assembly;
 	 *   References: anything else);
@@ -242,8 +245,8 @@ class ComponentLink extends CommonObject
 		if ($parent->isLocked()) {
 			return $this->setErrorAndFail($langs->trans('ErrorRevisionIsReadOnly', $parent->ref));
 		}
-		if ((int) $child->status !== ComponentRevision::STATUS_RELEASED) {
-			return $this->setErrorAndFail($langs->trans('ErrorLinkChildNotReleased', $child->ref));
+		if ((int) $child->status === ComponentRevision::STATUS_OBSOLETE) {
+			return $this->setErrorAndFail($langs->trans('ErrorLinkChildObsolete', $child->ref));
 		}
 
 		$parentcomp = new Component($this->db);
