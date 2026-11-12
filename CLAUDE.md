@@ -83,8 +83,8 @@ portfolio consent, opening STEP/3MF in the portal's 3D viewer.
 
 1. Core objects (Design, Component, ComponentRevision), workflow, numbering. **Done.**
 2. Files: roles, hashing, read-only released revisions. **Done.**
-3. Links and flagging. **← next**
-4. Dolibarr links (quotes, orders, invoices, projects, BOMs, tickets).
+3. Links and flagging. **Done.**
+4. Dolibarr links (quotes, orders, invoices, projects, BOMs, tickets). **← next**
 5. Client visibility, Web portal section, REST API, download log.
 6. ECOs and licence templates.
 7. Workshop features (proof approval, reorder, time tracking, ownership, portfolio, viewer).
@@ -143,6 +143,23 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
     `DESIGNTRACE_FILE_NO_PREFIX` (stored negated, switches reversed, so unset = on),
     `DESIGNTRACE_RELEASE_REQUIRES_SOURCE` (release refused without a source file; otherwise the
     release popup only warns). Changing the rev of a draft renames its files folder.
+- **ComponentLink** (`llx_designtrace_componentlink`, phase 3): fk_parent → fk_child
+  (revisions), link_type 1 Uses (assembly → part/assembly, qty) / 2 Depicts (drawing →
+  part/assembly) / 3 References (any), note, flag_status 0 none / 1 Needs update / 2 Indirectly
+  affected / 3 Acknowledged, flag_note ("PRT-0002 A → B", "via ASM-0001"), ack fields
+  (fk_ack_revision = child revision acknowledged). Children must be released; one link per
+  child component per parent revision; no cycles between components; links are edited on
+  draft/in-review parents only. "New revision from this one" copies links (same pins); drafts
+  show "Rev X available" with Pin / Pin all.
+  - Current revision of a component = its latest released one (`getCurrentRevisionIds()`).
+    Only links of current revisions carry flags. `ComponentLink::recomputeFlags()` recomputes
+    everything (direct, then indirect propagated upward, acknowledgements) and runs after
+    release, obsolete, undo obsolete, link add/update/delete and acknowledge.
+  - Acknowledge needs the `componentrevision acknowledgeflag` right and a note; only direct
+    flags can be acknowledged; the next child revision flags again.
+  - Shown on the revision card (links block, release warning for outdated pins), component
+    card (flag box, Where used), design card (roll-up, External dependencies) and the global
+    `needsupdate_list.php` (left menu "Needs update"). Display code in `lib/designtrace_links.lib.php`.
 - Not yet: ECO and customer approval on revisions (phases 6–7), per-type prefix settings
   (prefixes are fixed in the standard rules; the generated "advanced" mask rules ignore type).
 
