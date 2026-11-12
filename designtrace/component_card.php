@@ -96,6 +96,7 @@ include_once DOL_DOCUMENT_ROOT.'/core/class/html.formprojet.class.php';
 dol_include_once('/designtrace/class/component.class.php');
 dol_include_once('/designtrace/lib/designtrace.lib.php');
 dol_include_once('/designtrace/lib/designtrace_component.lib.php');
+dol_include_once('/designtrace/lib/designtrace_links.lib.php');
 
 // Load translation files required by the page
 $langs->loadLangs(array("designtrace@designtrace", "other"));
@@ -543,6 +544,11 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 	}
 
 	if ($action != 'presend') {
+		// Needs update / indirectly affected
+		if ($user->hasRight('designtrace', 'componentrevision', 'read')) {
+			designtracePrintComponentFlag($object);
+		}
+
 		print '<div class="fichecenter"><div class="fichehalfleft">';
 		print '<a name="builddoc"></a>'; // ancre
 
@@ -621,6 +627,11 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 		} else {
 			// backward compatibility
 			$somethingshown = $form->showLinkedObjectBlock($object, $tmparray);
+		}
+
+		// Revisions of other components that link to this one
+		if ($user->hasRight('designtrace', 'componentrevision', 'read')) {
+			designtracePrintWhereUsed($object);
 		}
 
 		print '</div><div class="fichehalfright">';

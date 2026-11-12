@@ -370,6 +370,13 @@ class modDesignTrace extends DolibarrModules
 		$this->rights[$r][5] = 'deletereleasedfile';
 		$r++;
 
+		// Acknowledge a "Needs update" flag (no change needed)
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (2 * 10) + 3 + 3);
+		$this->rights[$r][1] = 'Acknowledge Needs update flags of DesignTrace (no change needed)';
+		$this->rights[$r][4] = 'componentrevision';
+		$this->rights[$r][5] = 'acknowledgeflag';
+		$r++;
+
 
 		// Main menu entries to add
 		$this->menu = array();
@@ -587,6 +594,23 @@ class modDesignTrace extends DolibarrModules
 		);
 		*/
 		/* END MODULEBUILDER LEFTMENU MYOBJECT */
+
+		// Global list of flagged components (outside the Module Builder blocks)
+		$this->menu[$r++] = array(
+			'fk_menu' => 'fk_mainmenu=designtrace',
+			'type' => 'left',
+			'titre' => 'NeedsUpdateList',
+			'prefix' => img_picto('', 'fa-exclamation-triangle', 'class="paddingright pictofixedwidth valignmiddle"'),
+			'mainmenu' => 'designtrace',
+			'leftmenu' => 'designtrace_needsupdate',
+			'url' => '/designtrace/needsupdate_list.php',
+			'langs' => 'designtrace@designtrace',
+			'position' => 1000 + $r,
+			'enabled' => 'isModEnabled("designtrace")',
+			'perms' => '$user->hasRight("designtrace", "componentrevision", "read")',
+			'target' => '',
+			'user' => 0,
+		);
 
 
 		// Exports profiles provided by this module

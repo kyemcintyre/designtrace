@@ -95,6 +95,7 @@ include_once DOL_DOCUMENT_ROOT.'/core/class/html.formfile.class.php';
 include_once DOL_DOCUMENT_ROOT.'/core/class/html.formprojet.class.php';
 dol_include_once('/designtrace/class/componentrevision.class.php');
 dol_include_once('/designtrace/lib/designtrace_componentrevision.lib.php');
+dol_include_once('/designtrace/lib/designtrace_links.lib.php');
 
 // Load translation files required by the page
 $langs->loadLangs(array("designtrace@designtrace", "other"));
@@ -236,6 +237,11 @@ if (empty($reshook)) {
 	// No actions_builddoc.inc.php: there is no document model, and its remove_file action works on
 	// the parent folder of every revision's files, which would bypass the lock of released files.
 	// Files are managed in the Files tab (componentrevision_document.php).
+
+	// Links to child revisions and their flags (redirects when it handles the action)
+	if ($object->id > 0) {
+		designtraceDoLinkActions($action, $object, $user);
+	}
 
 	// Other special actions
 	/*
@@ -381,7 +387,15 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 		} elseif ($object->countFiles(RevisionFile::ROLE_SOURCE) <= 0) {
 			$question .= '<br><br>'.img_warning().' '.$langs->trans('WarningRevisionHasNoSourceFile');
 		}
+		$outdated = designtraceCountOutdatedLinks($object);
+		if ($outdated > 0) {
+			$question .= '<br><br>'.img_warning().' '.$langs->trans('WarningRevisionLinksOutdated', $outdated);
+		}
 		$formconfirm = $form->formconfirm($_SERVER["PHP_SELF"].'?id='.$object->id, $langs->trans('RevisionRelease'), $question, 'confirm_release', '', 0, 1);
+	}
+	// Acknowledge a flag: no change needed
+	if ($action == 'acknowledge') {
+		$formconfirm = designtraceLinkConfirm($form, $object);
 	}
 
 	if ($action == 'clone') {
@@ -581,6 +595,9 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 			$delallowed = $permissiontoadd; // If you can create/edit, you can remove a file on card
 			print $formfile->showdocuments('designtrace:ComponentRevision', $object->element.'/'.$objref, $filedir, $urlsource, $genallowed, $delallowed, $object->model_pdf, 1, 0, 0, 28, 0, '', '', '', $langs->defaultlang);
 		}
+
+		// Links to child revisions (Uses, Depicts, References) and their flags
+		designtracePrintRevisionLinks($object, $form);
 
 		// Show links to link elements
 		$tmparray = $form->showLinkToObjectBlock($object, array(), array('componentrevision'), 1);

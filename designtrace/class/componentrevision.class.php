@@ -363,6 +363,23 @@ class ComponentRevision extends CommonObject
 			return -1;
 		}
 
+		// The new revision starts with the same links, pinned to the same child revisions (the
+		// draft shows which ones have a newer revision). Files are not copied.
+		dol_include_once('/designtrace/class/componentlink.class.php');
+		$sql = "SELECT fk_child, link_type, qty, note FROM ".$this->db->prefix()."designtrace_componentlink WHERE fk_parent = ".((int) $fromid);
+		$resql = $this->db->query($sql);
+		while ($resql && ($obj = $this->db->fetch_object($resql))) {
+			$link = new ComponentLink($this->db);
+			$link->fk_parent = $object->id;
+			$link->fk_child = (int) $obj->fk_child;
+			$link->link_type = (int) $obj->link_type;
+			$link->qty = $obj->qty;
+			$link->note = $obj->note;
+			if ($link->create($user, 1, true) < 0) {
+				$object->warnings[] = $link->error;
+			}
+		}
+
 		return $object;
 	}
 
@@ -550,9 +567,11 @@ class ComponentRevision extends CommonObject
 
 		$this->db->begin();
 		$result = 1;
-		$sql = "DELETE FROM ".$this->db->prefix()."designtrace_revisionfile WHERE fk_revision = ".((int) $this->id);
-		if (!$this->db->query($sql)) {
-			$result = $this->setErrorAndFail($this->db->lasterror());
+		foreach (array('designtrace_revisionfile' => 'fk_revision', 'designtrace_componentlink' => 'fk_parent') as $table => $column) {
+			$sql = "DELETE FROM ".$this->db->prefix().$table." WHERE ".$column." = ".((int) $this->id);
+			if ($result > 0 && !$this->db->query($sql)) {
+				$result = $this->setErrorAndFail($this->db->lasterror());
+			}
 		}
 		if ($result > 0) {
 			$result = $this->deleteCommon($user, $notrigger);
@@ -690,6 +709,11 @@ class ComponentRevision extends CommonObject
 		}
 
 		$this->db->commit();
+
+		// A new current revision: links pinning older revisions of this component get flagged
+		dol_include_once('/designtrace/class/componentlink.class.php');
+		ComponentLink::recomputeFlags($this->db);
+
 		return 1;
 	}
 
@@ -706,7 +730,13 @@ class ComponentRevision extends CommonObject
 			return 0;
 		}
 
-		return $this->setStatusCommon($user, self::STATUS_OBSOLETE, $notrigger, 'DESIGNTRACE_COMPONENTREVISION_OBSOLETE');
+		$result = $this->setStatusCommon($user, self::STATUS_OBSOLETE, $notrigger, 'DESIGNTRACE_COMPONENTREVISION_OBSOLETE');
+		if ($result > 0) {
+			// The component's current revision may change
+			dol_include_once('/designtrace/class/componentlink.class.php');
+			ComponentLink::recomputeFlags($this->db);
+		}
+		return $result;
 	}
 
 	/**
@@ -722,7 +752,12 @@ class ComponentRevision extends CommonObject
 			return 0;
 		}
 
-		return $this->setStatusCommon($user, self::STATUS_RELEASED, $notrigger, 'DESIGNTRACE_COMPONENTREVISION_REOPEN');
+		$result = $this->setStatusCommon($user, self::STATUS_RELEASED, $notrigger, 'DESIGNTRACE_COMPONENTREVISION_REOPEN');
+		if ($result > 0) {
+			dol_include_once('/designtrace/class/componentlink.class.php');
+			ComponentLink::recomputeFlags($this->db);
+		}
+		return $result;
 	}
 
 	/**

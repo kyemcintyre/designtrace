@@ -96,6 +96,7 @@ include_once DOL_DOCUMENT_ROOT.'/core/class/html.formprojet.class.php';
 dol_include_once('/designtrace/class/design.class.php');
 dol_include_once('/designtrace/lib/designtrace.lib.php');
 dol_include_once('/designtrace/lib/designtrace_design.lib.php');
+dol_include_once('/designtrace/lib/designtrace_links.lib.php');
 
 // Load translation files required by the page
 $langs->loadLangs(array("designtrace@designtrace", "other"));
@@ -673,6 +674,11 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 		} else {
 			// backward compatibility
 			$somethingshown = $form->showLinkedObjectBlock($object, $tmparray);
+		}
+
+		// Needs update roll-up and links to components of other designs
+		if ($user->hasRight('designtrace', 'componentrevision', 'read')) {
+			designtracePrintDesignLinks($object);
 		}
 
 		print '</div><div class="fichehalfright">';
