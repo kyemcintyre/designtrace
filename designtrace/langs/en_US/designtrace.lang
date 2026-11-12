@@ -597,3 +597,26 @@ WebPortalReorder = Reorder
 WebPortalReorderHelp = We will send you a quote for the same parts, made the same way.
 WebPortalReorderSent = Thank you, we will send you a quote to reorder %s.
 WebPortalReorderPending = Your reorder request is with us: we will send you a quote.
+
+#
+# CAD time (phase 7)
+#
+CadTime = CAD time
+CadTimeHelp = Hours spent on CAD, logged as normal Dolibarr timesheet lines on a task of the project, so they are invoiced from the project like any other time (choose the hourly service, e.g. hobby or commercial rate, when generating the invoice, or use one task per rate). A design also shows the time of its components.
+CadTimeNeedsProject = Link a project to log CAD time (the design's project is used for its components).
+CadTimeNewTask = New task "%s"
+CadTimeTaskLabel = CAD: %s
+CadTimeTaskDescription = CAD time logged from DesignTrace
+CadTimeNoteDefault = CAD work on %s
+CadTimeNotePlaceholder = What was done
+CadTimeLog = Log time
+CadTimeLogged = Time logged
+CadTimeDeleted = Time line deleted
+CadTimeFor = For
+CadTimeNone = No CAD time logged yet.
+CadTimeInvoiced = This time is on an invoice and can no longer be deleted.
+ErrorCadTimeDuration = Enter a duration.
+ErrorCadTimeNoProject = Link a project to the design, component or ECO first.
+ErrorCadTimeProjectNotOpen = The project must be validated (open) to log time.
+ErrorCadTimeBadTask = That task is not in this project.
+ErrorCadTimeInvoiced = This time is on an invoice and can no longer be deleted.

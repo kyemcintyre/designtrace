@@ -98,6 +98,7 @@ dol_include_once('/designtrace/lib/designtrace.lib.php');
 dol_include_once('/designtrace/lib/designtrace_design.lib.php');
 dol_include_once('/designtrace/lib/designtrace_links.lib.php');
 dol_include_once('/designtrace/lib/designtrace_portfolio.lib.php');
+dol_include_once('/designtrace/lib/designtrace_cadtime.lib.php');
 
 // Load translation files required by the page
 $langs->loadLangs(array("designtrace@designtrace", "other"));
@@ -228,6 +229,9 @@ if (empty($reshook)) {
 
 	// Actions when linking object each other
 	include DOL_DOCUMENT_ROOT.'/core/actions_dellink.inc.php';
+
+	// Log CAD time (Dolibarr timesheet lines on the project)
+	designtraceDoCadTimeActions($object, $action);
 
 	// Actions when printing a doc from card
 	include DOL_DOCUMENT_ROOT.'/core/actions_printing.inc.php';
@@ -688,6 +692,8 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 		}
 
 		print '</div><div class="fichehalfright">';
+
+		designtracePrintCadTime($object);
 
 		designtracePrintConsentBox($object);
 
