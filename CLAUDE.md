@@ -174,6 +174,15 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
   copies revision and design links from the quote/order the new document is made from. The
   `bomcard` hook (formObjectOptions) shows the BOM's assembly revision with warnings. Component
   has `fk_project` (defaults to the design's). The design-level quote/order link stays as is.
+- **API first.** The REST API is the main customer portal (Kye's Go backend for My workshop
+  calls it on behalf of customers); Dolibarr's Web portal is a second client. Both go through
+  `class/customerportal.class.php` (`DesignTraceCustomerPortal`): `fetchDocuments()` builds the
+  customer's view (quotes/orders/tickets with files, licences, proofs, consent designs, reorder),
+  and `setConsent()`, `reorder()`, `getAcceptancePdf()` run the actions that check the customer
+  first. New customer features go there and into the API first, then the Web portal renders them.
+  API reference for the Go side: `designtrace/API.md` (keep it in step with the endpoints).
+  `GET customers/{socid}/documents[/{element}/{docid}]` is the main call (with `todo` counts);
+  `GET .../licences/{designid}/pdf` streams the customer's licence copy (also on the Web portal).
 - **Client visibility and portals** (phase 5, `class/clientaccess.class.php`, one rule set for
   both portals): a customer sees a file when its revision is linked to one of their quotes,
   orders or tickets (not draft/cancelled), the link is client-visible

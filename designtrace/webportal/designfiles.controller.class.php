@@ -20,7 +20,8 @@
  * \ingroup     designtrace
  * \brief       "Design files" page of Dolibarr's Web portal
  *
- * Registered by the initController hook (ActionsDesignTrace). Lists the files the logged-in
+ * Registered by the initController hook (ActionsDesignTrace). The REST API is the main customer
+ * portal; this page shows the same thing from the same code (DesignTraceCustomerPortal). Lists the files the logged-in
  * customer can see, grouped by quote, order or ticket (DesignTraceClientAccess rules), and serves
  * downloads itself (?controller=designfiles&action=download&file=ID) so every download goes through
  * the same checks and is logged. Quotes and orders also show the licence of each design, which the
@@ -35,6 +36,7 @@ dol_include_once('/designtrace/class/licensing.class.php');
 dol_include_once('/designtrace/class/portfolio.class.php');
 dol_include_once('/designtrace/class/proofapproval.class.php');
 dol_include_once('/designtrace/class/reorder.class.php');
+dol_include_once('/designtrace/class/customerportal.class.php');
 
 /**
  * Controller for the Design files page of the Web portal
@@ -42,27 +44,7 @@ dol_include_once('/designtrace/class/reorder.class.php');
 class DesignFilesController extends Controller
 {
 	/**
-	 * @var stdClass[]	Visible files
-	 */
-	public $rows = array();
-
-	/**
-	 * @var array<string,array<int,array<string,mixed>>>	Licences per document ("element_id" => fetchDocumentLicences())
-	 */
-	public $licences = array();
-
-	/**
-	 * @var array<string,array<string,array<string,mixed>>>	Proofs per document ("element_id" => DesignTraceProofApproval::fetchProofs() entries)
-	 */
-	public $proofs = array();
-
-	/**
-	 * @var array<string,array<int,array<string,mixed>>>	Designs asked about for the gallery per document (not confidential)
-	 */
-	public $designs = array();
-
-	/**
-	 * @var array<string,array{element:string,doc_id:int,doc_ref:string}>	Documents shown, newest first
+	 * @var array<string,array<string,mixed>>	Documents shown, newest first (DesignTraceCustomerPortal::fetchDocuments())
 	 */
 	public $docs = array();
 
@@ -134,6 +116,16 @@ class DesignFilesController extends Controller
 			}
 		}
 
+		// The customer's copy of an accepted licence
+		if ($context->action == 'licencepdf') {
+			$pdf = DesignTraceCustomerPortal::getAcceptancePdf($this->db, $socid, $this->element, $this->docid, GETPOSTINT('design'));
+			if (!$pdf) {
+				$context->setEventMessage($langs->trans('WebPortalDesignFileNotAvailable'), 'errors');
+			} else {
+				DesignTraceClientAccess::sendFile($pdf['path'], $pdf['filename']);
+			}
+		}
+
 		// Accept a licence (POST, with the box ticked)
 		if ($context->action == 'acceptlicence' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 			if (!GETPOST('agree', 'alpha')) {
@@ -154,13 +146,12 @@ class DesignFilesController extends Controller
 		if ($context->action == 'reorder' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 			global $user;
 			$error = '';
-			$order = new Commande($this->db);
-			if ($order->fetch(GETPOSTINT('reorder_docid')) <= 0 || (int) $order->socid !== $socid) {
-				$context->setEventMessage($langs->trans('ErrorRecordNotFound'), 'errors');
-			} elseif (DesignTraceReorder::createQuote($this->db, $user, $order, 'webportal', $this->getActor(), $error) > 0) {
+			if (DesignTraceCustomerPortal::reorder($this->db, $user, $socid, GETPOSTINT('reorder_docid'), 'webportal', $this->getActor(), $error) > 0) {
+				$order = new Commande($this->db);
+				$order->fetch(GETPOSTINT('reorder_docid'));
 				$context->setEventMessage($langs->trans('WebPortalReorderSent', $order->ref), 'mesgs');
 			} else {
-				$context->setEventMessage($error, 'errors');
+				$context->setEventMessage($error == 'notfound' ? $langs->trans('ErrorRecordNotFound') : $error, 'errors');
 			}
 		}
 
@@ -180,67 +171,16 @@ class DesignFilesController extends Controller
 
 		// Portfolio consent (POST): the design must be on one of the customer's quotes or orders
 		if ($context->action == 'setconsent' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+			$error = '';
 			$element = DesignTraceClientAccess::normaliseElement(GETPOST('consent_element', 'aZ09'));
-			$docid = GETPOSTINT('consent_docid');
-			$designid = GETPOSTINT('consent_design');
-			$doc = DesignTraceLicensing::fetchDocument($this->db, $element, $docid);
-			$designs = ($doc && (int) $doc->socid === $socid && (int) $doc->status > 0) ? DesignTraceLicensing::fetchDesignsOfDocument($this->db, $element, $docid) : array();
-			if (!isset($designs[$designid]) || !empty($designs[$designid]['confidential'])) {
-				$context->setEventMessage($langs->trans('ErrorRecordNotFound'), 'errors');
-			} elseif (DesignTracePortfolio::setConsent($this->db, $designid, GETPOSTINT('consent'), DesignTracePortfolio::CHANNEL_WEBPORTAL, $this->getActor(), $element, $docid) < 0) {
-				$context->setEventMessage($langs->trans('Error'), 'errors');
+			if (DesignTraceCustomerPortal::setConsent($this->db, $socid, $element, GETPOSTINT('consent_docid'), GETPOSTINT('consent_design'), GETPOSTINT('consent'), DesignTracePortfolio::CHANNEL_WEBPORTAL, $this->getActor(), null, $error) < 0) {
+				$context->setEventMessage($langs->trans(in_array($error, array('document', 'design'), true) ? 'ErrorRecordNotFound' : 'Error'), 'errors');
 			} else {
 				$context->setEventMessage($langs->trans('WebPortalPortfolioSaved'), 'mesgs');
 			}
 		}
 
-		$rows = DesignTraceClientAccess::fetchVisibleFiles($this->db, $socid, $this->element, $this->docid);
-		$this->rows = is_array($rows) ? $rows : array();
-
-		foreach (DesignTraceProofApproval::fetchProofs($this->db, $socid, $this->element, $this->docid) as $proof) {
-			$this->proofs[$proof['element'].'_'.$proof['doc_id']][] = $proof;
-		}
-
-		// Documents to show: those with visible files, and quotes/orders with designs under a licence
-		foreach ($this->rows as $row) {
-			$this->docs[$row->element.'_'.$row->doc_id] = array('element' => $row->element, 'doc_id' => (int) $row->doc_id, 'doc_ref' => $row->doc_ref);
-		}
-		$channels = DesignTraceClientAccess::getChannels();
-		foreach (DesignTraceLicensing::getDocumentTypes() as $element => $def) {
-			if (($this->element !== '' && $this->element !== $element) || !isModEnabled($channels[$element]['module'])) {
-				continue;
-			}
-			$sql = "SELECT DISTINCT d.rowid, d.ref FROM ".$this->db->prefix()."element_element as ee";
-			$sql .= " INNER JOIN ".$this->db->prefix().$def['table']." as d ON d.rowid = ee.fk_source";
-			$sql .= " WHERE ee.sourcetype = '".$this->db->escape($element)."' AND ee.targettype IN ('designtrace_design', 'designtrace_componentrevision')";
-			$sql .= " AND d.fk_soc = ".((int) $socid)." AND d.fk_statut NOT IN (".implode(',', array_map('intval', $channels[$element]['hidden'])).")";
-			$sql .= " AND d.entity IN (".getEntity($element == 'commande' ? 'order' : $element).")";
-			if ($this->docid > 0) {
-				$sql .= " AND d.rowid = ".((int) $this->docid);
-			}
-			$resql = $this->db->query($sql);
-			while ($resql && ($obj = $this->db->fetch_object($resql))) {
-				$licences = array_filter(DesignTraceLicensing::fetchDocumentLicences($this->db, $element, (int) $obj->rowid), function ($info) {
-					return $info['licence'] && $info['version'];
-				});
-				$key = $element.'_'.$obj->rowid;
-				if ($licences) {
-					$this->licences[$key] = $licences;
-				}
-				$designs = array_filter(DesignTraceLicensing::fetchDesignsOfDocument($this->db, $element, (int) $obj->rowid), function ($design) {
-					return empty($design['confidential']);
-				});
-				if ($designs) {
-					$this->designs[$key] = $designs;
-				}
-				if ($licences || $designs) {
-					$this->docs[$key] = array('element' => $element, 'doc_id' => (int) $obj->rowid, 'doc_ref' => $obj->ref);
-				}
-			}
-		}
-		uasort($this->docs, function ($a, $b) {
-			return $b['doc_id'] <=> $a['doc_id'];
-		});
+		$this->docs = DesignTraceCustomerPortal::fetchDocuments($this->db, $socid, $this->element, $this->docid);
 
 		return 1;
 	}
@@ -294,28 +234,24 @@ class DesignFilesController extends Controller
 		}
 
 		$channels = DesignTraceClientAccess::getChannels();
-		$files = array();
-		foreach ($this->rows as $row) {
-			$files[$row->element.'_'.$row->doc_id][] = $row;
-		}
-		foreach ($this->docs as $key => $doc) {
+		foreach ($this->docs as $doc) {
 			$label = isset($channels[$doc['element']]) ? $langs->trans($channels[$doc['element']]['label']) : $doc['element'];
 			print '<article>';
 			print '<header><strong>'.dol_escape_htmltag($label.' '.$doc['doc_ref']).'</strong></header>';
-			if (!empty($this->licences[$key])) {
-				$this->printLicences($context, $doc, $this->licences[$key]);
+			if (!empty($doc['licences'])) {
+				$this->printLicences($context, $doc, $doc['licences']);
 			}
-			if (!empty($files[$key])) {
-				$this->printFiles($context, $files[$key]);
+			if (!empty($doc['files'])) {
+				$this->printFiles($context, $doc['files']);
 			}
-			if ($doc['element'] == 'commande') {
+			if (!empty($doc['reorder'])) {
 				$this->printReorder($context, $doc);
 			}
-			if (!empty($this->proofs[$key])) {
-				$this->printProofs($context, $this->proofs[$key]);
+			if (!empty($doc['proofs'])) {
+				$this->printProofs($context, $doc['proofs']);
 			}
-			if (!empty($this->designs[$key])) {
-				$this->printConsent($context, $doc, $this->designs[$key]);
+			if (!empty($doc['designs'])) {
+				$this->printConsent($context, $doc, $doc['designs']);
 			}
 			print '</article>';
 		}
@@ -381,7 +317,12 @@ class DesignFilesController extends Controller
 			print '<section class="designtrace-licence">';
 			print '<p><strong>'.$langs->trans('WebPortalLicenceFor', dol_escape_htmltag($info['licence']->label), dol_escape_htmltag($info['design']['ref'].' '.$info['design']['label'])).'</strong> <small>('.dol_escape_htmltag($version->ref).')</small></p>';
 			if ($info['acceptance']) {
-				print '<p>&#10003; '.$langs->trans('WebPortalLicenceAcceptedOn', dol_print_date($info['acceptance']->date_accept, 'dayhour')).'</p>';
+				print '<p>&#10003; '.$langs->trans('WebPortalLicenceAcceptedOn', dol_print_date($info['acceptance']->date_accept, 'dayhour'));
+				if (!empty($info['acceptance']->filename)) {
+					$url = $context->getControllerUrl('designfiles', array('action' => 'licencepdf', 'element' => $doc['element'], 'docid' => (int) $doc['doc_id'], 'design' => (int) $designid));
+					print ' &middot; <a href="'.dolPrintHTMLForAttributeUrl($url).'">'.$langs->trans('WebPortalLicenceCopy').'</a>';
+				}
+				print '</p>';
 			} else {
 				$wording = $version->renderWording(DesignTraceLicensing::getWordingValues($document, $info['design'], dol_now()));
 				$perms = array();
@@ -485,18 +426,17 @@ class DesignFilesController extends Controller
 	 * Reorder button of a delivered order (or the pending request)
 	 *
 	 * @param	Context	$context	Web portal context
-	 * @param	array{element:string,doc_id:int,doc_ref:string}	$doc	Order
+	 * @param	array<string,mixed>	$doc	Order from DesignTraceCustomerPortal::fetchDocuments()
 	 * @return	void
 	 */
 	private function printReorder($context, $doc)
 	{
 		global $langs;
 
-		$order = new Commande($this->db);
-		if ($order->fetch($doc['doc_id']) <= 0 || !DesignTraceReorder::canReorder($this->db, $order)) {
+		if (empty($doc['reorder']['possible'])) {
 			return;
 		}
-		if (DesignTraceReorder::getPendingQuote($this->db, (int) $order->id) > 0) {
+		if (!empty($doc['reorder']['pending_quote_id'])) {
 			print '<p><small>'.$langs->trans('WebPortalReorderPending').'</small></p>';
 			return;
 		}

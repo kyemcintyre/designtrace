@@ -42,6 +42,7 @@ dol_include_once('/designtrace/class/licensing.class.php');
 dol_include_once('/designtrace/class/portfolio.class.php');
 dol_include_once('/designtrace/class/proofapproval.class.php');
 dol_include_once('/designtrace/class/reorder.class.php');
+dol_include_once('/designtrace/class/customerportal.class.php');
 
 /**
  * API class for DesignTrace customer files (named DesignTrace so the endpoints are /designtrace/...)
@@ -115,6 +116,106 @@ class DesignTrace extends DolibarrApi
 			throw new RestException(400, 'Bad document type, use quote, order or ticket');
 		}
 		return $this->formatRows(DesignTraceClientAccess::fetchVisibleFiles($this->db, $socid, $type, (int) $docid));
+	}
+
+	/**
+	 * The customer's documents with everything for them: the main call of a customer portal
+	 *
+	 * One entry per quote, order or ticket that has something for the customer, newest first: the
+	 * files they can download, the licences of its designs (with wording, permissions and whether
+	 * they accepted), the proofs they can approve, the designs they can give gallery consent for,
+	 * and for orders whether they can be reordered. "todo" counts what waits for the customer.
+	 * Draft and cancelled documents are never listed. Same rules as Dolibarr's Web portal.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	string	$element	Only this kind of document: quote, order or ticket
+	 * @return	array				Documents (see GET customers/{socid}/documents/{element}/{docid})
+	 * @phan-return array<int,array<string,mixed>>
+	 * @phpstan-return array<int,array<string,mixed>>
+	 *
+	 * @url	GET customers/{socid}/documents
+	 *
+	 * @throws RestException 400 Bad document type
+	 * @throws RestException 403 Not allowed
+	 */
+	public function listDocuments($socid, $element = '')
+	{
+		$socid = $this->checkCustomer($socid);
+		$type = '';
+		if ($element !== '') {
+			$type = DesignTraceClientAccess::normaliseElement($element);
+			if ($type === '') {
+				throw new RestException(400, 'Bad document type, use quote, order or ticket');
+			}
+		}
+		$result = array();
+		foreach (DesignTraceCustomerPortal::fetchDocuments($this->db, $socid, $type) as $doc) {
+			$result[] = $this->formatDocument($doc);
+		}
+		return $result;
+	}
+
+	/**
+	 * One document of the customer with everything for them
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	string	$element	quote, order or ticket
+	 * @param	int		$docid		Document id
+	 * @return	array				type, id, ref, status, date, delivered (orders), files, licences, proofs, consent,
+	 *								reorder (orders: possible, pending_quote_id), todo (licences, proofs, consent)
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET customers/{socid}/documents/{element}/{docid}
+	 *
+	 * @throws RestException 400 Bad document type
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Nothing for the customer on this document
+	 */
+	public function getDocument($socid, $element, $docid)
+	{
+		$socid = $this->checkCustomer($socid);
+		$type = DesignTraceClientAccess::normaliseElement($element);
+		if ($type === '') {
+			throw new RestException(400, 'Bad document type, use quote, order or ticket');
+		}
+		$docs = DesignTraceCustomerPortal::fetchDocuments($this->db, $socid, $type, (int) $docid);
+		if (empty($docs)) {
+			throw new RestException(404, 'Nothing for this customer on this document');
+		}
+		return $this->formatDocument(reset($docs));
+	}
+
+	/**
+	 * The customer's copy of an accepted licence: the raw PDF is the response
+	 *
+	 * The PDF written when the customer accepted the licence of a design on a quote or order (an
+	 * order made from a quote has the quote's copy). For a backend that proxies files: errors are
+	 * JSON, the response is the PDF itself with X-Content-SHA256.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	string	$element	quote or order
+	 * @param	int		$docid		Document id
+	 * @param	int		$designid	Design id
+	 * @return	void				The raw PDF (never returns)
+	 *
+	 * @url	GET customers/{socid}/documents/{element}/{docid}/licences/{designid}/pdf
+	 *
+	 * @throws RestException 400 Bad document type
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Document not found, or no accepted licence for this design
+	 */
+	public function getLicencePdf($socid, $element, $docid, $designid)
+	{
+		$socid = $this->checkCustomer($socid);
+		$doc = $this->checkLicenceDocument($socid, $element, $docid);
+		$pdf = DesignTraceCustomerPortal::getAcceptancePdf($this->db, $socid, $doc->element, (int) $doc->id, (int) $designid);
+		if (!$pdf) {
+			throw new RestException(404, 'No accepted licence for this design on this document');
+		}
+		DesignTraceClientAccess::sendFile($pdf['path'], $pdf['filename'], false, array(
+			'X-Content-SHA256' => (string) hash_file('sha256', dol_osencode($pdf['path'])),
+		));
 	}
 
 	/**
@@ -270,33 +371,10 @@ class DesignTrace extends DolibarrApi
 	{
 		$socid = $this->checkCustomer($socid);
 		$doc = $this->checkLicenceDocument($socid, $element, $docid);
-		$result = array();
-		foreach (DesignTraceLicensing::fetchDocumentLicences($this->db, $doc->element, (int) $doc->id) as $designid => $info) {
-			if (!$info['licence'] || !$info['version']) {
-				continue;
-			}
-			$version = $info['version'];
-			$acc = $info['acceptance'];
-			$date = $acc ? (int) $acc->date_accept : dol_now();
-			$permissions = array();
-			foreach (LicenceVersion::getPermissionKeys() as $key) {
-				$permissions[substr($key, 5)] = ((int) $version->$key === 1);
-			}
-			$result[] = array(
-				'design_id' => (int) $designid,
-				'design_ref' => $info['design']['ref'],
-				'design_label' => $info['design']['label'],
-				'licence_code' => $info['licence']->ref,
-				'licence_name' => $info['licence']->label,
-				'version_id' => (int) $version->id,
-				'version' => (int) $version->version,
-				'version_ref' => $version->ref,
-				'wording_html' => $version->renderWording(DesignTraceLicensing::getWordingValues($doc, $info['design'], $date)),
-				'permissions' => $permissions,
-				'accepted' => ($acc ? array('date' => (int) $acc->date_accept, 'actor' => $acc->actor, 'channel' => $acc->channel) : null),
-			);
-		}
-		return $result;
+		$licences = array_filter(DesignTraceLicensing::fetchDocumentLicences($this->db, $doc->element, (int) $doc->id), function ($info) {
+			return $info['licence'] && $info['version'];
+		});
+		return $this->formatLicences($doc, $licences);
 	}
 
 	/**
@@ -364,22 +442,7 @@ class DesignTrace extends DolibarrApi
 		if ($type === '') {
 			throw new RestException(400, 'Bad document type, use quote, order or ticket');
 		}
-		$names = array(DesignTraceProofApproval::DECISION_NONE => 'none', DesignTraceProofApproval::DECISION_APPROVED => 'approved', DesignTraceProofApproval::DECISION_CHANGES => 'changes');
-		$result = array();
-		foreach (DesignTraceProofApproval::fetchProofs($this->db, $socid, $type, (int) $docid) as $proof) {
-			$result[] = array(
-				'revision_id' => $proof['rev_id'],
-				'revision_ref' => $proof['rev_ref'],
-				'revision_released' => ($proof['rev_status'] === ComponentRevision::STATUS_RELEASED),
-				'component_ref' => $proof['comp_ref'],
-				'component_label' => $proof['comp_label'],
-				'decision' => $names[$proof['decision']] ?? 'none',
-				'date_decision' => $proof['date_decision'],
-				'decided_by' => $proof['decided_by'],
-				'can_decide' => $proof['can_decide'],
-			);
-		}
-		return $result;
+		return $this->formatProofs(DesignTraceProofApproval::fetchProofs($this->db, $socid, $type, (int) $docid));
 	}
 
 	/**
@@ -458,18 +521,10 @@ class DesignTrace extends DolibarrApi
 		$socid = $this->checkCustomer($socid);
 		// A single optional body field would receive the whole body in Restler: read it from the array
 		$actor = (is_array($request_data) && isset($request_data['actor']) && is_scalar($request_data['actor'])) ? (string) $request_data['actor'] : '';
-		$order = new Commande($this->db);
-		if (!isModEnabled('propal') || $order->fetch((int) $orderid) <= 0 || (int) $order->socid !== $socid) {
-			throw new RestException(404, 'Order not found');
-		}
-		$actor = trim($actor);
-		if ($actor === '') {
-			$actor = 'api:'.DolibarrApiAccess::$user->login;
-		}
 		$error = '';
-		$quoteid = DesignTraceReorder::createQuote($this->db, DolibarrApiAccess::$user, $order, 'api', $actor, $error);
+		$quoteid = DesignTraceCustomerPortal::reorder($this->db, DolibarrApiAccess::$user, $socid, (int) $orderid, 'api', $this->getActor($actor), $error);
 		if ($quoteid <= 0) {
-			throw new RestException(409, $error);
+			throw new RestException($error == 'notfound' ? 404 : 409, $error == 'notfound' ? 'Order not found' : $error);
 		}
 		$quote = new Propal($this->db);
 		$quote->fetch($quoteid);
@@ -498,23 +553,10 @@ class DesignTrace extends DolibarrApi
 	{
 		$socid = $this->checkCustomer($socid);
 		$doc = $this->checkLicenceDocument($socid, $element, $docid);
-		$names = array(DesignTracePortfolio::CONSENT_NONE => 'none', DesignTracePortfolio::CONSENT_GRANTED => 'granted', DesignTracePortfolio::CONSENT_REFUSED => 'refused');
-		$result = array();
-		foreach (DesignTraceLicensing::fetchDesignsOfDocument($this->db, $doc->element, (int) $doc->id) as $id => $design) {
-			if (!empty($design['confidential'])) {
-				continue;
-			}
-			$history = DesignTracePortfolio::fetchHistory($this->db, $id);
-			$consent = (int) DesignTracePortfolio::getConsent($this->db, $id);
-			$result[] = array(
-				'design_id' => (int) $id,
-				'design_ref' => $design['ref'],
-				'design_label' => $design['label'],
-				'consent' => $names[$consent] ?? 'none',
-				'date_consent' => ($history ? $history[0]->date_consent : null),
-			);
-		}
-		return $result;
+		$designs = array_filter(DesignTraceLicensing::fetchDesignsOfDocument($this->db, $doc->element, (int) $doc->id), function ($design) {
+			return empty($design['confidential']);
+		});
+		return $this->formatConsent($designs);
 	}
 
 	/**
@@ -547,17 +589,10 @@ class DesignTrace extends DolibarrApi
 		if (!isset($values[$consent])) {
 			throw new RestException(400, 'Bad consent, use granted or refused');
 		}
-		$designs = DesignTraceLicensing::fetchDesignsOfDocument($this->db, $doc->element, (int) $doc->id);
-		if (!isset($designs[(int) $design_id]) || !empty($designs[(int) $design_id]['confidential'])) {
-			throw new RestException(404, 'Design not found on this document');
-		}
-		$actor = trim((string) $actor);
-		if ($actor === '') {
-			$actor = 'api:'.DolibarrApiAccess::$user->login;
-		}
-		$res = DesignTracePortfolio::setConsent($this->db, (int) $design_id, $values[$consent], DesignTracePortfolio::CHANNEL_API, $actor, $doc->element, (int) $doc->id, 0, '', (string) $client_ip);
+		$error = '';
+		$res = DesignTraceCustomerPortal::setConsent($this->db, $socid, $doc->element, (int) $doc->id, (int) $design_id, $values[$consent], DesignTracePortfolio::CHANNEL_API, $this->getActor($actor), (string) $client_ip, $error);
 		if ($res < 0) {
-			throw new RestException(503, 'Error saving consent');
+			throw new RestException($error == 'design' ? 404 : 503, $error == 'design' ? 'Design not found on this document' : 'Error saving consent');
 		}
 		return array('design_id' => (int) $design_id, 'consent' => $consent, 'changed' => ($res > 0));
 	}
@@ -711,6 +746,147 @@ class DesignTrace extends DolibarrApi
 				'channel' => $obj->channel,
 				'actor' => $obj->actor,
 				'date' => $this->db->jdate($obj->date_download),
+			);
+		}
+		return $result;
+	}
+
+	/**
+	 * Actor for logs: the one the backend passed, else api:<login of the API user>
+	 *
+	 * @param	string	$actor	Actor passed by the caller
+	 * @return	string
+	 */
+	private function getActor($actor)
+	{
+		$actor = trim((string) $actor);
+		return ($actor !== '' ? $actor : 'api:'.DolibarrApiAccess::$user->login);
+	}
+
+	/**
+	 * A document of DesignTraceCustomerPortal::fetchDocuments() for the API
+	 *
+	 * @param	array<string,mixed>	$doc	Document
+	 * @return	array<string,mixed>
+	 */
+	private function formatDocument($doc)
+	{
+		$licences = array();
+		if (!empty($doc['licences'])) {
+			$object = DesignTraceLicensing::fetchDocument($this->db, $doc['element'], $doc['doc_id']);
+			$licences = ($object ? $this->formatLicences($object, $doc['licences']) : array());
+		}
+		$proofs = $this->formatProofs($doc['proofs']);
+		$consent = $this->formatConsent($doc['designs']);
+		$result = array(
+			'type' => $this->publicElement($doc['element']),
+			'id' => (int) $doc['doc_id'],
+			'ref' => $doc['doc_ref'],
+			'status' => (int) $doc['doc_status'],
+			'date' => $doc['date'],
+			'files' => $this->formatRows($doc['files']),
+			'licences' => $licences,
+			'proofs' => $proofs,
+			'consent' => $consent,
+			'todo' => array(
+				'licences' => count(array_filter($licences, function ($l) {
+					return $l['accepted'] === null;
+				})),
+				'proofs' => count(array_filter($proofs, function ($p) {
+					return $p['can_decide'];
+				})),
+				'consent' => count(array_filter($consent, function ($c) {
+					return $c['consent'] === 'none';
+				})),
+			),
+		);
+		if ($doc['element'] == 'commande') {
+			$result['delivered'] = ((int) $doc['doc_status'] === Commande::STATUS_CLOSED);
+			$result['reorder'] = $doc['reorder'] ?: array('possible' => false, 'pending_quote_id' => 0);
+		}
+		return $result;
+	}
+
+	/**
+	 * Licences for the API
+	 *
+	 * @param	CommonObject						$doc		Quote or order
+	 * @param	array<int,array<string,mixed>>		$licences	Entries of fetchDocumentLicences() with a licence and version
+	 * @return	array<int,array<string,mixed>>
+	 */
+	private function formatLicences($doc, $licences)
+	{
+		$result = array();
+		foreach ($licences as $designid => $info) {
+			$version = $info['version'];
+			$acc = $info['acceptance'];
+			$date = $acc ? (int) $acc->date_accept : dol_now();
+			$permissions = array();
+			foreach (LicenceVersion::getPermissionKeys() as $key) {
+				$permissions[substr($key, 5)] = ((int) $version->$key === 1);
+			}
+			$result[] = array(
+				'design_id' => (int) $designid,
+				'design_ref' => $info['design']['ref'],
+				'design_label' => $info['design']['label'],
+				'licence_code' => $info['licence']->ref,
+				'licence_name' => $info['licence']->label,
+				'version_id' => (int) $version->id,
+				'version' => (int) $version->version,
+				'version_ref' => $version->ref,
+				'wording_html' => $version->renderWording(DesignTraceLicensing::getWordingValues($doc, $info['design'], $date)),
+				'permissions' => $permissions,
+				'accepted' => ($acc ? array('date' => (int) $acc->date_accept, 'actor' => $acc->actor, 'channel' => $acc->channel, 'pdf' => !empty($acc->filename)) : null),
+			);
+		}
+		return $result;
+	}
+
+	/**
+	 * Proofs for the API
+	 *
+	 * @param	array<int,array<string,mixed>>	$proofs		Entries of DesignTraceProofApproval::fetchProofs()
+	 * @return	array<int,array<string,mixed>>
+	 */
+	private function formatProofs($proofs)
+	{
+		$names = array(DesignTraceProofApproval::DECISION_NONE => 'none', DesignTraceProofApproval::DECISION_APPROVED => 'approved', DesignTraceProofApproval::DECISION_CHANGES => 'changes');
+		$result = array();
+		foreach ($proofs as $proof) {
+			$result[] = array(
+				'revision_id' => $proof['rev_id'],
+				'revision_ref' => $proof['rev_ref'],
+				'revision_released' => ($proof['rev_status'] === ComponentRevision::STATUS_RELEASED),
+				'component_ref' => $proof['comp_ref'],
+				'component_label' => $proof['comp_label'],
+				'decision' => $names[$proof['decision']] ?? 'none',
+				'date_decision' => $proof['date_decision'],
+				'decided_by' => $proof['decided_by'],
+				'can_decide' => $proof['can_decide'],
+			);
+		}
+		return $result;
+	}
+
+	/**
+	 * Gallery consent for the API
+	 *
+	 * @param	array<int,array<string,mixed>>	$designs	Non-confidential designs of a document (by id)
+	 * @return	array<int,array<string,mixed>>
+	 */
+	private function formatConsent($designs)
+	{
+		$names = array(DesignTracePortfolio::CONSENT_NONE => 'none', DesignTracePortfolio::CONSENT_GRANTED => 'granted', DesignTracePortfolio::CONSENT_REFUSED => 'refused');
+		$result = array();
+		foreach ($designs as $id => $design) {
+			$history = DesignTracePortfolio::fetchHistory($this->db, $id);
+			$consent = (int) DesignTracePortfolio::getConsent($this->db, $id);
+			$result[] = array(
+				'design_id' => (int) $id,
+				'design_ref' => $design['ref'],
+				'design_label' => $design['label'],
+				'consent' => $names[$consent] ?? 'none',
+				'date_consent' => ($history ? $history[0]->date_consent : null),
 			);
 		}
 		return $result;
