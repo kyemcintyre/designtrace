@@ -87,7 +87,7 @@ portfolio consent, opening STEP/3MF in the portal's 3D viewer.
 4. Dolibarr links (quotes, orders, invoices, projects, BOMs, tickets). **Done.**
 5. Client visibility, Web portal section, REST API, download log. **Done.**
 6. ECOs and licence templates. **Done.**
-7. Workshop features (proof approval, reorder, time tracking, ownership, portfolio, viewer). **← next**
+7. Workshop features (proof approval, reorder, time tracking, ownership, portfolio, viewer). **Done.**
 
 ## Phase 1 as built
 
@@ -242,8 +242,48 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
   Design files page or through the API); per-design "optional" licence permissions (make a variant
   template); linking from the document side (only from the revision, plus "Create design");
   components on the project overview.
-- Not yet: ECO and customer approval on revisions (phases 6–7), per-type prefix settings
-  (prefixes are fixed in the standard rules; the generated "advanced" mask rules ignore type).
+- **Ownership and confidential** (phase 7): Design `ownership` 1 customer / 2 workshop (default) /
+  3 shared; workshop-owned never delivers source files, whatever the licence
+  (`Design::ownershipAllowsSource()`, used by `allowsSourceFiles()`). `confidential`: only the
+  designer, the creator and right `design readconfidential` see the design, its components and
+  revisions: `Design::checkObjectAccessOrDie()` on every card/tab, `Design::sqlConfidentialFilter*()`
+  on lists, home page, Needs update and download log, and the `downloadDocument` hook (context
+  `document`) on document.php.
+- **Portfolio consent** (`class/portfolio.class.php`): Design `portfolio_consent` 0 not asked /
+  1 granted / 2 refused, changed only by `DesignTracePortfolio::setConsent()` (logged in
+  `llx_designtrace_consent`: channel backoffice/webportal/api/licence, actor, document, IP).
+  Recorded on the quote/order card row or the design card, by the customer on the Design files
+  page or `GET/POST customers/{socid}/documents/{quote|order}/{docid}/consent`. Accepting a licence
+  with `perm_portfolio` grants it only when not asked yet. Gallery = active, not confidential,
+  granted; images of the design's Documents tab (`ecm_files`); `GET portfolio` and
+  `GET portfolio/{designid}/images/{imageid}/link` (internal service user), served inline by
+  download.php (`t=portfolio`, not logged). A clone starts "not asked".
+- **Proof approval** (`class/proofapproval.class.php`): revisions of proof drawings visible to the
+  customer, in review or released: Approve or Request changes (comment required) on the Design
+  files page or `GET .../documents/{element}/{docid}/proofs`, `POST .../proofs/{revid}/decision`.
+  Revision `customer_approval` 0 awaiting / 1 approved (final for that revision) / 2 changes,
+  with date and actor, set by SQL (released revisions stay read-only to staff); history in
+  `llx_designtrace_approval`, events `AC_DESIGNTRACE_PROOF_*`. A change request opens a ticket
+  linked to the revision (default), a draft ECO or nothing (`DESIGNTRACE_PROOF_CHANGES_ACTION`).
+- **Reorder** (`class/reorder.class.php`): delivered orders with delivered released revisions
+  (client-visible links, i.e. after "Update delivered revision" the new one). Button on the order,
+  Design files page, `POST customers/{socid}/orders/{orderid}/reorder`. Draft quote: same customer,
+  project, lines and prices, linked to the order, its designs and those revisions; private note
+  with material/process/machine and newer revisions. While a draft quote made from the order
+  exists, customer requests return it (staff can always make another).
+- **CAD time** (`class/cadtime.class.php`, block on design, component and ECO cards): Dolibarr
+  time spent lines (`llx_element_time`) on a task of the object's project (component: the
+  design's), default task "CAD: <design>" made on first use, user added as task contributor.
+  `llx_designtrace_time` only maps lines to the object (`fk_design` for the roll-up). Needs right
+  `projet time` (or all/creer); delete by the author until invoiced. Rates are Dolibarr's (service
+  chosen when invoicing time, or one task per rate).
+- **3D viewer**: `GET .../files/{fileid}/link?purpose=view` (3D formats only): signed with the view
+  flag, served inline, `Access-Control-Allow-Origin` for `DESIGNTRACE_VIEWER_ORIGINS`, logged with
+  channel `viewer`. No viewer inside Dolibarr's Web portal.
+- Print settings (layer height... filament) were removed: MRP data, kept in the slicer project.
+- Not yet: per-type prefix settings (prefixes are fixed in the standard rules; the generated
+  "advanced" mask rules ignore type); release gated on customer approval of a proof; a 3D viewer
+  in Dolibarr's Web portal; designs tied to tasks (time uses the design's default task).
 
 ## Module Builder pitfalls (24.0.2)
 
@@ -289,6 +329,14 @@ New objects can be generated without the GUI by POSTing Module Builder's `initob
   when a real number was stored: drop the default for objects numbered at creation.
 - When copying a page header, keep the `@var` docblock closed (`*/`): an unclosed one silently
   comments out the access checks below it.
+- `$a->add_object_linked($type, $id)` stores `$type/$id` as the **source** and `$a` as the target
+  (e.g. `$revision->add_object_linked('propal', $quoteid)` = quote → revision).
+- Restler: an endpoint whose only body parameter is optional gets the whole body in it (`{}` →
+  400 "Invalid value"); take `$request_data` (array) instead, as reorder does.
+- `SocieteAccount::create()` ignores `pass_crypted` (portal test accounts need it set by SQL with
+  `dol_hash()`); `createFromClone()` returns the new object, not an id.
+- Fields with `'alwayseditable' => '1'` are shown raw on the card (inline edit): codes instead of
+  labels for selects. Only use it for text.
 
 ## Conventions
 
