@@ -93,22 +93,28 @@ portfolio consent, opening STEP/3MF in the portal's 3D viewer.
 
 All three objects have `entity` (multicompany) and extrafields, and ref unique per entity.
 
-- **Design** (`llx_designtrace_design`): label, fk_soc, fk_project, description, notes.
+- **Design** (`llx_designtrace_design`): label, fk_soc, fk_project, fk_user_designer
+  (defaults to the creator), description, notes.
   Draft (0) → Active (1, by Validate, which assigns `DSN-0001`) → Archived (9), reactivatable.
   Drafts are `(PROVn)`. Cannot be deleted while it has components. Card lists its components.
 - **Component** (`llx_designtrace_component`): fk_design (FK), type 0 part / 1 assembly /
   2 drawing, drawing_type 1 concept / 2 proof / 3 TDS (required for drawings only), label,
-  fk_product. **Numbered and Active at creation** (files are named after the number), status
+  fk_product, sourcing (1 print / 2 make / 3 buy), finish, weight (g); sourcing, finish and
+  weight are hidden and cleared for drawings, drawing type for the others. **Numbered and Active at creation** (files are named after the number), status
   Active (1) / Obsolete (9), no draft. Type cannot change once numbered. One global sequence
   per type (`mod_component_standard`). Card lists its revisions.
 - **ComponentRevision** (`llx_designtrace_componentrevision`): fk_component (FK), rev
   (default next letter A…Z, AA; unique per component), ref = component ref + `-` + rev
-  (`PRT-0001-A`, no numbering module), change notes (description), material, process,
-  machine, date_release, fk_user_release. Draft (0) ⇄ In review (1) → Released (2) →
+  (`PRT-0001-A`, no numbering module), change_reason (1 initial … 6 other), change notes
+  (description), material, process, machine, print settings (layer_height, nozzle_size,
+  infill %, print_time seconds, filament_used g), date_release, fk_user_release. Draft (0) ⇄ In review (1) → Released (2) →
   Obsolete (9, undoable). Release needs the separate `componentrevision release` right and
   fires `DESIGNTRACE_COMPONENTREVISION_RELEASE` (hook for phase 3 flagging). Released is
   read-only and undeletable. One draft/in-review revision per component at a time. "New
-  revision from this one" (clone) copies notes and material/process/machine.
+  revision from this one" (clone) copies notes, material/process/machine and print settings,
+  not the change reason.
+- Design and Component cards show the first image of the Documents tab as banner thumbnail
+  (`designtraceBannerWithThumbnail()`). Deleting any object deletes its documents folder.
 - Not yet: ECO and customer approval on revisions (phases 6–7), per-type prefix settings
   (prefixes are fixed in the standard rules; the generated "advanced" mask rules ignore type).
 
@@ -126,6 +132,9 @@ New objects can be generated without the GUI by POSTing Module Builder's `initob
   if numbered on validation; status `visible` 2 so it is not on the create form).
 - Fix `\file` headers (`designtracefoo.php` → `designtrace/foo.php`), menu titles (use lang
   keys) and the setup page's `includerefgeneration` flag.
+- Fix `validate()`'s `ecm_files` updates: it uses `design/REF` but the index stores
+  `designtrace/design/REF` (relative to the data root), and make `delete()` remove the
+  documents folder (refs are reused after a delete).
 - Re-run module activation to create tables and rights; `modDesignTrace` is reachable via
   `activateModule('modDesignTrace')` from the CLI.
 
