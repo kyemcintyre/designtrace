@@ -43,6 +43,7 @@ class DesignTraceClientAccess
 	const CHANNEL_WEBPORTAL = 'webportal';
 	const CHANNEL_API = 'api';
 	const CHANNEL_VIEWER = 'viewer';	// Opened in the My workshop 3D viewer (a view link of the API)
+	const CHANNEL_API_DIRECT = 'apidirect';	// Streamed by the API to a backend that proxies files (.../content)
 
 	/**
 	 * Default lifetime of a signed download link, in seconds
@@ -79,6 +80,7 @@ class DesignTraceClientAccess
 			self::CHANNEL_WEBPORTAL => $langs->trans('DownloadChannelWebportal'),
 			self::CHANNEL_API => $langs->trans('DownloadChannelApi'),
 			self::CHANNEL_VIEWER => $langs->trans('DownloadChannelViewer'),
+			self::CHANNEL_API_DIRECT => $langs->trans('DownloadChannelApiDirect'),
 		);
 	}
 
@@ -238,11 +240,21 @@ class DesignTraceClientAccess
 	 * @param	int			$socid		Customer id
 	 * @param	string		$channel	self::CHANNEL_*
 	 * @param	string		$actor		Who downloaded (portal login, contact passed by the API...)
+	 * @param	?string		$ip			Customer's IP as seen by a proxying backend (log only, never for access);
+	 *									null or not a valid IP = the remote IP of this request
+	 * @param	?string		$useragent	Customer's user agent as seen by a proxying backend; null = this request's
 	 * @return	int						Id of the log row, <0 on error
 	 */
-	public static function logDownload($db, $row, $socid, $channel, $actor = '')
+	public static function logDownload($db, $row, $socid, $channel, $actor = '', $ip = null, $useragent = null)
 	{
 		global $conf;
+
+		$ip = trim((string) $ip);
+		if ($ip === '' || filter_var($ip, FILTER_VALIDATE_IP) === false) {
+			$ip = getUserRemoteIP();
+		}
+		$useragent = ($useragent === null ? (string) ($_SERVER['HTTP_USER_AGENT'] ?? '') : (string) $useragent);
+		$useragent = dol_trunc(str_replace(array("\r", "\n"), ' ', $useragent), 255, 'right', 'UTF-8', 1);
 
 		$sql = "INSERT INTO ".$db->prefix()."designtrace_download";
 		$sql .= " (entity, fk_revisionfile, fk_revision, filename, sha256, fk_soc, element, fk_element, channel, actor, ip, useragent, date_download)";
@@ -250,7 +262,7 @@ class DesignTraceClientAccess
 		$sql .= ", '".$db->escape($row->filename)."', '".$db->escape((string) $row->sha256)."'";
 		$sql .= ", ".((int) $socid).", '".$db->escape((string) $row->element)."', ".((int) $row->doc_id);
 		$sql .= ", '".$db->escape($channel)."', '".$db->escape(dol_trunc((string) $actor, 128, 'right', 'UTF-8', 1))."'";
-		$sql .= ", '".$db->escape(getUserRemoteIP())."', '".$db->escape(dol_trunc((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 255, 'right', 'UTF-8', 1))."'";
+		$sql .= ", '".$db->escape($ip)."', '".$db->escape($useragent)."'";
 		$sql .= ", '".$db->idate(dol_now())."')";
 		if (!$db->query($sql)) {
 			dol_syslog(__METHOD__.' '.$db->lasterror(), LOG_ERR);
@@ -265,9 +277,10 @@ class DesignTraceClientAccess
 	 * @param	string	$fullpath	Full path on disk
 	 * @param	string	$filename	Name given to the browser
 	 * @param	bool	$inline		Shown in place (images, viewers) rather than saved
+	 * @param	array<string,string>	$headers	Extra headers (name => value), e.g. X-Content-SHA256
 	 * @return	void
 	 */
-	public static function sendFile($fullpath, $filename, $inline = false)
+	public static function sendFile($fullpath, $filename, $inline = false, $headers = array())
 	{
 		$osfile = dol_osencode($fullpath);
 		if (!is_file($osfile)) {
@@ -278,6 +291,7 @@ class DesignTraceClientAccess
 		while (ob_get_level() > 0) {
 			ob_end_clean();
 		}
+		@set_time_limit(0);	// Large CAD files over a slow link must not be cut by max_execution_time
 		$filename = str_replace(array('"', "\r", "\n"), '', basename($filename));
 		$type = dol_mimetype($filename);
 		if (!dolIsAllowedForPreview($filename)) {
@@ -289,6 +303,13 @@ class DesignTraceClientAccess
 		header('Content-Length: '.dol_filesize($fullpath));
 		header('X-Content-Type-Options: nosniff');
 		header('Cache-Control: private, no-store');
+		header_remove('Content-Encoding');	// The file is sent as is (the API may have planned compression)
+		foreach ($headers as $name => $value) {
+			$name = preg_replace('/[^A-Za-z0-9-]/', '', (string) $name);
+			if ($name !== '') {
+				header($name.': '.str_replace(array("\r", "\n"), '', (string) $value));
+			}
+		}
 		if ($inline) {
 			header("Content-Security-Policy: default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
 		}

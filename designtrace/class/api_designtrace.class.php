@@ -18,13 +18,17 @@
 /**
  * \file        designtrace/class/api_designtrace.class.php
  * \ingroup     designtrace
- * \brief       REST API for customer portals (My workshop): visible files and signed download links
+ * \brief       REST API for customer portals (My workshop): visible files, signed links and direct downloads
  *
  * The portal site calls the API as one service user (right "Customer files through the API") and
  * passes the logged-in customer's third party id. If the API user is an external user, it can
  * only ask for its own third party. The rules are the same as the Web portal's
- * (DesignTraceClientAccess). Files are not streamed through the API: it returns a short-lived
- * signed link to designtrace/public/download.php, which checks the rules again and logs the download.
+ * (DesignTraceClientAccess). A file is fetched in one of two ways, with the same rules and one
+ * download log:
+ *  - a short-lived signed link to designtrace/public/download.php (GET .../files/{fileid}/link),
+ *    when the customer's browser can reach Dolibarr; it checks the rules again when used;
+ *  - streamed back to the caller (GET .../files/{fileid}/content, logged as "API (direct)"), for a
+ *    backend that proxies files because Dolibarr is not reachable from outside.
  * The same service user reads the portfolio gallery (designs whose customer consented).
  */
 
@@ -169,6 +173,74 @@ class DesignTrace extends DolibarrApi
 			'sha256' => $row->sha256,
 			'purpose' => $purpose,
 		);
+	}
+
+	/**
+	 * Download a file directly: the raw file is the response
+	 *
+	 * For a backend that proxies files to customers (My workshop's server, when Dolibarr is not
+	 * reachable from outside): the file is streamed back to the API caller instead of a link. Access
+	 * is the same as for GET customers/{socid}/files/{fileid}/link: the file must be visible to the
+	 * customer now (production files never; source files only where the licence and ownership allow;
+	 * "Visible now", or "Visible on completion" on a delivered order). Errors are JSON, sent before
+	 * any file data. The response is the file itself (not JSON) with Content-Type, Content-Length,
+	 * Content-Disposition (attachment, or inline with inline=1 for 3D files, e.g. for a viewer),
+	 * X-Content-SHA256, X-DesignTrace-File-Id and X-DesignTrace-Revision. Every download is logged
+	 * with the channel "API (direct)". client_ip and user_agent are the customer's as seen by the
+	 * backend: they are only written to the log (trusted because the caller holds the service API
+	 * key) and never affect access; when missing or invalid, the caller's own are logged.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$fileid		File id (file_id in the file lists)
+	 * @param	string	$element	Document type the file is downloaded through (optional): quote, order or ticket
+	 * @param	int		$docid		Document id (optional)
+	 * @param	string	$actor		Who downloads, for the log (default api:<login of the API user>)
+	 * @param	string	$client_ip	Customer's IP address, for the log only
+	 * @param	string	$user_agent	Customer's browser, for the log only (truncated to 255 characters)
+	 * @param	int		$inline		1 = Content-Disposition inline (3D formats only, viewer_3d in the file lists)
+	 * @return	void				The raw file (never returns: the file is streamed and the request ends)
+	 *
+	 * @url	GET customers/{socid}/files/{fileid}/content
+	 *
+	 * @throws RestException 400 Bad document type, or inline on a file that is not 3D
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 File not visible to this customer, or missing on disk
+	 * @throws RestException 503 System error (download not logged, file not sent)
+	 */
+	public function getFileContent($socid, $fileid, $element = '', $docid = 0, $actor = '', $client_ip = '', $user_agent = '', $inline = 0)
+	{
+		$socid = $this->checkCustomer($socid);
+		$type = '';
+		if ($element !== '') {
+			$type = DesignTraceClientAccess::normaliseElement($element);
+			if ($type === '') {
+				throw new RestException(400, 'Bad document type, use quote, order or ticket');
+			}
+		}
+		$row = DesignTraceClientAccess::getDownloadableFile($this->db, $socid, (int) $fileid, $type, (int) $docid);
+		if (!$row) {
+			throw new RestException(404, 'File not visible to this customer');
+		}
+		if (!empty($inline) && !DesignTraceClientAccess::is3dFormat((string) $row->format)) {
+			throw new RestException(400, 'Only 3D files (viewer_3d) can be sent inline');
+		}
+		$fullpath = DesignTraceClientAccess::getFilePath($this->db, $row);
+		if ($fullpath === '' || !is_file(dol_osencode($fullpath))) {
+			throw new RestException(404, 'File missing on disk');
+		}
+		$actor = trim((string) $actor);
+		if ($actor === '') {
+			$actor = 'api:'.DolibarrApiAccess::$user->login;
+		}
+		if (DesignTraceClientAccess::logDownload($this->db, $row, $socid, DesignTraceClientAccess::CHANNEL_API_DIRECT, $actor, (trim((string) $client_ip) !== '' ? (string) $client_ip : null), ((string) $user_agent !== '' ? (string) $user_agent : null)) < 0) {
+			throw new RestException(503, 'Error logging the download');
+		}
+		// Restler would encode a return value: send the file ourselves and end the request
+		DesignTraceClientAccess::sendFile($fullpath, $row->filename, !empty($inline), array(
+			'X-Content-SHA256' => (string) $row->sha256,
+			'X-DesignTrace-File-Id' => (string) ((int) $row->file_id),
+			'X-DesignTrace-Revision' => (string) $row->rev_ref,
+		));
 	}
 
 	/**

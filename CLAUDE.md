@@ -200,8 +200,18 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
     API user is limited to its own socid). Links point to `public/download.php`: HMAC-SHA256
     (secret `DESIGNTRACE_LINK_SECRET`, made on first use) over file, customer, document, actor,
     entity, expiry; lifetime `DESIGNTRACE_LINK_TTL` (default 300 s); rules re-checked at download.
-  - Download log `llx_designtrace_download` (no FKs, outlives files): channel webportal/api,
-    actor (`portal:<login>` or the API's actor), IP, user agent. Shown on the Files tab (count per
+  - Kye's Dolibarr is **not reachable from outside**: the My workshop Go backend fetches every file
+    itself with `GET customers/{socid}/files/{fileid}/content[?element&docid&actor&client_ip&user_agent&inline=1]`.
+    Same access as `/link` (`checkCustomer()` then `getDownloadableFile()`); JSON errors before any
+    data (400 bad type or inline on a non-3D file, 403, 404 not visible or missing on disk); the
+    response is the raw file via `sendFile()` (exits, so Restler never encodes it) with
+    `X-Content-SHA256`, `X-DesignTrace-File-Id`, `X-DesignTrace-Revision`. Logged with channel
+    `apidirect` ("API (direct)"); `client_ip` (checked with `FILTER_VALIDATE_IP`) and `user_agent`
+    (255 chars) go to the log only, falling back to the caller's. Signed links, view links and
+    `DESIGNTRACE_VIEWER_ORIGINS` stay for installs whose Dolibarr is public.
+  - Download log `llx_designtrace_download` (no FKs, outlives files): channel webportal/api/viewer/
+    apidirect, actor (`portal:<login>` or the API's actor), IP, user agent (`logDownload()` takes
+    optional `$ip`/`$useragent` for a proxying backend). Shown on the Files tab (count per
     file, latest 50).
 - No automated customer emails (Kye's decision): he tells customers with Dolibarr's own "Send
   email" on the quote/order. Do not add email on release, visibility change or delivered update.
