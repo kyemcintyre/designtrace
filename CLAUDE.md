@@ -82,8 +82,8 @@ portfolio consent, opening STEP/3MF in the portal's 3D viewer.
 ## Build phases
 
 1. Core objects (Design, Component, ComponentRevision), workflow, numbering. **Done.**
-2. Files: roles, hashing, read-only released revisions. **← next**
-3. Links and flagging.
+2. Files: roles, hashing, read-only released revisions. **Done.**
+3. Links and flagging. **← next**
 4. Dolibarr links (quotes, orders, invoices, projects, BOMs, tickets).
 5. Client visibility, Web portal section, REST API, download log.
 6. ECOs and licence templates.
@@ -121,6 +121,28 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
   not the change reason.
 - Design and Component cards show the first image of the Documents tab as banner thumbnail
   (`designtraceBannerWithThumbnail()`). Deleting any object deletes its documents folder.
+- **RevisionFile** (`llx_designtrace_revisionfile`, phase 2): one row per file of a revision
+  (fk_revision FK, filename unique per revision, role 1 source / 2 presentation / 3 production,
+  format, filesize, sha256, visibility 0 hidden / 1 now / 2 on completion for phase 5). Files
+  live in `documents/designtrace/componentrevision/<revision ref>/` and are only added or deleted
+  through `ComponentRevision::addFile()` / `deleteFile()` (also `verifyFiles()`, `isLocked()`,
+  `countFiles()`, `getPreviousRevision()`). The revision's Documents tab is replaced by a Files
+  tab (`componentrevision_document.php`): multi-upload with a role or automatic, role change,
+  Verify, comparison with the previous revision, download through `document.php`.
+  - Names: prefixed with the component number (`PRT-0001-bracket.fcstd`) unless they already
+    start with it; same name replaces (unlocked only). Executable extensions refused as core does.
+  - Roles guessed from extension lists in the setup (defaults in `RevisionFile::DEFAULT_EXT_*`);
+    a `.3mf` with slicer settings or G-code inside is production; unknown = presentation.
+  - Locked once Released or Obsolete: no upload, replace or role change. Deleting needs the
+    `componentrevision deletereleasedfile` right and a reason, and is logged as an event on the
+    revision (`AC_DESIGNTRACE_FILE_DELETE`). The revision card no longer includes
+    `actions_builddoc.inc.php` (its `remove_file` would bypass the lock).
+  - Max size: setup `DESIGNTRACE_MAX_UPLOAD_MB`, else and never more than PHP
+    upload_max_filesize / post_max_size (Dolibarr's MAIN_UPLOAD_DOC is not used here).
+  - Settings: `DESIGNTRACE_ROLE_EXT_SOURCE|PRESENTATION|PRODUCTION`, `DESIGNTRACE_3MF_NO_DETECT`,
+    `DESIGNTRACE_FILE_NO_PREFIX` (stored negated, switches reversed, so unset = on),
+    `DESIGNTRACE_RELEASE_REQUIRES_SOURCE` (release refused without a source file; otherwise the
+    release popup only warns). Changing the rev of a draft renames its files folder.
 - Not yet: ECO and customer approval on revisions (phases 6–7), per-type prefix settings
   (prefixes are fixed in the standard rules; the generated "advanced" mask rules ignore type).
 
@@ -141,6 +163,10 @@ New objects can be generated without the GUI by POSTing Module Builder's `initob
 - Fix `validate()`'s `ecm_files` updates: it uses `design/REF` but the index stores
   `designtrace/design/REF` (relative to the data root), and make `delete()` remove the
   documents folder (refs are reused after a delete).
+- On/off settings in the generated setup page delete the constant when switched off, so a
+  setting that is on by default must be stored negated with `fieldParams['revertonoff']`.
+- Without multicompany, `entity` fields are disabled and not fetched: use
+  `empty($object->entity) ? $conf->entity : $object->entity`.
 - Module parts (hooks, tpl, ...) are only registered on activation. Deactivate and activate
   in **separate** PHP processes: in one process `$conf` still says enabled and
   `activateModule()` silently does nothing.
