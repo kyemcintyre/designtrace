@@ -38,6 +38,7 @@ print "<!-- BEGIN PHP TEMPLATE designtrace/componentrevision/tpl/linkedobjectblo
 
 $langs->load('designtrace@designtrace');
 dol_include_once('/designtrace/class/componentlink.class.php');
+dol_include_once('/designtrace/class/clientaccess.class.php');
 
 $compids = array();
 foreach ($linkedObjectBlock as $objectlink) {
@@ -69,11 +70,21 @@ foreach ($linkedObjectBlock as $key => $objectlink) {
 	if (!empty($compflags[$compid])) {
 		print '<br>'.ComponentLink::getFlagBadge($compflags[$compid]);
 	}
+	if (in_array($object->element, array('propal', 'commande', 'ticket'), true) && !DesignTraceClientAccess::getLinkVisibility($db, (int) $objectlink->id, $object->element, (int) $object->id)) {
+		print '<br><span class="opacitymedium small">'.img_picto('', 'eye-slash', 'class="pictofixedwidth"').$langs->trans('ClientAccessHiddenFromCustomer').'</span>';
+	}
 	print '</td>';
 	print '<td class="linkedcol-date center">'.dol_print_date($objectlink->date_release, 'day').'</td>';
 	print '<td class="linkedcol-amount right">-</td>';
 	print '<td class="linkedcol-statut right">'.$objectlink->getLibStatut(3).'</td>';
-	print '<td class="linkedcol-action right"><a class="reposition" href="'.$_SERVER["PHP_SELF"].'?id='.$object->id.'&action=dellink&token='.newToken().'&dellinkid='.((int) $key).'">'.img_picto($langs->transnoentitiesnoconv("RemoveLink"), 'unlink').'</a></td>';
+	print '<td class="linkedcol-action right">';
+	// A delivered order keeps the revisions it was delivered with ("Update delivered revision")
+	if ($object->element == 'commande' && (int) $object->status === 3) {
+		print img_picto($langs->transnoentitiesnoconv('DeliveredLinkLockedHelp'), 'lock', 'class="opacitymedium"');
+	} else {
+		print '<a class="reposition" href="'.$_SERVER["PHP_SELF"].'?id='.$object->id.'&action=dellink&token='.newToken().'&dellinkid='.((int) $key).'">'.img_picto($langs->transnoentitiesnoconv("RemoveLink"), 'unlink').'</a>';
+	}
+	print '</td>';
 	print "</tr>\n";
 }
 

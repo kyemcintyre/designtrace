@@ -139,6 +139,19 @@ class DesignTraceDocLinks
 			return self::fail($revision, $langs->trans('ErrorRecordNotFound'));
 		}
 		$type = $doc->getElementType();
+		// A delivered order keeps the revisions it was delivered with: changing one is the explicit,
+		// logged "Update delivered revision" (DesignTraceClientAccess::updateDelivered())
+		if ($element == 'commande' && (int) $doc->status === Commande::STATUS_CLOSED) {
+			$sql = "SELECT r.ref FROM ".$db->prefix()."element_element as ee";
+			$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.rowid = ee.fk_target";
+			$sql .= " WHERE ee.fk_source = ".((int) $doc->id)." AND ee.sourcetype = '".$db->escape($type)."'";
+			$sql .= " AND ee.targettype = '".$db->escape($revision->getElementType())."'";
+			$sql .= " AND r.fk_component = ".((int) $component->id)." AND r.rowid <> ".((int) $revision->id);
+			$resql = $db->query($sql);
+			if ($resql && ($obj = $db->fetch_object($resql))) {
+				return self::fail($revision, $langs->trans('ErrorDocLinkDeliveredUseUpdate', $doc->ref, $obj->ref));
+			}
+		}
 		$sql = "SELECT rowid FROM ".$db->prefix()."element_element";
 		$sql .= " WHERE fk_source = ".((int) $doc->id)." AND sourcetype = '".$db->escape($type)."'";
 		$sql .= " AND fk_target = ".((int) $revision->id)." AND targettype = '".$db->escape($revision->getElementType())."'";

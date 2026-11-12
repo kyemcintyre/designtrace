@@ -139,6 +139,8 @@ class modDesignTrace extends DolibarrModules
 				'propalcard',	// "Create design" button
 				'ordercard',
 				'bomcard',		// Design revision of the BOM, warning when it needs updating
+				'webportal',	// Web portal: Design files menu entry and column on quote/order lists
+				'webportaldao',	// Web portal: registers the Design files page (initController)
 			),
 			/* END MODULEBUILDER HOOKSCONTEXTS */
 			// Set this to 1 if features of module are opened to external users
@@ -376,6 +378,27 @@ class modDesignTrace extends DolibarrModules
 		$this->rights[$r][1] = 'Acknowledge Needs update flags of DesignTrace (no change needed)';
 		$this->rights[$r][4] = 'componentrevision';
 		$this->rights[$r][5] = 'acknowledgeflag';
+		$r++;
+
+		// Choose which files and links customers can see (phase 5)
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (2 * 10) + 3 + 4);
+		$this->rights[$r][1] = 'Manage client visibility of files and document links of DesignTrace';
+		$this->rights[$r][4] = 'componentrevision';
+		$this->rights[$r][5] = 'managevisibility';
+		$r++;
+
+		// Update delivered revision on a delivered order (logged)
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (2 * 10) + 3 + 5);
+		$this->rights[$r][1] = 'Update the delivered revision of a delivered order (DesignTrace)';
+		$this->rights[$r][4] = 'componentrevision';
+		$this->rights[$r][5] = 'updatedelivered';
+		$r++;
+
+		// For the service user of a customer portal (My workshop) calling the REST API
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (2 * 10) + 3 + 6);
+		$this->rights[$r][1] = 'Customer files through the API (list visible files, signed download links)';
+		$this->rights[$r][4] = 'clientfiles';
+		$this->rights[$r][5] = 'api';
 		$r++;
 
 

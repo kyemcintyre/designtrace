@@ -584,7 +584,7 @@ class ComponentRevision extends CommonObject
 
 		$this->db->begin();
 		$result = 1;
-		foreach (array('designtrace_revisionfile' => 'fk_revision', 'designtrace_componentlink' => 'fk_parent') as $table => $column) {
+		foreach (array('designtrace_revisionfile' => 'fk_revision', 'designtrace_componentlink' => 'fk_parent', 'designtrace_docaccess' => 'fk_revision') as $table => $column) {
 			$sql = "DELETE FROM ".$this->db->prefix().$table." WHERE ".$column." = ".((int) $this->id);
 			if ($result > 0 && !$this->db->query($sql)) {
 				$result = $this->setErrorAndFail($this->db->lasterror());

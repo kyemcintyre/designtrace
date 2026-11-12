@@ -150,4 +150,159 @@ class ActionsDesignTrace extends CommonHookActions
 
 		return 0;
 	}
+
+	/**
+	 * @var array<string,int>|null	Visible file counts per document of the portal's customer ("element_id" => count)
+	 */
+	private $portalCounts = null;
+
+	/**
+	 *	Web portal: register the "Design files" page
+	 *
+	 *	@param	array<string,mixed>	$parameters		Hook parameters
+	 *	@param	Context				$object			Web portal context
+	 *	@param	string				$action			Current action
+	 *	@param	HookManager			$hookmanager	Hook manager
+	 *	@return	int									0
+	 */
+	public function initController($parameters, &$object, &$action, $hookmanager)
+	{
+		if (!isModEnabled('designtrace') || !is_object($object) || !method_exists($object, 'addControllerDefinition')) {
+			return 0;
+		}
+		$object->addControllerDefinition('designfiles', dol_buildpath('/designtrace/webportal/designfiles.controller.class.php', 0), 'DesignFilesController');
+		return 0;
+	}
+
+	/**
+	 *	Web portal: "Design files" menu entry
+	 *
+	 *	@param	array<string,mixed>	$parameters		Hook parameters
+	 *	@param	Context				$object			Web portal context
+	 *	@param	string				$action			Current action
+	 *	@param	HookManager			$hookmanager	Hook manager
+	 *	@return	int									0 so the standard menu is kept
+	 */
+	public function PrintTopMenu($parameters, &$object, &$action, $hookmanager)	// phpcs:ignore
+	{
+		global $langs;
+
+		if (!$this->portalEnabled($object) || !$object->userIsLog()) {
+			return 0;
+		}
+		$langs->load('designtrace@designtrace');
+		$this->results['designtrace_files'] = array(
+			'id' => 'designtrace_files',
+			'rank' => 25,
+			'url' => $object->getControllerUrl('designfiles'),
+			'name' => $langs->trans('WebPortalDesignFiles'),
+			'group' => 'administrative',
+		);
+		return 0;
+	}
+
+	/**
+	 *	Web portal quote and order lists: "Design files" column title
+	 *
+	 *	@param	array<string,mixed>	$parameters		Hook parameters
+	 *	@param	Context				$object			Web portal context
+	 *	@param	string				$action			Current action
+	 *	@param	HookManager			$hookmanager	Hook manager
+	 *	@return	int									0
+	 */
+	public function printFieldListTitle($parameters, &$object, &$action, $hookmanager)
+	{
+		global $langs;
+
+		if ($this->portalListElement($object) === '') {
+			return 0;
+		}
+		$langs->load('designtrace@designtrace');
+		$this->resprints = '<th scope="col">'.$langs->trans('WebPortalDesignFiles').'</th>';
+		return 0;
+	}
+
+	/**
+	 *	Web portal quote and order lists: empty filter cell under the "Design files" column
+	 *
+	 *	@param	array<string,mixed>	$parameters		Hook parameters
+	 *	@param	Context				$object			Web portal context
+	 *	@param	string				$action			Current action
+	 *	@param	HookManager			$hookmanager	Hook manager
+	 *	@return	int									0
+	 */
+	public function printFieldListOption($parameters, &$object, &$action, $hookmanager)
+	{
+		if ($this->portalListElement($object) === '') {
+			return 0;
+		}
+		$this->resprints = '<td></td>';
+		return 0;
+	}
+
+	/**
+	 *	Web portal quote and order lists: link to the document's design files
+	 *
+	 *	@param	array<string,mixed>	$parameters		Hook parameters
+	 *	@param	Context				$object			Web portal context
+	 *	@param	string				$action			Current action
+	 *	@param	HookManager			$hookmanager	Hook manager
+	 *	@return	int									0
+	 */
+	public function printFieldListValue($parameters, &$object, &$action, $hookmanager)
+	{
+		global $langs;
+
+		$element = $this->portalListElement($object);
+		if ($element === '' || empty($parameters['record'])) {
+			return 0;
+		}
+		if ($this->portalCounts === null) {
+			dol_include_once('/designtrace/class/clientaccess.class.php');
+			$this->portalCounts = array();
+			$socid = (int) (empty($object->logged_thirdparty) ? 0 : $object->logged_thirdparty->id);
+			$rows = DesignTraceClientAccess::fetchVisibleFiles($this->db, $socid);
+			foreach ((is_array($rows) ? $rows : array()) as $row) {
+				$key = $row->element.'_'.$row->doc_id;
+				$this->portalCounts[$key] = (isset($this->portalCounts[$key]) ? $this->portalCounts[$key] : 0) + 1;
+			}
+		}
+		$docid = (int) (isset($parameters['record']->rowid) ? $parameters['record']->rowid : 0);
+		$nb = isset($this->portalCounts[$element.'_'.$docid]) ? $this->portalCounts[$element.'_'.$docid] : 0;
+		$langs->load('designtrace@designtrace');
+		$out = '<td data-label="'.dolPrintHTMLForAttribute($langs->trans('WebPortalDesignFiles')).'">';
+		if ($nb > 0) {
+			$url = $object->getControllerUrl('designfiles', array('element' => $element, 'docid' => $docid));
+			$out .= '<a href="'.dolPrintHTMLForAttributeUrl($url).'">'.$langs->trans('WebPortalDesignFilesCount', $nb).'</a>';
+		}
+		$out .= '</td>';
+		$this->resprints = $out;
+		return 0;
+	}
+
+	/**
+	 *	Whether the portal's Design files are on for this hook call
+	 *
+	 *	@param	mixed	$object		Hook object
+	 *	@return	bool
+	 */
+	private function portalEnabled($object)
+	{
+		return isModEnabled('designtrace') && !getDolGlobalInt('DESIGNTRACE_WEBPORTAL_HIDE') && is_object($object) && get_class($object) === 'Context';
+	}
+
+	/**
+	 *	Element of the portal list being shown, if it gets a Design files column
+	 *
+	 *	@param	mixed	$object		Hook object
+	 *	@return	string				'propal', 'commande' or ''
+	 */
+	private function portalListElement($object)
+	{
+		if (!$this->portalEnabled($object) || !$object->userIsLog()) {
+			return '';
+		}
+		$map = array('propallist' => 'propal', 'orderlist' => 'commande');
+		return isset($map[$object->controller]) ? $map[$object->controller] : '';
+	}
 }

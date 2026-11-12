@@ -85,8 +85,8 @@ portfolio consent, opening STEP/3MF in the portal's 3D viewer.
 2. Files: roles, hashing, read-only released revisions. **Done.**
 3. Links and flagging. **Done.**
 4. Dolibarr links (quotes, orders, invoices, projects, BOMs, tickets). **Done.**
-5. Client visibility, Web portal section, REST API, download log. **← next**
-6. ECOs and licence templates.
+5. Client visibility, Web portal section, REST API, download log. **Done.**
+6. ECOs and licence templates. **← next**
 7. Workshop features (proof approval, reorder, time tracking, ownership, portfolio, viewer).
 
 ## Phase 1 as built
@@ -173,8 +173,38 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
   copies revision and design links from the quote/order the new document is made from. The
   `bomcard` hook (formObjectOptions) shows the BOM's assembly revision with warnings. Component
   has `fk_project` (defaults to the design's). The design-level quote/order link stays as is.
-- Not yet: per-link client visibility (phase 5); linking from the document side (only from
-  the revision, plus "Create design"); components on the project overview.
+- **Client visibility and portals** (phase 5, `class/clientaccess.class.php`, one rule set for
+  both portals): a customer sees a file when its revision is linked to one of their quotes,
+  orders or tickets (not draft/cancelled), the link is client-visible
+  (`llx_designtrace_docaccess`, no row = visible), the file is a **presentation** file (production
+  never; source not until licences, phase 6) and its visibility is Visible now, or Visible on
+  completion and the order is delivered (closed, status 3). Visibility is set on the Files tab
+  (right `componentrevision managevisibility`, allowed on released revisions too); the revision
+  card's "Customer access" block switches links on/off and shows the files shown per document.
+  - Delivered orders: links are locked (unlink refused on the revision card, lock icon on the
+    order; linking another revision of the same component refused). "Update delivered revision"
+    (right `componentrevision updatedelivered`, newer released revision, reason, optional keep
+    old visible) links the new one, hides the old one (kept as history) and logs
+    `AC_DESIGNTRACE_DELIVERED_UPDATE` on the order.
+  - Web portal: hooks `initController` (context `webportaldao`) registers controller
+    `designfiles` (`webportal/designfiles.controller.class.php`, list grouped by document,
+    downloads served and logged by the controller), `PrintTopMenu` adds the menu entry,
+    `printFieldListTitle/Option/Value` (context `webportal`) add a Design files column to the
+    quote and order lists. Setting `DESIGNTRACE_WEBPORTAL_HIDE` (negated, on by default).
+  - REST API (`class/api_designtrace.class.php`, class `DesignTrace` so routes are
+    `/api/index.php/designtrace/...`): `GET customers/{socid}/files[?element=quote|order|ticket]`,
+    `GET customers/{socid}/documents/{element}/{docid}/files`,
+    `GET customers/{socid}/files/{fileid}/link[?element&docid&actor]`,
+    `GET customers/{socid}/downloads`; right `clientfiles api` for the service user (an external
+    API user is limited to its own socid). Links point to `public/download.php`: HMAC-SHA256
+    (secret `DESIGNTRACE_LINK_SECRET`, made on first use) over file, customer, document, actor,
+    entity, expiry; lifetime `DESIGNTRACE_LINK_TTL` (default 300 s); rules re-checked at download.
+  - Download log `llx_designtrace_download` (no FKs, outlives files): channel webportal/api,
+    actor (`portal:<login>` or the API's actor), IP, user agent. Shown on the Files tab (count per
+    file, latest 50).
+- Not yet: customer email when files are released; source files for customers (licences,
+  phase 6); linking from the document side (only from the revision, plus "Create design");
+  components on the project overview.
 - Not yet: ECO and customer approval on revisions (phases 6–7), per-type prefix settings
   (prefixes are fixed in the standard rules; the generated "advanced" mask rules ignore type).
 
@@ -206,6 +236,15 @@ New objects can be generated without the GUI by POSTing Module Builder's `initob
   `activateModule()` silently does nothing.
 - Re-run module activation to create tables and rights; `modDesignTrace` is reachable via
   `activateModule('modDesignTrace')` from the CLI.
+- `createCommon()` writes an empty `date_creation` back as a DB string; `updateCommon()` on the
+  same instance then shifts it by the UTC offset. Our `create()` methods set `dol_now()` first.
+- `dol_get_fiche_head(..., $dragdropfile = 1)` (generated cards) never worked for module
+  objects and, forced, uploads to `designtrace/<REF>/`: it is off on all pages.
+- REST API: Restler derives the route from the class name, and `api/index.php` looks for class
+  `<Module>Api` then `<Module>`; `DesignTraceApi` would be routed at `/designtraceapi/`. Hence
+  class `DesignTrace`.
+- Web portal: `Context::getControllerUrl()` returns a raw URL; print it with
+  `dolPrintHTMLForAttributeUrl()` (`dolPrintHTMLForAttribute()` double-encodes `&`).
 
 ## Conventions
 

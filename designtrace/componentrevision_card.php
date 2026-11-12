@@ -96,6 +96,7 @@ include_once DOL_DOCUMENT_ROOT.'/core/class/html.formprojet.class.php';
 dol_include_once('/designtrace/class/componentrevision.class.php');
 dol_include_once('/designtrace/lib/designtrace_componentrevision.lib.php');
 dol_include_once('/designtrace/lib/designtrace_links.lib.php');
+dol_include_once('/designtrace/lib/designtrace_clientaccess.lib.php');
 
 // Load translation files required by the page
 $langs->loadLangs(array("designtrace@designtrace", "other"));
@@ -227,6 +228,11 @@ if (empty($reshook)) {
 
 	// Actions cancel, add, update, update_extras, confirm_validate, confirm_delete, confirm_deleteline, confirm_clone, confirm_close, confirm_setdraft, confirm_reopen
 	include DOL_DOCUMENT_ROOT.'/core/actions_addupdatedelete.inc.php';
+
+	// Customer access (link visibility, update delivered revision); refuses unlinking a delivered order
+	if ($object->id > 0) {
+		$action = designtraceDoClientAccessActions($action, $object, $user);
+	}
 
 	// Actions when linking object each other
 	include DOL_DOCUMENT_ROOT.'/core/actions_dellink.inc.php';
@@ -397,6 +403,10 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 	// Acknowledge a flag: no change needed
 	if ($action == 'acknowledge') {
 		$formconfirm = designtraceLinkConfirm($form, $object);
+	}
+	// Update delivered revision on a delivered order
+	if ($action == 'updatedelivered') {
+		$formconfirm = designtraceClientAccessConfirm($form, $object);
 	}
 
 	if ($action == 'clone') {
@@ -617,6 +627,9 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 			// backward compatibility
 			$somethingshown = $form->showLinkedObjectBlock($object, $tmparray);
 		}
+
+		// What customers see through the quotes, orders and tickets it is linked to
+		designtracePrintClientAccess($object, $form);
 
 		// Link this revision to a quote, order, invoice, BOM or ticket
 		designtracePrintDocLinkForm($object);

@@ -89,6 +89,8 @@ if (!$res) {
 include_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
 dol_include_once('/designtrace/class/componentrevision.class.php');
 dol_include_once('/designtrace/class/revisionfile.class.php');
+dol_include_once('/designtrace/class/clientaccess.class.php');
+require_once DOL_DOCUMENT_ROOT.'/societe/class/societe.class.php';
 dol_include_once('/designtrace/lib/designtrace_componentrevision.lib.php');
 
 // Load translation files required by the page
@@ -115,6 +117,7 @@ include DOL_DOCUMENT_ROOT.'/core/actions_fetchobject.inc.php'; // Must be 'inclu
 $permissiontoread = $user->hasRight('designtrace', 'componentrevision', 'read');
 $permissiontoadd = $user->hasRight('designtrace', 'componentrevision', 'write');
 $permissiontodeletelocked = $user->hasRight('designtrace', 'componentrevision', 'deletereleasedfile');
+$permissiontomanagevisibility = $user->hasRight('designtrace', 'componentrevision', 'managevisibility');
 
 if ($user->socid > 0) {
 	accessforbidden(); // External users only get files through the portals (phase 5)
@@ -144,6 +147,11 @@ $roles = array(
 	RevisionFile::ROLE_SOURCE => $langs->trans('FileRoleSource'),
 	RevisionFile::ROLE_PRESENTATION => $langs->trans('FileRolePresentation'),
 	RevisionFile::ROLE_PRODUCTION => $langs->trans('FileRoleProduction'),
+);
+$visibilities = array(
+	RevisionFile::VISIBILITY_HIDDEN => $langs->trans('FileVisibilityHidden'),
+	RevisionFile::VISIBILITY_NOW => $langs->trans('FileVisibilityNow'),
+	RevisionFile::VISIBILITY_ON_COMPLETION => $langs->trans('FileVisibilityOnCompletion'),
 );
 $maxbytes = RevisionFile::getMaxUploadBytes();
 $verifyresult = null;
@@ -211,6 +219,26 @@ if (empty($reshook)) {
 			$filerecord->role = $role;
 			if ($filerecord->update($user) > 0) {
 				setEventMessages($langs->trans('RevisionFileRoleChanged', $filerecord->filename), null, 'mesgs');
+			} else {
+				setEventMessages($filerecord->error, $filerecord->errors, 'errors');
+			}
+		}
+		header('Location: '.$selfurl);
+		exit;
+	}
+
+	// Client visibility: who may see a file is not part of its content, so it can change on
+	// released revisions too
+	if ($action == 'setvisibility' && $permissiontomanagevisibility && is_object($filerecord)) {
+		$visibility = GETPOSTINT('visibility');
+		if (!isset($visibilities[$visibility])) {
+			setEventMessages($langs->trans('ErrorBadValueForParameter', (string) $visibility, $langs->transnoentitiesnoconv('FileVisibility')), null, 'errors');
+		} elseif ($visibility != RevisionFile::VISIBILITY_HIDDEN && !DesignTraceClientAccess::isRoleShareable((int) $filerecord->role)) {
+			setEventMessages($langs->trans('ErrorFileRoleNeverVisible', $filerecord->filename), null, 'errors');
+		} else {
+			$filerecord->visibility = $visibility;
+			if ($filerecord->update($user) > 0) {
+				setEventMessages($langs->trans('RevisionFileVisibilityChanged', $filerecord->filename, $visibilities[$visibility]), null, 'mesgs');
 			} else {
 				setEventMessages($filerecord->error, $filerecord->errors, 'errors');
 			}
@@ -309,6 +337,7 @@ if ($previous) {
 	}
 }
 
+$downloadcounts = DesignTraceClientAccess::countDownloads($db, $object->id);
 $usercache = array();
 $canedit = (!$locked && $permissiontoadd);
 $candelete = ($locked ? $permissiontodeletelocked : $permissiontoadd);
@@ -322,6 +351,7 @@ print '<table class="noborder centpercent">';
 print '<tr class="liste_titre">';
 print '<td>'.$langs->trans('Filename').'</td>';
 print '<td>'.$form->textwithpicto($langs->trans('FileRole'), $langs->trans('FileRoleHelp')).'</td>';
+print '<td>'.$form->textwithpicto($langs->trans('FileVisibility'), $langs->trans('FileVisibilityHelp')).'</td>';
 print '<td class="center">'.$langs->trans('Format').'</td>';
 print '<td class="right">'.$langs->trans('Size').'</td>';
 print '<td>'.$langs->trans('SHA256').'</td>';
@@ -329,6 +359,7 @@ if ($previous) {
 	print '<td>'.$langs->trans('FileComparedToPrevious', $previous->rev).'</td>';
 }
 print '<td>'.$langs->trans('DateCreation').'</td>';
+print '<td class="center">'.$form->textwithpicto($langs->trans('Downloads'), $langs->trans('FileDownloadsHelp')).'</td>';
 if (is_array($verifyresult)) {
 	print '<td class="center">'.$langs->trans('Status').'</td>';
 }
@@ -361,6 +392,25 @@ foreach ($records as $file) {
 	}
 	print '</td>';
 
+	print '<td class="nowraponall">';
+	if (!DesignTraceClientAccess::isRoleShareable((int) $file->role)) {
+		print '<span class="opacitymedium">'.$form->textwithpicto($langs->trans('FileVisibilityNever'), $langs->trans((int) $file->role === RevisionFile::ROLE_PRODUCTION ? 'FileVisibilityNeverProduction' : 'FileVisibilityNeverSource')).'</span>';
+	} elseif ($permissiontomanagevisibility) {
+		print '<form method="POST" action="'.$selfurl.'" class="inline-block">';
+		print '<input type="hidden" name="token" value="'.newToken().'">';
+		print '<input type="hidden" name="action" value="setvisibility">';
+		print '<input type="hidden" name="fileid" value="'.((int) $file->id).'">';
+		print '<select class="flat minwidth150" name="visibility" id="visibility_'.((int) $file->id).'" onchange="this.form.submit()">';
+		foreach ($visibilities as $viskey => $vislabel) {
+			print '<option value="'.((int) $viskey).'"'.((int) $file->visibility == $viskey ? ' selected' : '').'>'.dol_escape_htmltag($vislabel).'</option>';
+		}
+		print '</select>';
+		print '</form>';
+	} else {
+		print dol_escape_htmltag(isset($visibilities[(int) $file->visibility]) ? $visibilities[(int) $file->visibility] : '');
+	}
+	print '</td>';
+
 	print '<td class="center">'.dol_escape_htmltag(strtoupper((string) $file->format)).'</td>';
 	print '<td class="right nowraponall">'.RevisionFile::formatSize((int) $file->filesize).'</td>';
 	print '<td class="nowraponall"><span class="classfortooltip" title="'.dol_escape_htmltag($file->sha256).'">'.dol_escape_htmltag(substr($file->sha256, 0, 12)).'…</span></td>';
@@ -386,6 +436,8 @@ foreach ($records as $file) {
 	print ' '.$usercache[$file->fk_user_creat]->getNomUrl(-1, '', 0, 0, 16);
 	print '</td>';
 
+	print '<td class="center">'.(empty($downloadcounts[$file->id]) ? '<span class="opacitymedium">0</span>' : (int) $downloadcounts[$file->id]).'</td>';
+
 	if (is_array($verifyresult)) {
 		$status = isset($verifyresult['files'][$file->id]) ? $verifyresult['files'][$file->id] : 'missing';
 		$statusmap = array('ok' => array('RevisionFileStatusOk', 'status4'), 'changed' => array('RevisionFileStatusChanged', 'status8'), 'missing' => array('RevisionFileStatusMissing', 'status8'));
@@ -400,9 +452,9 @@ foreach ($records as $file) {
 	print '</tr>';
 }
 if (empty($records)) {
-	print '<tr class="oddeven"><td colspan="9"><span class="opacitymedium">'.$langs->trans('None').'</span></td></tr>';
+	print '<tr class="oddeven"><td colspan="12"><span class="opacitymedium">'.$langs->trans('None').'</span></td></tr>';
 } else {
-	print '<tr class="liste_total"><td colspan="3">'.$langs->trans('Total').': '.count($records).'</td><td class="right nowraponall">'.RevisionFile::formatSize($totalsize).'</td><td colspan="5"></td></tr>';
+	print '<tr class="liste_total"><td colspan="4">'.$langs->trans('Total').': '.count($records).'</td><td class="right nowraponall">'.RevisionFile::formatSize($totalsize).'</td><td colspan="'.(4 + ($previous ? 1 : 0) + (is_array($verifyresult) ? 1 : 0)).'"></td></tr>';
 }
 print '</table>';
 print '</div>';
@@ -411,6 +463,35 @@ print '</div>';
 print '<div class="tabsAction">';
 print dolGetButtonAction('', $langs->trans('RevisionFilesVerify'), 'default', $selfurl.'&action=verify&token='.newToken(), '', !empty($records));
 print '</div>';
+
+// Customer download log (Web portal and REST API)
+$downloads = DesignTraceClientAccess::fetchDownloads($db, $object->id, 50);
+if (!empty($downloads)) {
+	$channels = DesignTraceClientAccess::getChannels();
+	print load_fiche_titre($form->textwithpicto($langs->trans('DownloadLog'), $langs->trans('DownloadLogHelp')), '', 'fa-download');
+	print '<div class="div-table-responsive-no-min">';
+	print '<table class="noborder centpercent">';
+	print '<tr class="liste_titre"><td>'.$langs->trans('Date').'</td><td>'.$langs->trans('Filename').'</td><td>'.$langs->trans('Customer').'</td><td>'.$langs->trans('Document').'</td>';
+	print '<td>'.$langs->trans('DownloadChannel').'</td><td>'.$langs->trans('DownloadActor').'</td><td>'.$langs->trans('IPAddress').'</td></tr>';
+	$socstatic = new Societe($db);
+	foreach ($downloads as $dl) {
+		print '<tr class="oddeven">';
+		print '<td class="nowraponall">'.dol_print_date($dl->date_download, 'dayhour').'</td>';
+		print '<td class="tdoverflowmax250">'.dol_escape_htmltag($dl->filename).'</td>';
+		$socstatic->id = (int) $dl->fk_soc;
+		$socstatic->name = (string) $dl->socname;
+		print '<td class="tdoverflowmax150">'.($dl->socname !== null ? $socstatic->getNomUrl(1) : '').'</td>';
+		print '<td class="nowraponall">'.(isset($channels[$dl->element]) ? $langs->trans($channels[$dl->element]['label']).' ' : '');
+		$docref = DesignTraceClientAccess::getDocumentNomUrl($db, (string) $dl->element, (int) $dl->fk_element);
+		print $docref.'</td>';
+		print '<td>'.$langs->trans($dl->channel == DesignTraceClientAccess::CHANNEL_API ? 'DownloadChannelApi' : 'DownloadChannelWebportal').'</td>';
+		print '<td class="tdoverflowmax150">'.dol_escape_htmltag((string) $dl->actor).'</td>';
+		print '<td class="nowraponall">'.dol_escape_htmltag((string) $dl->ip).'</td>';
+		print '</tr>';
+	}
+	print '</table>';
+	print '</div>';
+}
 
 // Upload form
 if ($canedit) {

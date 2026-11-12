@@ -104,6 +104,7 @@ $formSetup = new FormSetup($db);
 
 // Enter here all parameters in your setup page
 dol_include_once('/designtrace/class/revisionfile.class.php');
+dol_include_once('/designtrace/class/clientaccess.class.php');
 
 // Revision files
 $formSetup->newItem('RevisionFilesSetup')->setAsTitle();
@@ -141,6 +142,21 @@ $item->fieldAttr['placeholder'] = (string) floor($phplimit / 1024 / 1024);
 $item->fieldAttr['type'] = 'number';
 $item->fieldAttr['min'] = '1';
 $item->helpText = $langs->trans('DESIGNTRACE_MAX_UPLOAD_MBTooltip', RevisionFile::formatSize($phplimit));
+$item->cssClass = 'maxwidth100';
+
+// Customer access
+$formSetup->newItem('ClientAccessSetup')->setAsTitle();
+
+// On by default, stored negated like the switches above
+$item = $formSetup->newItem('DESIGNTRACE_WEBPORTAL_HIDE')->setAsYesNo();
+$item->fieldParams['revertonoff'] = 1;
+$item->helpText = $langs->trans('DESIGNTRACE_WEBPORTAL_HIDETooltip');
+
+$item = $formSetup->newItem('DESIGNTRACE_LINK_TTL');
+$item->fieldAttr['placeholder'] = (string) DesignTraceClientAccess::DEFAULT_LINK_TTL;
+$item->fieldAttr['type'] = 'number';
+$item->fieldAttr['min'] = '10';
+$item->helpText = $langs->trans('DESIGNTRACE_LINK_TTLTooltip', DesignTraceClientAccess::DEFAULT_LINK_TTL);
 $item->cssClass = 'maxwidth100';
 
 // End of definition of parameters
