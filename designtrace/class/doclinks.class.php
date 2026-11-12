@@ -295,7 +295,7 @@ class DesignTraceDocLinks
 		$sql .= " ORDER BY t.rowid DESC";
 		$sql .= $db->plimit(1000);
 
-		$out = '<select class="flat minwidth300 maxwidth500 widthcentpercentminusx" id="'.dol_escape_htmltag($htmlname).'" name="'.dol_escape_htmltag($htmlname).'">';
+		$out = '<select class="flat minwidth300 maxwidth500" id="'.dol_escape_htmltag($htmlname).'" name="'.dol_escape_htmltag($htmlname).'">';
 		$out .= '<option value="-1">&nbsp;</option>';
 		$resql = $db->query($sql);
 		while ($resql && ($obj = $db->fetch_object($resql))) {

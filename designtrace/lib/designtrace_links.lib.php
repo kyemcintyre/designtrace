@@ -548,7 +548,7 @@ function designtracePrintDocLinkForm($object)
 			print '<input type="hidden" name="action" value="linkdoc">';
 			print '<input type="hidden" name="docelement" value="'.dol_escape_htmltag($element).'">';
 			print DesignTraceDocLinks::selectDocument($db, $element, 'docid_'.$element);
-			print ' <input type="submit" class="button small" value="'.dol_escape_htmltag($langs->trans('DocLinkButton')).'">';
+			print ' <input type="submit" class="button small marginleftonly valignmiddle" value="'.dol_escape_htmltag($langs->trans('DocLinkButton')).'">';
 			print '</form>';
 		} else {
 			print '<span class="opacitymedium">'.$langs->trans('DocLinkReleasedOnly').'</span>';
