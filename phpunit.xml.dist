@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- DesignTrace tests. Run through designtrace/test/phpunit/run-tests.php (it loads Dolibarr first). -->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="designtrace/test/phpunit/bootstrap.php"
+         colors="true"
+         cacheDirectory=".phpunit.cache"
+         backupGlobals="false"
+         failOnWarning="true"
+         failOnRisky="true">
+    <testsuites>
+        <testsuite name="DesignTrace">
+            <directory suffix="Test.php">designtrace/test/phpunit</directory>
+        </testsuite>
+    </testsuites>
+</phpunit>

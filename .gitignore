@@ -41,6 +41,7 @@ dumps/
 
 # --- Dependencies and build output ---
 vendor/
+.phpunit.cache/
 node_modules/
 /build/
 dist/
