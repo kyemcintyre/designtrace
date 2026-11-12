@@ -29,7 +29,8 @@
  *    when the customer's browser can reach Dolibarr; it checks the rules again when used;
  *  - streamed back to the caller (GET .../files/{fileid}/content, logged as "API (direct)"), for a
  *    backend that proxies files because Dolibarr is not reachable from outside.
- * The same service user reads the portfolio gallery (designs whose customer consented). Customer actions
+ * The same service user reads the portfolio gallery (designs whose customer consented), with links
+ * or the images themselves (GET portfolio/{designid}/images/{imageid}/content). Customer actions
  * (licence acceptance, consent, proof decisions) take optional client_ip and user_agent: the
  * customer's as seen by such a backend, recorded as evidence instead of the backend's own.
  */
@@ -602,6 +603,35 @@ class DesignTrace extends DolibarrApi
 		}
 		$link = DesignTracePortfolio::buildSignedUrl((int) $designid, (int) $imageid);
 		return array('url' => $link['url'], 'expires' => $link['expires'], 'filename' => $image['filename']);
+	}
+
+	/**
+	 * Gallery image directly: the raw image is the response
+	 *
+	 * For a backend that proxies the gallery because Dolibarr is not reachable from outside: the
+	 * image is streamed back (inline) instead of a link, while the design is still in the gallery
+	 * (active, not confidential, consent granted). Errors are JSON. Headers: Content-Type,
+	 * Content-Length, X-Content-SHA256. Gallery images are public on the site, so they are not logged.
+	 *
+	 * @param	int		$designid	Design id
+	 * @param	int		$imageid	Image id (from GET portfolio)
+	 * @return	void				The raw image (never returns)
+	 *
+	 * @url	GET portfolio/{designid}/images/{imageid}/content
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Image not in the gallery, or missing on disk
+	 */
+	public function getPortfolioImageContent($designid, $imageid)
+	{
+		$this->checkService();
+		$image = DesignTracePortfolio::getImage($this->db, (int) $designid, (int) $imageid);
+		if (!$image || !is_file(dol_osencode($image['path']))) {
+			throw new RestException(404, 'Image not in the gallery');
+		}
+		DesignTraceClientAccess::sendFile($image['path'], $image['filename'], true, array(
+			'X-Content-SHA256' => (string) hash_file('sha256', dol_osencode($image['path'])),
+		));
 	}
 
 	/**

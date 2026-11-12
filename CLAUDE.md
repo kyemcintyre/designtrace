@@ -271,7 +271,8 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
   with `perm_portfolio` grants it only when not asked yet. Gallery = active, not confidential,
   granted; images of the design's Documents tab (`ecm_files`); `GET portfolio` and
   `GET portfolio/{designid}/images/{imageid}/link` (internal service user), served inline by
-  download.php (`t=portfolio`, not logged). A clone starts "not asked".
+  download.php (`t=portfolio`, not logged), or streamed to a proxying backend with
+  `GET portfolio/{designid}/images/{imageid}/content` (inline, `X-Content-SHA256`). A clone starts "not asked".
 - **Proof approval** (`class/proofapproval.class.php`): revisions of proof drawings visible to the
   customer, in review or released: Approve or Request changes (comment required) on the Design
   files page or `GET .../documents/{element}/{docid}/proofs`, `POST .../proofs/{revid}/decision`.
