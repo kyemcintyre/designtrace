@@ -112,12 +112,13 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
 - **ComponentRevision** (`llx_designtrace_componentrevision`): fk_component (FK), rev
   (default next letter A…Z, AA; unique per component), ref = component ref + `-` + rev
   (`PRT-0001-A`, no numbering module), change_reason (1 initial … 6 other), change notes
-  (description), material, process, machine, print settings (layer_height, nozzle_size,
-  infill %, print_time seconds, filament_used g), date_release, fk_user_release. Draft (0) ⇄ In review (1) → Released (2) →
+  (description), material, process, machine, date_release, fk_user_release. Print settings
+  (layer height, nozzle, infill, print time, filament) were removed at Kye's request: they are
+  MRP information, and the slicer project (production file) holds them. Draft (0) ⇄ In review (1) → Released (2) →
   Obsolete (9, undoable). Release needs the separate `componentrevision release` right and
   fires `DESIGNTRACE_COMPONENTREVISION_RELEASE` (hook for phase 3 flagging). Released is
   read-only and undeletable. One draft/in-review revision per component at a time. "New
-  revision from this one" (clone) copies notes, material/process/machine and print settings,
+  revision from this one" (clone) copies notes and material/process/machine,
   not the change reason.
 - Design and Component cards show the first image of the Documents tab as banner thumbnail
   (`designtraceBannerWithThumbnail()`). Deleting any object deletes its documents folder.

@@ -150,11 +150,6 @@ class ComponentRevision extends CommonObject
 		"material" => array("type" => "varchar(255)", "label" => "Material", "enabled" => "1", 'position' => 70, 'notnull' => 0, "visible" => "-1", "searchall" => "1", "css" => "minwidth200", "validate" => "1",),
 		"process" => array("type" => "varchar(255)", "label" => "Process", "enabled" => "1", 'position' => 72, 'notnull' => 0, "visible" => "-1", "searchall" => "1", "css" => "minwidth200", "validate" => "1",),
 		"machine" => array("type" => "varchar(255)", "label" => "Machine", "enabled" => "1", 'position' => 74, 'notnull' => 0, "visible" => "-1", "searchall" => "1", "css" => "minwidth200", "validate" => "1",),
-		"layer_height" => array("type" => "double(24,8)", "label" => "LayerHeight", "enabled" => "1", 'position' => 75, 'notnull' => 0, "visible" => "-1", "css" => "maxwidth100", "validate" => "1", "help" => "PrintSettingsHelp"),
-		"nozzle_size" => array("type" => "double(24,8)", "label" => "NozzleSize", "enabled" => "1", 'position' => 76, 'notnull' => 0, "visible" => "-1", "css" => "maxwidth100", "validate" => "1", "help" => "PrintSettingsHelp"),
-		"infill" => array("type" => "integer", "label" => "InfillPercent", "enabled" => "1", 'position' => 77, 'notnull' => 0, "visible" => "-1", "css" => "maxwidth75", "validate" => "1", "help" => "PrintSettingsHelp"),
-		"print_time" => array("type" => "duration", "label" => "PrintTime", "enabled" => "1", 'position' => 78, 'notnull' => 0, "visible" => "-1", "validate" => "1", "help" => "PrintSettingsHelp"),
-		"filament_used" => array("type" => "double(24,8)", "label" => "FilamentUsed", "enabled" => "1", 'position' => 79, 'notnull' => 0, "visible" => "-1", "css" => "maxwidth100", "validate" => "1", "help" => "PrintSettingsHelp"),
 		"date_release" => array("type" => "datetime", "label" => "DateRelease", "enabled" => "1", 'position' => 80, 'notnull' => 0, "visible" => "5", "noteditable" => "1", "index" => "1",),
 		"fk_user_release" => array("type" => "integer:User:user/class/user.class.php", "label" => "ReleasedBy", "picto" => "user", "enabled" => "1", 'position' => 82, 'notnull' => 0, "visible" => "-5", "noteditable" => "1", "csslist" => "tdoverflowmax150",),
 		"note_public" => array("type" => "html", "label" => "NotePublic", "enabled" => "1", 'position' => 61, 'notnull' => 0, "visible" => "0", "cssview" => "wordbreak", "validate" => "1",),
@@ -182,26 +177,6 @@ class ComponentRevision extends CommonObject
 	 */
 	public $change_reason;
 	public $fk_eco;
-	/**
-	 * @var ?float Layer height in mm
-	 */
-	public $layer_height;
-	/**
-	 * @var ?float Nozzle size in mm
-	 */
-	public $nozzle_size;
-	/**
-	 * @var ?int Infill in %
-	 */
-	public $infill;
-	/**
-	 * @var ?int Print time in seconds
-	 */
-	public $print_time;
-	/**
-	 * @var ?float Filament used in grams
-	 */
-	public $filament_used;
 	public $date_release;
 	public $fk_user_release;
 	/**
@@ -301,7 +276,7 @@ class ComponentRevision extends CommonObject
 				return -1;
 			}
 		}
-		if ($this->checkRev() < 0 || $this->checkPrintSettings() < 0 || $this->checkEco($user, $component) < 0) {
+		if ($this->checkRev() < 0 || $this->checkEco($user, $component) < 0) {
 			return -1;
 		}
 
@@ -346,7 +321,7 @@ class ComponentRevision extends CommonObject
 		$object->ref = '';
 		$object->rev = '';
 		$object->change_reason = null;
-		$object->fk_eco = null;			// Each revision states its own ECO		// Each revision states its own reason; the rest (material, print settings) carries over
+		$object->fk_eco = null;			// Each revision states its own reason and ECO; notes, material, process and machine carry over
 		$object->status = self::STATUS_DRAFT;
 		$object->date_release = null;
 		$object->fk_user_release = null;
@@ -538,7 +513,7 @@ class ComponentRevision extends CommonObject
 		if (!is_object($component)) {
 			return -1;
 		}
-		if ($this->checkRev() < 0 || $this->checkPrintSettings() < 0 || ((int) $this->fk_eco !== (int) $stored->fk_eco && $this->checkEco($user, $component) < 0)) {
+		if ($this->checkRev() < 0 || ((int) $this->fk_eco !== (int) $stored->fk_eco && $this->checkEco($user, $component) < 0)) {
 			return -1;
 		}
 		$this->ref = $component->ref.'-'.$this->rev;
@@ -934,33 +909,6 @@ class ComponentRevision extends CommonObject
 		$this->db->free($resql);
 
 		return (int) $obj->nb;
-	}
-
-	/**
-	 *	Check the print settings: no negative values, infill 0 to 100 %.
-	 *
-	 *	@return	int<-1,1>		Return integer <0 if KO, >0 if OK
-	 */
-	public function checkPrintSettings()
-	{
-		global $langs;
-
-		$langs->load("designtrace@designtrace");
-
-		foreach (array('layer_height', 'nozzle_size', 'infill', 'print_time', 'filament_used') as $key) {
-			if ($this->$key === '' || $this->$key === null) {
-				$this->$key = null;
-				continue;
-			}
-			if ((float) $this->$key < 0) {
-				return $this->setErrorAndFail($langs->trans('ErrorDesignTraceNegative', $langs->transnoentitiesnoconv($this->fields[$key]['label'])));
-			}
-		}
-		if ($this->infill !== null && (int) $this->infill > 100) {
-			return $this->setErrorAndFail($langs->trans('ErrorInfillOver100'));
-		}
-
-		return 1;
 	}
 
 	/**
