@@ -103,83 +103,45 @@ if (!class_exists('FormSetup')) {
 $formSetup = new FormSetup($db);
 
 // Enter here all parameters in your setup page
+dol_include_once('/designtrace/class/revisionfile.class.php');
 
-// Setup conf for selection of an URL
-$item = $formSetup->newItem('DESIGNTRACE_MYPARAM1');
-$item->fieldParams['isMandatory'] = 1;
-$item->fieldAttr['placeholder'] = (empty($_SERVER['HTTPS']) ? 'http://' : 'https://') . $_SERVER['HTTP_HOST'];
-$item->cssClass = 'minwidth500';
+// Revision files
+$formSetup->newItem('RevisionFilesSetup')->setAsTitle();
 
-// Setup conf for selection of a simple string input
-$item = $formSetup->newItem('DESIGNTRACE_MYPARAM2');
-$item->defaultFieldValue = 'default value';
-$item->fieldAttr['placeholder'] = 'A placeholder here';
-$item->helpText = 'Tooltip text';
+foreach (array('SOURCE' => RevisionFile::DEFAULT_EXT_SOURCE, 'PRESENTATION' => RevisionFile::DEFAULT_EXT_PRESENTATION, 'PRODUCTION' => RevisionFile::DEFAULT_EXT_PRODUCTION) as $role => $default) {
+	$item = $formSetup->newItem('DESIGNTRACE_ROLE_EXT_'.$role);
+	$item->defaultFieldValue = $default;
+	$item->fieldAttr['placeholder'] = $default;
+	$item->helpText = $langs->trans('DESIGNTRACE_ROLE_EXT_'.$role.'Tooltip', $default);
+	$item->cssClass = 'minwidth500';
+}
 
-// Setup conf for selection of a simple textarea input but we replace the text of field title
-$item = $formSetup->newItem('DESIGNTRACE_MYPARAM3');
-$item->nameText = $item->getNameText().' more html text ';
+// These two are on by default: their constants store "off" and the switches are reversed, so an
+// unset constant (switching off deletes it) still means on
+$item = $formSetup->newItem('DESIGNTRACE_3MF_NO_DETECT')->setAsYesNo();
+$item->fieldParams['revertonoff'] = 1;
+$item->helpText = $langs->trans('DESIGNTRACE_3MF_NO_DETECTTooltip');
 
-// Setup conf for a selection of a Thirdparty
-$item = $formSetup->newItem('DESIGNTRACE_MYPARAM4');
-$item->setAsThirdpartyType();
+$item = $formSetup->newItem('DESIGNTRACE_FILE_NO_PREFIX')->setAsYesNo();
+$item->fieldParams['revertonoff'] = 1;
+$item->helpText = $langs->trans('DESIGNTRACE_FILE_NO_PREFIXTooltip');
 
-// Setup conf for a selection of a boolean
-$formSetup->newItem('DESIGNTRACE_MYPARAM5')->setAsYesNo();	 // ->fieldParams['alertifoff'] = 1 or ->fieldParams['alertifon'] = 1;
+$formSetup->newItem('DESIGNTRACE_RELEASE_REQUIRES_SOURCE')->setAsYesNo();
 
-// Setup conf for a selection of an Email template of type thirdparty
-$formSetup->newItem('DESIGNTRACE_MYPARAM6')->setAsEmailTemplate('thirdparty');
-
-// Setup conf for a selection of a secured key
-//$formSetup->newItem('DESIGNTRACE_MYPARAM7')->setAsSecureKey();
-
-// Setup conf for a selection of a Product
-$formSetup->newItem('DESIGNTRACE_MYPARAM8')->setAsProduct();
-
-// Add a title for a new section
-$formSetup->newItem('NewSection')->setAsTitle();
-
-$TField = array(
-	'test01' => $langs->trans('test01'),
-	'test02' => $langs->trans('test02'),
-	'test03' => $langs->trans('test03'),
-	'test04' => $langs->trans('test04'),
-	'test05' => $langs->trans('test05'),
-	'test06' => $langs->trans('test06'),
-);
-
-// Setup conf for a simple combo list
-$formSetup->newItem('DESIGNTRACE_MYPARAM9')->setAsSelect($TField);
-
-// Setup conf for a multiselect combo list
-$item = $formSetup->newItem('DESIGNTRACE_MYPARAM10');
-$item->setAsMultiSelect($TField);
-$item->helpText = $langs->transnoentities('DESIGNTRACE_MYPARAM10');
-
-// Setup conf for a category selection
-$formSetup->newItem('DESIGNTRACE_CATEGORY_ID_XXX')->setAsCategory('product');
-
-// Setup conf DESIGNTRACE_MYPARAM10
-$item = $formSetup->newItem('DESIGNTRACE_MYPARAM10');
-$item->setAsColor();
-$item->defaultFieldValue = '#FF0000';
-//$item->fieldValue = '';
-//$item->fieldAttr = array() ; // fields attribute only for compatible fields like input text
-//$item->fieldOverride = false; // set this var to override field output will override $fieldInputOverride and $fieldOutputOverride too
-//$item->fieldInputOverride = false; // set this var to override field input
-//$item->fieldOutputOverride = false; // set this var to override field output
-
-$item = $formSetup->newItem('DESIGNTRACE_MYPARAM11')->setAsHtml();
-$item->nameText = $item->getNameText().' more html text ';
-$item->fieldInputOverride = '';
-$item->helpText = $langs->transnoentities('HelpMessage');
-$item->cssClass = 'minwidth500';
-
-$item = $formSetup->newItem('DESIGNTRACE_MYPARAM12');
-$item->fieldOverride = "Value forced, can't be modified";
-$item->cssClass = 'minwidth500';
-
-//$item = $formSetup->newItem('DESIGNTRACE_MYPARAM13')->setAsDate();	// Not yet implemented
+// Server limit: smallest of upload_max_filesize and post_max_size
+$phplimit = 0;
+foreach (array('upload_max_filesize', 'post_max_size') as $inikey) {
+	$bytes = RevisionFile::iniSizeToBytes((string) ini_get($inikey));
+	if ($bytes > 0) {
+		$phplimit = ($phplimit > 0 ? min($phplimit, $bytes) : $bytes);
+	}
+}
+$item = $formSetup->newItem('DESIGNTRACE_MAX_UPLOAD_MB');
+$item->fieldAttr['placeholder'] = (string) floor($phplimit / 1024 / 1024);
+$item->fieldAttr['type'] = 'number';
+$item->fieldAttr['min'] = '1';
+$item->helpText = $langs->trans('DESIGNTRACE_MAX_UPLOAD_MBTooltip', RevisionFile::formatSize($phplimit));
+$item->cssClass = 'maxwidth100';
 
 // End of definition of parameters
 

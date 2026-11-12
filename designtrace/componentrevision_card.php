@@ -233,8 +233,9 @@ if (empty($reshook)) {
 	// Actions when printing a doc from card
 	include DOL_DOCUMENT_ROOT.'/core/actions_printing.inc.php';
 
-	// Action to build doc
-	include DOL_DOCUMENT_ROOT.'/core/actions_builddoc.inc.php';
+	// No actions_builddoc.inc.php: there is no document model, and its remove_file action works on
+	// the parent folder of every revision's files, which would bypass the lock of released files.
+	// Files are managed in the Files tab (componentrevision_document.php).
 
 	// Other special actions
 	/*
@@ -373,7 +374,14 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 	}
 	// Clone confirmation
 	if ($action == 'release') {
-		$formconfirm = $form->formconfirm($_SERVER["PHP_SELF"].'?id='.$object->id, $langs->trans('RevisionRelease'), $langs->trans('ConfirmRevisionRelease', $object->ref), 'confirm_release', '', 0, 1);
+		dol_include_once('/designtrace/class/revisionfile.class.php');
+		$question = $langs->trans('ConfirmRevisionRelease', $object->ref);
+		if ($object->countFiles() <= 0) {
+			$question .= '<br><br>'.img_warning().' '.$langs->trans('WarningRevisionHasNoFiles');
+		} elseif ($object->countFiles(RevisionFile::ROLE_SOURCE) <= 0) {
+			$question .= '<br><br>'.img_warning().' '.$langs->trans('WarningRevisionHasNoSourceFile');
+		}
+		$formconfirm = $form->formconfirm($_SERVER["PHP_SELF"].'?id='.$object->id, $langs->trans('RevisionRelease'), $question, 'confirm_release', '', 0, 1);
 	}
 
 	if ($action == 'clone') {

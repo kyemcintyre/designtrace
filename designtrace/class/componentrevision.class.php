@@ -202,6 +202,10 @@ class ComponentRevision extends CommonObject
 	public $filament_used;
 	public $date_release;
 	public $fk_user_release;
+	/**
+	 * @var string[] Non-blocking messages from the last addFile()
+	 */
+	public $warnings = array();
 	public $note_public;
 	public $note_private;
 	public $date_creation;
@@ -514,7 +518,18 @@ class ComponentRevision extends CommonObject
 		}
 		$this->ref = $component->ref.'-'.$this->rev;
 
-		return $this->updateCommon($user, $notrigger);
+		$this->db->begin();
+		$result = $this->updateCommon($user, $notrigger);
+		if ($result > 0 && $stored->ref !== $this->ref && $this->renameFilesDir($stored->ref, $this->ref) < 0) {
+			$result = -1;
+		}
+		if ($result > 0) {
+			$this->db->commit();
+		} else {
+			$this->db->rollback();
+		}
+
+		return $result;
 	}
 
 	/**
@@ -533,9 +548,20 @@ class ComponentRevision extends CommonObject
 			return $this->setErrorAndFail($langs->trans('ErrorRevisionReleasedCannotBeDeleted', $this->ref));
 		}
 
-		$result = $this->deleteCommon($user, $notrigger);
+		$this->db->begin();
+		$result = 1;
+		$sql = "DELETE FROM ".$this->db->prefix()."designtrace_revisionfile WHERE fk_revision = ".((int) $this->id);
+		if (!$this->db->query($sql)) {
+			$result = $this->setErrorAndFail($this->db->lasterror());
+		}
 		if ($result > 0) {
+			$result = $this->deleteCommon($user, $notrigger);
+		}
+		if ($result > 0) {
+			$this->db->commit();
 			$this->deleteDocumentsDir();
+		} else {
+			$this->db->rollback();
 		}
 
 		return $result;
@@ -609,9 +635,18 @@ class ComponentRevision extends CommonObject
 	 */
 	public function release($user, $notrigger = 0)
 	{
+		global $langs;
+
 		if (!in_array((int) $this->status, array(self::STATUS_DRAFT, self::STATUS_INREVIEW), true)) {
 			dol_syslog(get_class($this)."::release action abandoned: status ".$this->status, LOG_WARNING);
 			return 0;
+		}
+		if (getDolGlobalInt('DESIGNTRACE_RELEASE_REQUIRES_SOURCE')) {
+			dol_include_once('/designtrace/class/revisionfile.class.php');
+			if ($this->countFiles(RevisionFile::ROLE_SOURCE) <= 0) {
+				$langs->load('designtrace@designtrace');
+				return $this->setErrorAndFail($langs->trans('ErrorRevisionNeedsSourceFile', $this->ref));
+			}
 		}
 
 		$error = 0;
@@ -844,6 +879,341 @@ class ComponentRevision extends CommonObject
 		$this->component = $component;
 
 		return $component;
+	}
+
+	/**
+	 *	Tell if the files of this revision are locked: released and obsolete revisions are read-only.
+	 *
+	 *	@return	bool
+	 */
+	public function isLocked()
+	{
+		return ((int) $this->status >= self::STATUS_RELEASED);
+	}
+
+	/**
+	 *	Directory of the revision's files (documents/designtrace/componentrevision/<ref>)
+	 *
+	 *	@param	string	$ref	Ref to use instead of the current one
+	 *	@return	string			Full path, without trailing slash
+	 */
+	public function getFilesDir($ref = '')
+	{
+		global $conf;
+
+		$entity = (empty($this->entity) ? $conf->entity : $this->entity);
+		return $conf->designtrace->multidir_output[$entity].'/'.$this->element.'/'.dol_sanitizeFileName($ref !== '' ? $ref : $this->ref);
+	}
+
+	/**
+	 *	Count the file records of the revision
+	 *
+	 *	@param	int		$role	Only this role (RevisionFile::ROLE_*), 0 for all
+	 *	@return	int				Number of files, -1 if KO
+	 */
+	public function countFiles($role = 0)
+	{
+		$sql = "SELECT COUNT(rowid) as nb FROM ".$this->db->prefix()."designtrace_revisionfile";
+		$sql .= " WHERE fk_revision = ".((int) $this->id);
+		if ($role > 0) {
+			$sql .= " AND role = ".((int) $role);
+		}
+		$resql = $this->db->query($sql);
+		if (!$resql) {
+			return $this->setErrorAndFail($this->db->lasterror());
+		}
+		$obj = $this->db->fetch_object($resql);
+		$this->db->free($resql);
+
+		return (int) $obj->nb;
+	}
+
+	/**
+	 *	Previous revision of the same component (the one created just before this one)
+	 *
+	 *	@return	ComponentRevision|null
+	 */
+	public function getPreviousRevision()
+	{
+		$sql = "SELECT rowid FROM ".$this->db->prefix().$this->table_element;
+		$sql .= " WHERE fk_component = ".((int) $this->fk_component)." AND rowid < ".((int) $this->id);
+		$sql .= " ORDER BY rowid DESC";
+		$sql .= $this->db->plimit(1);
+		$resql = $this->db->query($sql);
+		if (!$resql || !($obj = $this->db->fetch_object($resql))) {
+			return null;
+		}
+		$previous = new self($this->db);
+		return ($previous->fetch((int) $obj->rowid) > 0 ? $previous : null);
+	}
+
+	/**
+	 *	File name a new file gets in this revision: sanitized, lower case extension, and (unless setting
+	 *	DESIGNTRACE_FILE_NO_PREFIX is on) prefixed with the component number unless it
+	 *	already starts with it, so "bracket.FCStd" becomes "PRT-0001-bracket.fcstd".
+	 *
+	 *	@param	string	$origname		Name of the uploaded file
+	 *	@param	string	$componentref	Component number
+	 *	@return	string					File name, '' if not usable
+	 */
+	public static function buildFileName($origname, $componentref)
+	{
+		$origname = trim(basename(str_replace('\\', '/', $origname)));
+		$info = pathinfo($origname);
+		$ext = (isset($info['extension']) && $info['extension'] !== '' ? '.'.strtolower($info['extension']) : '');
+		$name = dol_sanitizeFileName($info['filename'].$ext);
+		if ($name === '' || $name[0] === '.') {
+			return '';
+		}
+		if (!getDolGlobalInt('DESIGNTRACE_FILE_NO_PREFIX') && !self::fileNameHasRef($name, $componentref)) {
+			$name = dol_sanitizeFileName($componentref.'-'.$name);
+		}
+		return dol_string_nohtmltag($name);
+	}
+
+	/**
+	 *	Tell if a file name starts with the component number ("PRT-0001.fcstd", "PRT-0001-x.step")
+	 *
+	 *	@param	string	$filename		File name
+	 *	@param	string	$componentref	Component number
+	 *	@return	bool
+	 */
+	public static function fileNameHasRef($filename, $componentref)
+	{
+		return (bool) preg_match('/^'.preg_quote(dol_sanitizeFileName($componentref), '/').'([-_. ]|$)/i', $filename);
+	}
+
+	/**
+	 *	Add (or, in an unlocked revision, replace) a file. Checks the lock, the size limit and the
+	 *	forbidden extensions, names the file after the component, stores it in the revision's
+	 *	directory, hashes it and records it.
+	 *
+	 *	@param	User		$user		User adding the file
+	 *	@param	string		$srcpath	Path of the uploaded file ($_FILES[...]['tmp_name'])
+	 *	@param	string		$origname	Original file name
+	 *	@param	int			$role		RevisionFile::ROLE_*, 0 to guess from the file
+	 *	@param	int<0,1>	$isupload	1 for an HTTP upload, 0 to move a local file (scripts, tests)
+	 *	@return	RevisionFile|int<-1,-1>	The file record, or -1 if KO (see $this->error)
+	 */
+	public function addFile(User $user, $srcpath, $origname, $role = 0, $isupload = 1)
+	{
+		global $langs;
+
+		require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
+		dol_include_once('/designtrace/class/revisionfile.class.php');
+		$langs->loadLangs(array('errors', 'designtrace@designtrace'));
+
+		$this->warnings = array();
+		if ($this->isLocked()) {
+			return $this->setErrorAndFail($langs->trans('ErrorRevisionFilesLocked', $this->ref));
+		}
+		$component = $this->fetchComponentChecked();
+		if (!is_object($component)) {
+			return -1;
+		}
+		if ($role && !in_array((int) $role, array(RevisionFile::ROLE_SOURCE, RevisionFile::ROLE_PRESENTATION, RevisionFile::ROLE_PRODUCTION), true)) {
+			return $this->setErrorAndFail($langs->trans('ErrorBadValueForParameter', (string) $role, $langs->transnoentitiesnoconv('FileRole')));
+		}
+
+		$size = (int) @filesize($srcpath);
+		$max = RevisionFile::getMaxUploadBytes();
+		if ($max > 0 && $size > $max) {
+			return $this->setErrorAndFail($langs->trans('ErrorRevisionFileTooLarge', $origname, RevisionFile::formatSize($size), RevisionFile::formatSize($max)));
+		}
+
+		$filename = self::buildFileName($origname, $component->ref);
+		if ($filename === '') {
+			return $this->setErrorAndFail($langs->trans('ErrorFilenameCantStartWithDot', $origname));
+		}
+		if (!self::fileNameHasRef($filename, $component->ref)) {
+			$this->warnings[] = $langs->trans('WarningRevisionFileNotNamedAfterComponent', $filename, $component->ref);
+		}
+
+		// Same check as Dolibarr's own uploads: no executable content
+		$defaultexecutableextensions = function_exists('getExecutableContent') ? implode(',', getExecutableContent()) : 'htm,html,shtml,js,phar,php,php3,php4,php5,phtml,pht,pl,py,cgi,ksh,sh,bash,bat,cmd,wpk,exe';
+		foreach (explode(',', getDolGlobalString('MAIN_FILE_EXTENSION_UPLOAD_RESTRICTION', $defaultexecutableextensions)) as $forbidden) {
+			if (trim($forbidden) !== '' && preg_match('/\.'.preg_quote(trim($forbidden), '/').'$/i', $filename)) {
+				return $this->setErrorAndFail($langs->trans('ErrorFilenameExtensionNotAllowed', $filename));
+			}
+		}
+
+		$dir = $this->getFilesDir();
+		if (dol_mkdir($dir) < 0) {
+			return $this->setErrorAndFail($langs->trans('ErrorCanNotCreateDir', $dir));
+		}
+
+		$existing = null;
+		$sql = "SELECT rowid FROM ".$this->db->prefix()."designtrace_revisionfile WHERE fk_revision = ".((int) $this->id)." AND filename = '".$this->db->escape($filename)."'";
+		$resql = $this->db->query($sql);
+		if ($resql && ($obj = $this->db->fetch_object($resql))) {
+			$existing = new RevisionFile($this->db);
+			$existing->fetch((int) $obj->rowid);
+		}
+
+		$res = dol_move_uploaded_file($srcpath, $dir.'/'.$filename, 1, 0, 0, 0, 'userfile', $dir, $isupload ? 0 : 1);
+		if (is_numeric($res) && (int) $res == 2) {
+			$filename .= '.noexe';
+		} elseif (!is_numeric($res) || (int) $res <= 0) {
+			return $this->setErrorAndFail($langs->trans(is_numeric($res) ? 'ErrorFileNotUploaded' : (string) preg_replace('/:.*$/', '', (string) $res)).' ('.$origname.')');
+		}
+		$fullpath = $dir.'/'.$filename;
+
+		$file = ($existing ? $existing : new RevisionFile($this->db));
+		$file->fk_revision = $this->id;
+		$file->filename = $filename;
+		$file->role = ($role ? (int) $role : RevisionFile::guessRole($filename, $fullpath));
+		$file->format = substr(strtolower(pathinfo($filename, PATHINFO_EXTENSION)), 0, 16);
+		$file->filesize = (int) filesize($fullpath);
+		$file->sha256 = hash_file('sha256', $fullpath);
+		$result = ($existing ? $file->update($user) : $file->create($user));
+		if ($result <= 0) {
+			dol_delete_file($fullpath, 0, 0, 0, $this);
+			$this->setErrorsFromObject($file);
+			return -1;
+		}
+		if ($existing) {
+			$this->warnings[] = $langs->trans('RevisionFileReplaced', $filename);
+		} else {
+			addFileIntoDatabaseIndex($dir, $filename, $origname, 'uploaded', 0, $this);
+		}
+
+		return $file;
+	}
+
+	/**
+	 *	Delete a file and its record. In a locked revision this needs $forcelocked (the caller
+	 *	checks the "delete files of released revisions" right) and a reason; it is then logged
+	 *	as an event on the revision.
+	 *
+	 *	@param	User			$user			User deleting
+	 *	@param	RevisionFile	$file			File of this revision
+	 *	@param	bool			$forcelocked	Allow deleting from a released or obsolete revision
+	 *	@param	string			$reason			Why (required when locked)
+	 *	@return	int<-1,1>						>0 if OK, <0 if KO
+	 */
+	public function deleteFile(User $user, $file, $forcelocked = false, $reason = '')
+	{
+		global $langs;
+
+		require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
+		$langs->loadLangs(array('errors', 'designtrace@designtrace'));
+
+		if ((int) $file->fk_revision !== (int) $this->id) {
+			return $this->setErrorAndFail($langs->trans('ErrorRecordNotFound'));
+		}
+		$locked = $this->isLocked();
+		if ($locked && !$forcelocked) {
+			return $this->setErrorAndFail($langs->trans('ErrorRevisionFilesLocked', $this->ref));
+		}
+		if ($locked && trim($reason) === '') {
+			return $this->setErrorAndFail($langs->trans('ErrorFieldRequired', $langs->transnoentitiesnoconv('Reason')));
+		}
+
+		$this->db->begin();
+		if ($file->delete($user) <= 0) {
+			$this->db->rollback();
+			$this->setErrorsFromObject($file);
+			return -1;
+		}
+		if ($locked) {
+			require_once DOL_DOCUMENT_ROOT.'/comm/action/class/actioncomm.class.php';
+			$now = dol_now();
+			$event = new ActionComm($this->db);
+			$event->type_code = 'AC_OTH_AUTO';
+			$event->code = 'AC_DESIGNTRACE_FILE_DELETE';
+			$event->label = $langs->transnoentities('EventRevisionFileDeleted', $file->filename, $this->ref);
+			$event->note_private = $langs->transnoentities('EventRevisionFileDeletedNote', $file->filename, $this->ref, $file->sha256, RevisionFile::formatSize((int) $file->filesize), trim($reason));
+			$event->datep = $now;
+			$event->datef = $now;
+			$event->percentage = -1;
+			$event->userownerid = $user->id;
+			$event->authorid = $user->id;
+			$event->elementtype = $this->element.'@'.$this->module;
+			$event->fk_element = $this->id;
+			if ($event->create($user) <= 0) {
+				$this->db->rollback();
+				$this->setErrorsFromObject($event);
+				return -1;
+			}
+		}
+		$fullpath = $this->getFilesDir().'/'.$file->filename;
+		if (file_exists($fullpath) && !dol_delete_file($fullpath, 0, 0, 0, $this)) {
+			$this->db->rollback();
+			return $this->setErrorAndFail($langs->trans('ErrorFailToDeleteFile', $file->filename));
+		}
+		$this->db->commit();
+
+		return 1;
+	}
+
+	/**
+	 *	Check the files on disk against their records
+	 *
+	 *	@return	array{files:array<int,string>,untracked:string[]}|int<-1,-1>	Per record id 'ok', 'changed' or 'missing', and files on disk without a record; -1 if KO
+	 */
+	public function verifyFiles()
+	{
+		require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
+		dol_include_once('/designtrace/class/revisionfile.class.php');
+
+		$records = (new RevisionFile($this->db))->fetchAllForRevision($this->id);
+		if (!is_array($records)) {
+			return -1;
+		}
+		$dir = $this->getFilesDir();
+		$result = array('files' => array(), 'untracked' => array());
+		$known = array();
+		foreach ($records as $file) {
+			$known[] = $file->filename;
+			$fullpath = $dir.'/'.$file->filename;
+			if (!is_file($fullpath)) {
+				$result['files'][$file->id] = 'missing';
+			} elseif (hash_file('sha256', $fullpath) !== $file->sha256) {
+				$result['files'][$file->id] = 'changed';
+			} else {
+				$result['files'][$file->id] = 'ok';
+			}
+		}
+		foreach (dol_dir_list($dir, 'files', 0, '', '(\.meta|_preview.*\.png)$') as $ondisk) {
+			if (!in_array($ondisk['name'], $known, true)) {
+				$result['untracked'][] = $ondisk['name'];
+			}
+		}
+
+		return $result;
+	}
+
+	/**
+	 *	Move the files directory and its documents index entries when the ref changes (a draft
+	 *	revision whose rev is edited)
+	 *
+	 *	@param	string	$oldref		Previous ref
+	 *	@param	string	$newref		New ref
+	 *	@return	int<-1,1>			>0 if OK, <0 if KO
+	 */
+	private function renameFilesDir($oldref, $newref)
+	{
+		global $langs;
+
+		$olddir = $this->getFilesDir($oldref);
+		$newdir = $this->getFilesDir($newref);
+		if (!file_exists($olddir)) {
+			return 1;
+		}
+		if (file_exists($newdir) || !@rename($olddir, $newdir)) {
+			$langs->load('errors');
+			return $this->setErrorAndFail($langs->trans('ErrorFailToRenameDir', $olddir, $newdir));
+		}
+		$oldrel = trim(preg_replace('/^'.preg_quote(DOL_DATA_ROOT, '/').'/', '', $olddir), '/');
+		$newrel = trim(preg_replace('/^'.preg_quote(DOL_DATA_ROOT, '/').'/', '', $newdir), '/');
+		$sql = "UPDATE ".$this->db->prefix()."ecm_files SET filepath = '".$this->db->escape($newrel)."'";
+		$sql .= " WHERE filepath = '".$this->db->escape($oldrel)."'";
+		if (!$this->db->query($sql)) {
+			@rename($newdir, $olddir);
+			return $this->setErrorAndFail($this->db->lasterror());
+		}
+
+		return 1;
 	}
 
 	/**

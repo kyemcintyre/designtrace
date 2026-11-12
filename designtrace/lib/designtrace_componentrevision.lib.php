@@ -75,15 +75,12 @@ function componentrevisionPrepareHead($object)
 
 	// BEGIN MODULEBUILDER TAB DOCUMENT
 	if ($showtabofpagedocument) {
-		require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
-		require_once DOL_DOCUMENT_ROOT.'/core/class/link.class.php';
-		$upload_dir = $conf->designtrace->dir_output."/componentrevision/".dol_sanitizeFileName($object->ref);
-		$nbFiles = count(dol_dir_list($upload_dir, 'files', 0, '', '(\.meta|_preview.*\.png)$'));
-		$nbLinks = Link::count($db, $object->element, $object->id);
+		// Files of the revision, with their role and hash (not Dolibarr's generic documents tab)
+		$nbFiles = $object->countFiles();
 		$head[$h][0] = dolBuildUrl(dol_buildpath("/designtrace/componentrevision_document.php", 1), ['id' => $object->id]);
-		$head[$h][1] = $langs->trans('Documents');
-		if (($nbFiles + $nbLinks) > 0) {
-			$head[$h][1] .= '<span class="badge marginleftonlyshort">'.($nbFiles + $nbLinks).'</span>';
+		$head[$h][1] = $langs->trans('RevisionFiles');
+		if ($nbFiles > 0) {
+			$head[$h][1] .= '<span class="badge marginleftonlyshort">'.$nbFiles.'</span>';
 		}
 		$head[$h][2] = 'document';
 		$h++;

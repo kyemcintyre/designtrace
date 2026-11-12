@@ -363,6 +363,13 @@ class modDesignTrace extends DolibarrModules
 		$this->rights[$r][5] = 'release';
 		$r++;
 
+		// Delete files of released revisions (logged): also outside the Module Builder block
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (2 * 10) + 3 + 2);
+		$this->rights[$r][1] = 'Delete files of released ComponentRevision objects of DesignTrace';
+		$this->rights[$r][4] = 'componentrevision';
+		$this->rights[$r][5] = 'deletereleasedfile';
+		$r++;
+
 
 		// Main menu entries to add
 		$this->menu = array();

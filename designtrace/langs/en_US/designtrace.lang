@@ -16,10 +16,20 @@ DesignTraceSetup = DesignTrace setup
 Settings = Settings
 DesignTraceSetupPage = DesignTrace setup page
 NewSection=New section
-DESIGNTRACE_MYPARAM1 = My param 1
-DESIGNTRACE_MYPARAM1Tooltip = My param 1 tooltip
-DESIGNTRACE_MYPARAM2=My param 2
-DESIGNTRACE_MYPARAM2Tooltip=My param 2 tooltip
+RevisionFilesSetup = Revision files
+DESIGNTRACE_ROLE_EXT_SOURCE = Source file extensions
+DESIGNTRACE_ROLE_EXT_SOURCETooltip = Comma-separated extensions of files guessed as source (native CAD). Default: %s
+DESIGNTRACE_ROLE_EXT_PRESENTATION = Presentation file extensions
+DESIGNTRACE_ROLE_EXT_PRESENTATIONTooltip = Comma-separated extensions of files guessed as presentation. Files with any other extension are also presentation. Default: %s
+DESIGNTRACE_ROLE_EXT_PRODUCTION = Production file extensions
+DESIGNTRACE_ROLE_EXT_PRODUCTIONTooltip = Comma-separated extensions of files guessed as production (never client-visible). Default: %s
+DESIGNTRACE_3MF_NO_DETECT = A .3mf slicer project is a production file
+DESIGNTRACE_3MF_NO_DETECTTooltip = A .3mf containing slicer settings or G-code (Bambu Studio, Orca, PrusaSlicer) is guessed as production; a plain .3mf model follows the extension lists.
+DESIGNTRACE_FILE_NO_PREFIX = Prefix file names with the component number
+DESIGNTRACE_FILE_NO_PREFIXTooltip = bracket.FCStd becomes PRT-0001-bracket.fcstd. Names that already start with the number are kept.
+DESIGNTRACE_RELEASE_REQUIRES_SOURCE = A revision needs a source file to be released
+DESIGNTRACE_MAX_UPLOAD_MB = Maximum file size (MB)
+DESIGNTRACE_MAX_UPLOAD_MBTooltip = Leave empty to use the server limit (PHP upload_max_filesize and post_max_size, currently %s). It cannot be more than the server limit.
 
 
 #
@@ -150,3 +160,52 @@ ErrorRevisionComponentNotActive = %s is obsolete, so it cannot get new revisions
 ErrorRevisionComponentCannotChange = A revision cannot be moved to another component.
 ErrorRevisionBadRev = '%s' is not a valid revision: use 1 to 16 letters, digits, dots or dashes.
 ErrorRevisionAlreadyExists = Revision %s already exists for this component.
+
+#
+# Revision files
+#
+RevisionFiles = Files
+RevisionFile = File
+Filename = File name
+FileRole = Role
+FileRoleHelp = Source: native CAD files (never shared unless the licence allows). Presentation: STEP, STL, 3MF, PDF... Production: slicer projects, G-code, resin files (never client-visible).
+FileRoleAuto = Automatic (from the file type)
+FileRoleSource = Source
+FileRolePresentation = Presentation
+FileRoleProduction = Production
+FileVisibility = Client visibility
+FileVisibilityHidden = Hidden
+FileVisibilityNow = Visible now
+FileVisibilityOnCompletion = Visible on completion
+SHA256 = SHA-256
+FileComparedToPrevious = Compared with rev %s
+FileSameAsPrevious = Same as rev %s
+FileSameAsPreviousOtherName = Same as %s in rev %s
+FileChangedSincePrevious = Changed since rev %s
+FileNewInRevision = New
+FilesOfRevision = Files of %s
+RevisionFilesLocked = %s is released: its files are locked. They can still be downloaded; deleting one needs the "Delete files of released revisions" permission and is logged.
+RevisionFilesAddHelp = Files are named after the component (PRT-0001-...). A file with the same name replaces the existing one.
+RevisionFilesMaxSize = Maximum size per file: %s
+RevisionFilesVerify = Verify files
+RevisionFilesAllOk = All %s files match their SHA-256.
+RevisionFileStatusOk = OK
+RevisionFileStatusChanged = Changed on disk
+RevisionFileStatusMissing = Missing on disk
+RevisionFilesProblems = %s file(s) changed or missing on disk.
+RevisionFilesUntracked = Files in the folder without a record (not managed by DesignTrace): %s
+RevisionFileReplaced = %s replaced.
+RevisionFileAdded = %s added.
+RevisionFileDeleted = %s deleted.
+RevisionFileRoleChanged = Role of %s changed.
+ConfirmDeleteRevisionFile = Delete %s?
+ConfirmDeleteLockedRevisionFile = %s belongs to a released revision. Deleting it changes what was released, cannot be undone and is recorded in the revision's events. Customers or orders may rely on this file.
+RevisionFileDeleteReason = Reason
+ErrorRevisionFilesLocked = %s is released: its files are locked.
+ErrorRevisionFileTooLarge = %s is too large (%s, maximum %s).
+ErrorRevisionNeedsSourceFile = %s needs a source file before it can be released (see module setup).
+WarningRevisionFileNotNamedAfterComponent = %s does not start with the component number %s.
+WarningRevisionHasNoFiles = This revision has no files.
+WarningRevisionHasNoSourceFile = This revision has no source file.
+EventRevisionFileDeleted = File %s deleted from released revision %s
+EventRevisionFileDeletedNote = File: %s\nRevision: %s\nSHA-256: %s\nSize: %s\nReason: %s

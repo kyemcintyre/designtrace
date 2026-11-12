@@ -20,7 +20,7 @@
 /**
  *  \file       designtrace/componentrevision_document.php
  *  \ingroup    designtrace
- *  \brief      Tab for documents linked to ComponentRevision
+ *  \brief      Files tab of a component revision: upload with a role, SHA-256, lock once released
  */
 
 // General defined Options
@@ -86,44 +86,24 @@ if (!$res) {
  * @var Translate $langs
  * @var User $user
  */
-include_once DOL_DOCUMENT_ROOT.'/core/lib/company.lib.php';
 include_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
-include_once DOL_DOCUMENT_ROOT.'/core/lib/images.lib.php';
-include_once DOL_DOCUMENT_ROOT.'/core/class/html.formfile.class.php';
 dol_include_once('/designtrace/class/componentrevision.class.php');
+dol_include_once('/designtrace/class/revisionfile.class.php');
 dol_include_once('/designtrace/lib/designtrace_componentrevision.lib.php');
 
 // Load translation files required by the page
-$langs->loadLangs(array("designtrace@designtrace", "companies", "other", "mails"));
+$langs->loadLangs(array("designtrace@designtrace", "other", "errors"));
 
 // Get parameters
 $action  = GETPOST('action', 'aZ09');
-$confirm = GETPOST('confirm');
-$id  = (GETPOSTINT('socid') ? GETPOSTINT('socid') : GETPOSTINT('id'));
+$confirm = GETPOST('confirm', 'alpha');
+$id = GETPOSTINT('id');
 $ref = GETPOST('ref', 'alpha');
-
-$limit = GETPOSTINT('limit') ? GETPOSTINT('limit') : $conf->liste_limit;
-$sortfield = GETPOST('sortfield', 'aZ09comma');
-$sortorder = GETPOST('sortorder', 'aZ09comma');
-$page = GETPOSTISSET('pageplusone') ? (GETPOSTINT('pageplusone') - 1) : GETPOSTINT("page");
-if (empty($page) || $page == -1) {
-	$page = 0;
-}     // If $page is not defined, or '' or -1
-$offset = $limit * $page;
-$pageprev = $page - 1;
-$pagenext = $page + 1;
-if (!$sortorder) {
-	$sortorder = "ASC";
-}
-if (!$sortfield) {
-	$sortfield = "name";
-}
-//if (! $sortfield) $sortfield="position_name";
+$fileid = GETPOSTINT('fileid');
 
 // Initialize a technical objects
 $object = new ComponentRevision($db);
 $extrafields = new ExtraFields($db);
-$diroutputmassaction = $conf->designtrace->dir_output.'/temp/massgeneration/'.$user->id;
 $hookmanager->initHooks(array($object->element.'document', 'globalcard')); // Note that conf->hooks_modules contains array
 
 // Fetch optionals attributes and labels
@@ -132,47 +112,147 @@ $extrafields->fetch_name_optionals_label($object->table_element);
 // Load object
 include DOL_DOCUMENT_ROOT.'/core/actions_fetchobject.inc.php'; // Must be 'include', not 'include_once'. Include fetch and fetch_thirdparty but not fetch_optionals
 
-$upload_dir = null;
-if ($id > 0 || !empty($ref)) {
-	$upload_dir = $conf->designtrace->multidir_output[$object->entity ? $object->entity : $conf->entity]."/componentrevision/".get_exdir(0, 0, 0, 1, $object);
-}
+$permissiontoread = $user->hasRight('designtrace', 'componentrevision', 'read');
+$permissiontoadd = $user->hasRight('designtrace', 'componentrevision', 'write');
+$permissiontodeletelocked = $user->hasRight('designtrace', 'componentrevision', 'deletereleasedfile');
 
-// Permissions
-// (There are several ways to check permission.)
-// Set $enablepermissioncheck to 1 to enable a minimum low level of checks
-$enablepermissioncheck = 1; // Always check rights (Module Builder makes this opt-in through DESIGNTRACE_ENABLE_PERMISSION_CHECK)
-if ($enablepermissioncheck) {
-	$permissiontoread = $user->hasRight('designtrace', 'componentrevision', 'read');
-	$permissiontoadd  = $user->hasRight('designtrace', 'componentrevision', 'write'); // Used by the include of actions_addupdatedelete.inc.php and actions_linkedfiles.inc.php
-} else {
-	$permissiontoread = 1;
-	$permissiontoadd  = 1;
-}
-
-// Security check (enable the most restrictive one)
 if ($user->socid > 0) {
 	accessforbidden(); // External users only get files through the portals (phase 5)
 }
-//if ($user->socid > 0) $socid = $user->socid;
-//$isdraft = (($object->status == $object::STATUS_DRAFT) ? 1 : 0);
-//restrictedArea($user, $object->module, $object->id, $object->table_element, $object->element, 'fk_soc', 'rowid', $isdraft);
 if (!isModEnabled("designtrace")) {
 	accessforbidden();
 }
 if (!$permissiontoread) {
 	accessforbidden();
 }
-if (empty($object->id) || $upload_dir === null) {
+if (empty($object->id)) {
 	accessforbidden();
 }
 
+$locked = $object->isLocked();
+$selfurl = dol_buildpath('/designtrace/componentrevision_document.php', 1).'?id='.((int) $object->id);
+
+$filerecord = null;
+if ($fileid > 0) {
+	$filerecord = new RevisionFile($db);
+	if ($filerecord->fetch($fileid) <= 0 || (int) $filerecord->fk_revision !== (int) $object->id) {
+		accessforbidden();
+	}
+}
+
+$roles = array(
+	RevisionFile::ROLE_SOURCE => $langs->trans('FileRoleSource'),
+	RevisionFile::ROLE_PRESENTATION => $langs->trans('FileRolePresentation'),
+	RevisionFile::ROLE_PRODUCTION => $langs->trans('FileRoleProduction'),
+);
+$maxbytes = RevisionFile::getMaxUploadBytes();
+$verifyresult = null;
 
 
 /*
  * Actions
  */
 
-include DOL_DOCUMENT_ROOT.'/core/actions_linkedfiles.inc.php';
+$parameters = array();
+$reshook = $hookmanager->executeHooks('doActions', $parameters, $object, $action); // Note that $action and $object may have been modified by some hooks
+if ($reshook < 0) {
+	setEventMessages($hookmanager->error, $hookmanager->errors, 'errors');
+}
+
+if (empty($reshook)) {
+	// Upload one or more files, with a role or "automatic"
+	if ($action == 'upload' && $permissiontoadd) {
+		if ($locked) {
+			setEventMessages($langs->trans('ErrorRevisionFilesLocked', $object->ref), null, 'errors');
+		} elseif (empty($_FILES['userfile']['name']) || !is_array($_FILES['userfile']['name']) || $_FILES['userfile']['name'][0] === '') {
+			setEventMessages($langs->trans('ErrorFieldRequired', $langs->transnoentitiesnoconv('File')), null, 'errors');
+		} else {
+			$role = GETPOSTINT('role');
+			foreach ($_FILES['userfile']['name'] as $i => $origname) {
+				if ($origname === '') {
+					continue;
+				}
+				$uploaderror = (int) $_FILES['userfile']['error'][$i];
+				if ($uploaderror == UPLOAD_ERR_INI_SIZE || $uploaderror == UPLOAD_ERR_FORM_SIZE) {
+					setEventMessages($langs->trans('ErrorRevisionFileTooLarge', $origname, '?', RevisionFile::formatSize($maxbytes)), null, 'errors');
+					continue;
+				}
+				if ($uploaderror != UPLOAD_ERR_OK) {
+					setEventMessages($langs->trans('ErrorFileNotUploaded').' ('.$origname.')', null, 'errors');
+					continue;
+				}
+				$result = $object->addFile($user, $_FILES['userfile']['tmp_name'][$i], $origname, $role, 1);
+				if (is_object($result)) {
+					if (!in_array($langs->trans('RevisionFileReplaced', $result->filename), $object->warnings, true)) {
+						setEventMessages($langs->trans('RevisionFileAdded', $result->filename), null, 'mesgs');
+					}
+					if (!empty($object->warnings)) {
+						setEventMessages(null, $object->warnings, 'warnings');
+					}
+				} else {
+					setEventMessages($object->error, $object->errors, 'errors');
+					$object->error = '';
+					$object->errors = array();
+				}
+			}
+		}
+		header('Location: '.$selfurl);
+		exit;
+	}
+
+	// Change the role of a file (unlocked revisions only)
+	if ($action == 'setrole' && $permissiontoadd && is_object($filerecord)) {
+		$role = GETPOSTINT('role');
+		if ($locked) {
+			setEventMessages($langs->trans('ErrorRevisionFilesLocked', $object->ref), null, 'errors');
+		} elseif (!isset($roles[$role])) {
+			setEventMessages($langs->trans('ErrorBadValueForParameter', (string) $role, $langs->transnoentitiesnoconv('FileRole')), null, 'errors');
+		} else {
+			$filerecord->role = $role;
+			if ($filerecord->update($user) > 0) {
+				setEventMessages($langs->trans('RevisionFileRoleChanged', $filerecord->filename), null, 'mesgs');
+			} else {
+				setEventMessages($filerecord->error, $filerecord->errors, 'errors');
+			}
+		}
+		header('Location: '.$selfurl);
+		exit;
+	}
+
+	// Delete a file: any file of an unlocked revision with the write right, a file of a released
+	// revision only with the "delete files of released revisions" right and a reason (logged)
+	if ($action == 'confirm_deletefile' && $confirm == 'yes' && is_object($filerecord)) {
+		if ($locked ? !$permissiontodeletelocked : !$permissiontoadd) {
+			setEventMessages($langs->trans('NotEnoughPermissions'), null, 'errors');
+		} elseif ($object->deleteFile($user, $filerecord, $locked, GETPOST('reason', 'alphanohtml')) > 0) {
+			setEventMessages($langs->trans('RevisionFileDeleted', $filerecord->filename), null, 'mesgs');
+		} else {
+			setEventMessages($object->error, $object->errors, 'errors');
+		}
+		header('Location: '.$selfurl);
+		exit;
+	}
+
+	// Check the files on disk against their SHA-256
+	if ($action == 'verify') {
+		$verifyresult = $object->verifyFiles();
+		if (is_array($verifyresult)) {
+			$problems = count(array_filter($verifyresult['files'], function ($status) {
+				return $status !== 'ok';
+			}));
+			if ($problems) {
+				setEventMessages($langs->trans('RevisionFilesProblems', $problems), null, 'errors');
+			} else {
+				setEventMessages($langs->trans('RevisionFilesAllOk', count($verifyresult['files'])), null, 'mesgs');
+			}
+			if (!empty($verifyresult['untracked'])) {
+				setEventMessages($langs->trans('RevisionFilesUntracked', implode(', ', $verifyresult['untracked'])), null, 'warnings');
+			}
+		} else {
+			setEventMessages($object->error, $object->errors, 'errors');
+		}
+	}
+}
 
 
 /*
@@ -181,81 +261,179 @@ include DOL_DOCUMENT_ROOT.'/core/actions_linkedfiles.inc.php';
 
 $form = new Form($db);
 
-// Header
-// ------
-$title = $langs->trans("ComponentRevision")." - ".$langs->trans("Files");
-//$title = $object->ref." - ".$langs->trans("Files");
+$title = $langs->trans("ComponentRevision")." - ".$langs->trans("RevisionFiles");
 $help_url = '';
-//Example $help_url='EN:Module_Third_Parties|FR:Module_Tiers|ES:Empresas';
 llxHeader('', $title, $help_url, '', 0, 0, '', '', '', 'mod-designtrace page-card_document');
 
-// Show tabs
 $head = componentrevisionPrepareHead($object);
 
 print dol_get_fiche_head($head, 'document', $langs->trans("ComponentRevision"), -1, $object->picto, 0, '', '', 0, '', 1);
 
-
-// Build file list
-$filearray = dol_dir_list($upload_dir, "files", 0, '', '(\.meta|_preview.*\.png)$', $sortfield, (strtolower($sortorder) == 'desc' ? SORT_DESC : SORT_ASC), 1);
-$totalsize = 0;
-foreach ($filearray as $key => $file) {
-	$totalsize += $file['size'];
-}
-
-// Object card
-// ------------------------------------------------------------
-$linkback = '<a href="'.dol_buildpath('/designtrace/componentrevision_list.php', 1).'?restore_lastsearch_values=1'.(!empty($socid) ? '&socid='.$socid : '').'">'.$langs->trans("BackToList").'</a>';
-
-$morehtmlref = '<div class="refidno">';
-/*
-// Ref customer
-$morehtmlref.=$form->editfieldkey("RefCustomer", 'ref_client', $object->ref_client, $object, 0, 'string', '', 0, 1);
-$morehtmlref.=$form->editfieldval("RefCustomer", 'ref_client', $object->ref_client, $object, 0, 'string', '', null, null, '', 1);
-// Thirdparty
-$morehtmlref.='<br>'.$langs->trans('ThirdParty') . ' : ' . (is_object($object->thirdparty) ? $object->thirdparty->getNomUrl(1) : '');
-// Project
-if (isModEnabled('project')) {
-		// Project
-		if (isModEnabled('project')) {
-			$langs->load("projects");
-			if (!empty($object->fk_project)) {
-				$proj = new Project($db);
-				$proj->fetch($object->fk_project);
-				$morehtmlref .= $proj->getNomUrl(1);
-				if ($proj->title) {
-					$morehtmlref .= '<span class="opacitymedium"> - '.dol_escape_htmltag($proj->title).'</span>';
-				}
-			}
-		}
-	}
-*/
-$morehtmlref .= '</div>';
-
+$component = $object->fetchComponentChecked();
+$linkback = '<a href="'.dol_buildpath('/designtrace/componentrevision_list.php', 1).'?restore_lastsearch_values=1">'.$langs->trans("BackToList").'</a>';
+$morehtmlref = '<div class="refidno">'.(is_object($component) ? $component->getNomUrl(1).' <span class="opacitymedium">'.dol_escape_htmltag($component->label).'</span>' : '').'</div>';
 dol_banner_tab($object, 'ref', $linkback, 1, 'ref', 'ref', $morehtmlref);
-
-print '<div class="fichecenter">';
-
-print '<div class="underbanner clearboth"></div>';
-print '<table class="border centpercent tableforfield">';
-
-// Number of files
-print '<tr><td class="titlefield">'.$langs->trans("NbOfAttachedFiles").'</td><td colspan="3">'.count($filearray).'</td></tr>';
-
-// Total size
-print '<tr><td>'.$langs->trans("TotalSizeOfAttachedFiles").'</td><td colspan="3">'.$totalsize.' '.$langs->trans("bytes").'</td></tr>';
-
-print '</table>';
-
-print '</div>';
 
 print dol_get_fiche_end();
 
-$modulepart = 'designtrace';
-$param = '&id='.$object->id;
-//$relativepathwithnofile='componentrevision/' . dol_sanitizeFileName($object->id).'/';
-$relativepathwithnofile = 'componentrevision/'.dol_sanitizeFileName($object->ref).'/';
+// Delete confirmation (a released revision needs a reason, and says what it means)
+if ($action == 'deletefile' && is_object($filerecord)) {
+	if ($locked) {
+		$formquestion = array(
+			array('type' => 'text', 'name' => 'reason', 'label' => $langs->trans('RevisionFileDeleteReason'), 'value' => '', 'morecss' => 'minwidth300'),
+		);
+		$question = img_warning().' '.$langs->trans('ConfirmDeleteLockedRevisionFile', $filerecord->filename);
+		print $form->formconfirm($selfurl.'&fileid='.((int) $filerecord->id), $langs->trans('Delete'), $question, 'confirm_deletefile', $formquestion, 'no', 1, 250, 650);
+	} else {
+		print $form->formconfirm($selfurl.'&fileid='.((int) $filerecord->id), $langs->trans('Delete'), $langs->trans('ConfirmDeleteRevisionFile', $filerecord->filename), 'confirm_deletefile', '', 'no', 1);
+	}
+}
 
-include DOL_DOCUMENT_ROOT.'/core/tpl/document_actions_post_headers.tpl.php';
+if ($locked) {
+	print info_admin($langs->trans('RevisionFilesLocked', $object->ref), 0, 0, 'warning');
+}
+
+$records = (new RevisionFile($db))->fetchAllForRevision($object->id);
+if (!is_array($records)) {
+	$records = array();
+}
+
+// Previous revision, to show what changed
+$previous = $object->getPreviousRevision();
+$previoushashes = $previousnames = array();
+if ($previous) {
+	$previousrecords = (new RevisionFile($db))->fetchAllForRevision($previous->id);
+	foreach ((is_array($previousrecords) ? $previousrecords : array()) as $prevfile) {
+		$previoushashes[$prevfile->sha256] = $prevfile->filename;
+		$previousnames[$prevfile->filename] = $prevfile->sha256;
+	}
+}
+
+$usercache = array();
+$canedit = (!$locked && $permissiontoadd);
+$candelete = ($locked ? $permissiontodeletelocked : $permissiontoadd);
+$downloadbase = DOL_URL_ROOT.'/document.php?modulepart=designtrace&entity='.((int) (empty($object->entity) ? $conf->entity : $object->entity)).'&file=';
+$reldir = $object->element.'/'.dol_sanitizeFileName($object->ref).'/';
+
+print load_fiche_titre($langs->trans('FilesOfRevision', $object->ref), '', '');
+
+print '<div class="div-table-responsive-no-min">';
+print '<table class="noborder centpercent">';
+print '<tr class="liste_titre">';
+print '<td>'.$langs->trans('Filename').'</td>';
+print '<td>'.$form->textwithpicto($langs->trans('FileRole'), $langs->trans('FileRoleHelp')).'</td>';
+print '<td class="center">'.$langs->trans('Format').'</td>';
+print '<td class="right">'.$langs->trans('Size').'</td>';
+print '<td>'.$langs->trans('SHA256').'</td>';
+if ($previous) {
+	print '<td>'.$langs->trans('FileComparedToPrevious', $previous->rev).'</td>';
+}
+print '<td>'.$langs->trans('DateCreation').'</td>';
+if (is_array($verifyresult)) {
+	print '<td class="center">'.$langs->trans('Status').'</td>';
+}
+print '<td></td>';
+print '</tr>';
+
+$totalsize = 0;
+foreach ($records as $file) {
+	$totalsize += (int) $file->filesize;
+	print '<tr class="oddeven">';
+
+	print '<td class="tdoverflowmax300">';
+	print '<a href="'.$downloadbase.urlencode($reldir.$file->filename).'" title="'.dol_escape_htmltag($file->filename).'">'.img_mime($file->filename, '', 'pictofixedwidth').dol_escape_htmltag($file->filename).'</a>';
+	print '</td>';
+
+	print '<td class="nowraponall">';
+	if ($canedit) {
+		print '<form method="POST" action="'.$selfurl.'" class="inline-block">';
+		print '<input type="hidden" name="token" value="'.newToken().'">';
+		print '<input type="hidden" name="action" value="setrole">';
+		print '<input type="hidden" name="fileid" value="'.((int) $file->id).'">';
+		print '<select class="flat minwidth125" name="role" id="role_'.((int) $file->id).'" onchange="this.form.submit()">';
+		foreach ($roles as $rolekey => $rolelabel) {
+			print '<option value="'.((int) $rolekey).'"'.((int) $file->role == $rolekey ? ' selected' : '').'>'.dol_escape_htmltag($rolelabel).'</option>';
+		}
+		print '</select>';
+		print '</form>';
+	} else {
+		print RevisionFile::getRoleBadge($file->role);
+	}
+	print '</td>';
+
+	print '<td class="center">'.dol_escape_htmltag(strtoupper((string) $file->format)).'</td>';
+	print '<td class="right nowraponall">'.RevisionFile::formatSize((int) $file->filesize).'</td>';
+	print '<td class="nowraponall"><span class="classfortooltip" title="'.dol_escape_htmltag($file->sha256).'">'.dol_escape_htmltag(substr($file->sha256, 0, 12)).'…</span></td>';
+
+	if ($previous) {
+		print '<td class="tdoverflowmax200">';
+		if (isset($previoushashes[$file->sha256])) {
+			$samename = ($previoushashes[$file->sha256] === $file->filename);
+			print '<span class="opacitymedium">'.($samename ? $langs->trans('FileSameAsPrevious', $previous->rev) : $langs->trans('FileSameAsPreviousOtherName', dol_escape_htmltag($previoushashes[$file->sha256]), $previous->rev)).'</span>';
+		} elseif (isset($previousnames[$file->filename])) {
+			print $langs->trans('FileChangedSincePrevious', $previous->rev);
+		} else {
+			print $langs->trans('FileNewInRevision');
+		}
+		print '</td>';
+	}
+
+	print '<td class="nowraponall">'.dol_print_date($file->date_creation, 'dayhour');
+	if (!isset($usercache[$file->fk_user_creat])) {
+		$usercache[$file->fk_user_creat] = new User($db);
+		$usercache[$file->fk_user_creat]->fetch((int) $file->fk_user_creat);
+	}
+	print ' '.$usercache[$file->fk_user_creat]->getNomUrl(-1, '', 0, 0, 16);
+	print '</td>';
+
+	if (is_array($verifyresult)) {
+		$status = isset($verifyresult['files'][$file->id]) ? $verifyresult['files'][$file->id] : 'missing';
+		$statusmap = array('ok' => array('RevisionFileStatusOk', 'status4'), 'changed' => array('RevisionFileStatusChanged', 'status8'), 'missing' => array('RevisionFileStatusMissing', 'status8'));
+		print '<td class="center">'.dolGetStatus($langs->trans($statusmap[$status][0]), $langs->trans($statusmap[$status][0]), '', $statusmap[$status][1], 5).'</td>';
+	}
+
+	print '<td class="right nowraponall">';
+	if ($candelete) {
+		print '<a class="reposition" href="'.$selfurl.'&action=deletefile&fileid='.((int) $file->id).'&token='.newToken().'">'.img_delete($langs->trans('Delete')).'</a>';
+	}
+	print '</td>';
+	print '</tr>';
+}
+if (empty($records)) {
+	print '<tr class="oddeven"><td colspan="9"><span class="opacitymedium">'.$langs->trans('None').'</span></td></tr>';
+} else {
+	print '<tr class="liste_total"><td colspan="3">'.$langs->trans('Total').': '.count($records).'</td><td class="right nowraponall">'.RevisionFile::formatSize($totalsize).'</td><td colspan="5"></td></tr>';
+}
+print '</table>';
+print '</div>';
+
+// Buttons
+print '<div class="tabsAction">';
+print dolGetButtonAction('', $langs->trans('RevisionFilesVerify'), 'default', $selfurl.'&action=verify&token='.newToken(), '', !empty($records));
+print '</div>';
+
+// Upload form
+if ($canedit) {
+	print load_fiche_titre($langs->trans('AttachANewFile'), '', '');
+	print '<form method="POST" action="'.$selfurl.'" enctype="multipart/form-data">';
+	print '<input type="hidden" name="token" value="'.newToken().'">';
+	print '<input type="hidden" name="action" value="upload">';
+	if ($maxbytes > 0) {
+		print '<input type="hidden" name="MAX_FILE_SIZE" value="'.((int) $maxbytes).'">';
+	}
+	print '<table class="border centpercent">';
+	print '<tr><td class="titlefield">'.$langs->trans('File').'</td><td>';
+	print '<input type="file" class="flat minwidth400" name="userfile[]" multiple>';
+	print ' <span class="opacitymedium small">'.$langs->trans('RevisionFilesMaxSize', RevisionFile::formatSize($maxbytes)).'</span>';
+	print '</td></tr>';
+	print '<tr><td>'.$form->textwithpicto($langs->trans('FileRole'), $langs->trans('FileRoleHelp')).'</td><td>';
+	print $form->selectarray('role', array(0 => $langs->trans('FileRoleAuto')) + $roles, 0, 0, 0, 0, '', 0, 0, 0, '', 'minwidth200');
+	print '</td></tr>';
+	print '</table>';
+	print '<div class="center"><span class="opacitymedium small">'.$langs->trans('RevisionFilesAddHelp').'</span><br>';
+	print '<input type="submit" class="button" value="'.dol_escape_htmltag($langs->trans('Upload')).'"></div>';
+	print '</form>';
+}
 
 // End of page
 llxFooter();
