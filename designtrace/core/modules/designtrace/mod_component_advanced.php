@@ -23,7 +23,7 @@
  */
 
 /**
- * \file       htdocs/core/modules/designtrace/mod_component_advanced.php
+ * \file       designtrace/core/modules/designtrace/mod_component_advanced.php
  * \ingroup    designtrace
  * \brief      File containing class for advanced numbering model of Component
  */

@@ -22,7 +22,7 @@
  * 	\defgroup   designtrace     Module DesignTrace
  *  \brief      DesignTrace module descriptor.
  *
- *  \file       htdocs/designtrace/core/modules/modDesignTrace.class.php
+ *  \file       designtrace/core/modules/modDesignTrace.class.php
  *  \ingroup    designtrace
  *  \brief      Description and activation file for module DesignTrace
  */

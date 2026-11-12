@@ -25,7 +25,7 @@
  */
 
 /**
- *  \file			htdocs/core/modules/designtrace/modules_component.php
+ *  \file			designtrace/core/modules/designtrace/modules_component.php
  *  \ingroup		designtrace
  *  \brief			File with parent class for component document models and parent class for component numbering models
  */

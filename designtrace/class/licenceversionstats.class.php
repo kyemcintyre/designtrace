@@ -22,7 +22,7 @@
  */
 
 /**
- *  \file       htdocs/designtrace/class/licenceversionstats.class.php
+ *  \file       designtrace/class/licenceversionstats.class.php
  *  \ingroup    designtrace
  *  \brief      File of class to manage licenceversion statistics
  */

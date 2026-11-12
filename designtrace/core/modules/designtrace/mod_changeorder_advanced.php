@@ -5,7 +5,7 @@
  * Copyright (C) 2008i		Raphael Bertrand (Resultic) <raphael.bertrand@resultic.fr>
  * Copyright (C) 2019-2024	Frédéric France				<frederic.france@free.fr>
  * Copyright (C) 2024-2025	MDW							<mdeweerd@users.noreply.github.com>
- * Copyright (C) 2026		SuperAdmin
+ * Copyright (C) 2026		Kye McIntyre
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,7 +23,7 @@
  */
 
 /**
- * \file       htdocs/core/modules/designtrace/mod_changeorder_advanced.php
+ * \file       designtrace/core/modules/designtrace/mod_changeorder_advanced.php
  * \ingroup    designtrace
  * \brief      File containing class for advanced numbering model of ChangeOrder
  */

@@ -18,7 +18,7 @@
  */
 
 /**
- *       \file       htdocs/designtrace/ajax/componentrevision.php
+ *       \file       designtrace/ajax/componentrevision.php
  *       \brief      File to return Ajax response on componentrevision list request
  */
 

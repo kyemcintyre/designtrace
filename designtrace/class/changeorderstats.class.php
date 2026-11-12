@@ -22,7 +22,7 @@
  */
 
 /**
- *  \file       htdocs/designtrace/class/changeorderstats.class.php
+ *  \file       designtrace/class/changeorderstats.class.php
  *  \ingroup    designtrace
  *  \brief      File of class to manage changeorder statistics
  */

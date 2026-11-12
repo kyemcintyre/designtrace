@@ -1,7 +1,7 @@
 <?php
 /* Copyright (C) 2022       Laurent Destailleur     <eldy@users.sourceforge.net>
  * Copyright (C) 2024       Frédéric France         <frederic.france@free.fr>
- * Copyright (C) 2026		SuperAdmin
+ * Copyright (C) 2026		Kye McIntyre
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,7 +18,7 @@
  */
 
 /**
- *       \file       htdocs/designtrace/ajax/licenceversion.php
+ *       \file       designtrace/ajax/licenceversion.php
  *       \brief      File to return Ajax response on licenceversion list request
  */
 

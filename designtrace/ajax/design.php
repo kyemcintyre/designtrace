@@ -18,7 +18,7 @@
  */
 
 /**
- *       \file       htdocs/designtrace/ajax/design.php
+ *       \file       designtrace/ajax/design.php
  *       \brief      File to return Ajax response on design list request
  */
 

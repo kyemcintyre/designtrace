@@ -22,7 +22,7 @@
  */
 
 /**
- *  \file       htdocs/designtrace/class/componentrevisionstats.class.php
+ *  \file       designtrace/class/componentrevisionstats.class.php
  *  \ingroup    designtrace
  *  \brief      File of class to manage componentrevision statistics
  */

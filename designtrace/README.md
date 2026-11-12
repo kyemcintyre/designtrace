@@ -1,96 +1,69 @@
-# DESIGNTRACE FOR [DOLIBARR ERP & CRM](https://www.dolibarr.org)
+# DesignTrace for [Dolibarr ERP & CRM](https://www.dolibarr.org)
+
+**CAD design revision and dependency tracking, linked to your sales, production and support records.**
+
+DesignTrace is created and maintained by **Kye McIntyre** ([Kye's Workshop](https://kyemcintyre.net)),
+who owns the project. Source code: <https://github.com/kyemcintyre/designtrace>.
+
+DesignTrace tracks your designs, the parts, assemblies and drawings they contain, every revision of
+them and the dependencies between them. When a part gets a new revision, everything that depends on
+it is flagged **Needs update**. Released revisions link to Dolibarr's quotes, orders, invoices,
+projects, BOMs and tickets, and you control which files each customer can see.
+
+It works with any CAD tool (FreeCAD, Fusion, SolidWorks, or plain PDFs) and needs no CAD plugin, git
+or automation: revisions and files are managed by hand.
 
 ## Features
 
-Description of the module...
+- **Designs** (`DSN-0001`) holding **parts** (`PRT-`), **assemblies** (`ASM-`) and **drawings**
+  (`DRW-`: concept, proof, technical data sheet), numbered once across all designs.
+- **Revisions** A, B, C... with a Draft → In review → Released → Obsolete workflow. Released
+  revisions are read-only.
+- **Files** for each revision with a role (source, presentation, production), a SHA-256 hash and
+  integrity checks. They are locked on release, and deleting one needs a logged reason.
+- **Links** between revisions (Uses, Depicts, References), pinned to an exact revision, even across
+  designs, with **Needs update** flags that propagate upwards.
+- **Change orders** (`ECO-0001`): approval, affected components, raised from a ticket. Can be
+  required before a release.
+- **Dolibarr links**: quotes, orders, invoices, projects, BOMs and tickets. Links are carried from
+  quote to order to invoice, and delivered orders are locked to the revision delivered.
+- **Customer access** through Dolibarr's Web portal and a REST API for your own portal: only the
+  files you choose, per document, with a download log.
+- **Licence templates** with versioned wording and enforced permissions. Customers accept a licence
+  online and get a PDF copy.
+- **Ownership and confidential designs**, **gallery consent**, **proof approval** by the customer,
+  **reorder** from a delivered order, and **CAD time** on Dolibarr timesheets.
 
-<!--
-![Screenshot designtrace](img/screenshot_designtrace.png?raw=true "DesignTrace"){imgmd}
--->
+## Requirements
 
-Other external modules are available on [Dolistore.com](https://www.dolistore.com).
-
-## Translations
-
-Translations can be completed manually by editing files in the module directories under `langs`.
-
-<!--
-This module contains also a sample configuration for Transifex, under the hidden directory [.tx](.tx), so it is possible to manage translation using this service.
-
-For more information, see the [translator's documentation](https://wiki.dolibarr.org/index.php/Translator_documentation).
-
-There is a [Transifex project](https://transifex.com/projects/p/dolibarr-module-template) for this module.
--->
-
+- Dolibarr 24.0 or later
+- PHP 8.1 or later
+- MariaDB 10.3+ / MySQL 5.7.7+
 
 ## Installation
 
-Prerequisites: You must have Dolibarr ERP & CRM software installed. You can download it from [Dolistore.org](https://www.dolibarr.org).
-You can also get a ready-to-use instance in the cloud from https://saas.dolibarr.org
+Download `module_designtrace-x.y.z.zip` from the
+[releases page](https://github.com/kyemcintyre/designtrace/releases). Then in Dolibarr go to
+**Home → Setup → Modules → Deploy/install external app/module** and upload the zip. Finally, enable
+**DesignTrace** in the module list (family *Products*).
 
+You can also unzip the archive into `htdocs/custom/`, so that you get `htdocs/custom/designtrace/`.
 
-### From the ZIP file and GUI interface
+After enabling the module:
 
-If the module is a ready-to-deploy zip file, so with a name `module_xxx-version.zip` (e.g., when downloading it from a marketplace like [Dolistore](https://www.dolistore.com)),
-go to menu `Home> Setup> Modules> Deploy external module` and upload the zip file.
+1. Give users the DesignTrace rights in **Users & Groups**.
+2. Review **Setup → Modules → DesignTrace** (file roles, upload limit, release rules, portal and
+   link settings).
+3. Replace the placeholder wording of the five starter licence templates (**DesignTrace →
+   Licence templates**) with your own before customers accept them.
 
-<!--
+## REST API
 
-Note: If this screen tells you that there is no "custom" directory, check that your setup is correct:
+See [API.md](API.md) for the customer API used by an external portal.
 
-- In your Dolibarr installation directory, edit the `htdocs/conf/conf.php` file and check that following lines are not commented:
+## Licence
 
-    ```php
-    //$dolibarr_main_url_root_alt ...
-    //$dolibarr_main_document_root_alt ...
-    ```
+GPL-3.0-or-later. See [COPYING](COPYING).
 
-- Uncomment them if necessary (delete the leading `//`) and assign the proper value according to your Dolibarr installation
-
-    For example :
-
-    - UNIX:
-        ```php
-        $dolibarr_main_url_root_alt = '/custom';
-        $dolibarr_main_document_root_alt = '/var/www/Dolibarr/htdocs/custom';
-        ```
-
-    - Windows:
-        ```php
-        $dolibarr_main_url_root_alt = '/custom';
-        $dolibarr_main_document_root_alt = 'C:/My Web Sites/Dolibarr/htdocs/custom';
-        ```
--->
-
-<!--
-
-### From a GIT repository
-
-Clone the repository in `$dolibarr_main_document_root_alt/designtrace`
-
-```shell
-cd ....../custom
-git clone git@github.com:gitlogin/designtrace.git designtrace
-```
-
--->
-
-### Final steps
-
-Using your browser:
-
-  - Log into Dolibarr as a super-administrator
-  - Go to "Setup"> "Modules"
-  - You should now be able to find and enable the module
-
-
-
-## Licenses
-
-### Main code
-
-GPLv3 or (at your option) any later version. See file COPYING for more information.
-
-### Documentation
-
-All texts and readme's are licensed under [GFDL](https://www.gnu.org/licenses/fdl-1.3.en.html).
+Copyright (C) 2026 Kye McIntyre. Parts of the code come from Dolibarr's Module Builder templates
+and keep their original copyright notices.
