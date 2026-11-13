@@ -47,7 +47,7 @@ class modDesignTrace extends DolibarrModules
 
 		// Id for module (must be unique).
 		// Use here a free id (See in Home -> System information -> Dolibarr for list of used modules id).
-		$this->numero = 500200; // TODO Go on page https://wiki.dolibarr.org/index.php/List_of_modules_id to reserve an id number for your module
+		$this->numero = 210217; // Reserved range 210217-210226 (Kye McIntyre), https://wiki.dolibarr.org/index.php/List_of_modules_id
 
 		// Key text used to identify module (for permissions, menus, etc...)
 		$this->rights_class = 'designtrace';
@@ -930,9 +930,48 @@ class modDesignTrace extends DolibarrModules
 
 		$result = $this->_init($sql, $options);
 		if ($result > 0) {
+			$this->migrateRightsFromOldModuleId();
 			$this->createStarterLicences();
 		}
 		return $result;
+	}
+
+	/**
+	 * Development builds and 0.1.0 used module id 500200, so their rights had ids 500200xx; the
+	 * module now has its reserved id and rights numero.xx. Keep what users and groups were given:
+	 * grant them the same right under the new id, then delete the old grants. Only grants whose id
+	 * is no longer defined are touched (another module may take 500200 later). Runs on every
+	 * activation and does nothing once done. A failure is only logged.
+	 *
+	 * @return	void
+	 */
+	private function migrateRightsFromOldModuleId()
+	{
+		$oldNumero = 500200;
+		if ((int) $this->numero === $oldNumero) {
+			return;
+		}
+		$shift = ((int) $this->numero - $oldNumero) * 100;
+		$newId = 'o.fk_id '.($shift < 0 ? '- '.abs($shift) : '+ '.$shift);
+		$oldRange = 'BETWEEN '.($oldNumero * 100 + 1).' AND '.($oldNumero * 100 + 99);
+		$defs = $this->db->prefix().'rights_def';
+		foreach (array('user_rights' => 'fk_user', 'usergroup_rights' => 'fk_usergroup') as $table => $owner) {
+			$t = $this->db->prefix().$table;
+			$orphan = "NOT EXISTS (SELECT 1 FROM ".$defs." as od WHERE od.id = o.fk_id)";
+			$sql = "INSERT INTO ".$t." (entity, ".$owner.", fk_id)";
+			$sql .= " SELECT o.entity, o.".$owner.", ".$newId." FROM ".$t." as o";
+			$sql .= " INNER JOIN ".$defs." as d ON d.id = ".$newId." AND d.entity = o.entity AND d.module = 'designtrace'";
+			$sql .= " WHERE o.fk_id ".$oldRange." AND ".$orphan;
+			$sql .= " AND NOT EXISTS (SELECT 1 FROM ".$t." as n WHERE n.entity = o.entity AND n.".$owner." = o.".$owner." AND n.fk_id = ".$newId.")";
+			if (!$this->db->query($sql)) {
+				dol_syslog(__METHOD__.' '.$this->db->lasterror(), LOG_WARNING);
+				continue;
+			}
+			$sql = "DELETE FROM ".$t." WHERE fk_id ".$oldRange." AND fk_id NOT IN (SELECT id FROM ".$defs.")";
+			if (!$this->db->query($sql)) {
+				dol_syslog(__METHOD__.' '.$this->db->lasterror(), LOG_WARNING);
+			}
+		}
 	}
 
 	/**

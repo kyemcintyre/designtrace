@@ -53,7 +53,7 @@ class ChangeOrderTest extends DesignTraceTestCase
 		$this->assertCount(1, $affected, 'Component of the ticket\'s revision added');
 		$this->assertSame($part->ref, $affected[0]->comp_ref);
 
-		$noRight = $this->newUser(array(50020041, 50020042));
+		$noRight = $this->newUser(array('changeorder/read', 'changeorder/write'));
 		$this->assertLessThan(0, $eco->approve($noRight), 'Approve needs the right');
 		$eco->error = '';
 		$eco->errors = array();

@@ -25,7 +25,7 @@ class ConfidentialTest extends DesignTraceTestCase
 {
 	public function testConfidentialDesignsAreHiddenFromOtherUsers()
 	{
-		$reader = $this->newUser(array(50020001, 50020011, 50020021));
+		$reader = $this->newUser(array('design/read', 'component/read', 'componentrevision/read'));
 		$this->assertNotEmpty($this->user->hasRight('designtrace', 'design', 'readconfidential'));
 		$this->assertEmpty($reader->hasRight('designtrace', 'design', 'readconfidential'));
 
@@ -60,7 +60,7 @@ class ConfidentialTest extends DesignTraceTestCase
 
 	public function testDocumentDownloadHook()
 	{
-		$reader = $this->newUser(array(50020001, 50020011, 50020021));
+		$reader = $this->newUser(array('design/read', 'component/read', 'componentrevision/read'));
 		$design = $this->newDesign(array('confidential' => 1), true);
 		$revision = $this->newRevision($this->newComponent($design));
 		$hooks = new HookManager($this->db);

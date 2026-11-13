@@ -20,9 +20,12 @@ each step before the next, and wants **whole files** shown when a file changes, 
 ## Layout and environment
 
 - The repo is mounted as Dolibarr's `custom/` folder (`/var/www/html/custom`), so the module
-  itself lives in **`designtrace/`** (created by Module Builder: module id **500200** for
-  development, version 0.1.0, picto `fa-drafting-compass`, family products). Get an official
-  module id from the Dolibarr wiki before publishing; changing it later changes permission ids.
+  itself lives in **`designtrace/`** (created by Module Builder, version from release tags,
+  picto `fa-drafting-compass`, family products). Module id **210217**, from Kye's reserved range
+  **210217-210226** on https://wiki.dolibarr.org/index.php/List_of_modules_id (the other nine are
+  free for his future modules). Rights are `210217xx`. Development builds and 0.1.0 used 500200
+  (rights `500200xx`); `modDesignTrace::migrateRightsFromOldModuleId()` moves those grants on
+  activation. Never refer to right ids in code or tests: tests use `rightId('design/read')`.
 - `.devcontainer/`: Dolibarr **24.0.2** on PHP 8.2 (`dolibarr/dolibarr:24.0.2-php8.2`),
   MariaDB 11.4, Adminer, Mailpit, Xdebug, Node, gh, Claude Code.
   - Dolibarr http://localhost:8080 (admin / admin), Adminer :8081 (server `mariadb`,

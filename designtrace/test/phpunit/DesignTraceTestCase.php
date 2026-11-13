@@ -339,9 +339,9 @@ abstract class DesignTraceTestCase extends TestCase
 	}
 
 	/**
-	 * A user without admin rights, with the given right ids
+	 * A user without admin rights, with the given DesignTrace rights
 	 *
-	 * @param	int[]	$rights		Right ids
+	 * @param	string[]	$rights		Rights as 'object/permission', e.g. 'design/read'
 	 */
 	protected function newUser($rights = array())
 	{
@@ -350,12 +350,27 @@ abstract class DesignTraceTestCase extends TestCase
 		$u->lastname = 'ZZ test user';
 		$u->statut = 1;
 		$this->assertOk($u->create($this->user), $u, 'Create user');
-		foreach ($rights as $id) {
-			$u->addrights($id);
+		foreach ($rights as $right) {
+			$u->addrights($this->rightId($right));
 		}
 		$u->clearrights();
 		$u->loadRights();
 		return $u;
+	}
+
+	/**
+	 * Id of a DesignTrace right, looked up by name so tests do not depend on the module id
+	 *
+	 * @param	string	$right	'object/permission', e.g. 'design/read'
+	 * @return	int
+	 */
+	protected function rightId($right)
+	{
+		list($perms, $subperms) = explode('/', $right);
+		$res = $this->db->query("SELECT id FROM ".MAIN_DB_PREFIX."rights_def WHERE module = 'designtrace' AND perms = '".$this->db->escape($perms)."' AND subperms = '".$this->db->escape($subperms)."'");
+		$obj = $res ? $this->db->fetch_object($res) : null;
+		$this->assertNotEmpty($obj, 'Right '.$right.' not found');
+		return (int) $obj->id;
 	}
 
 	/**
