@@ -27,6 +27,7 @@ CREATE TABLE llx_designtrace_componentrevision(
 	date_customer_approval datetime, 
 	customer_approval_by varchar(128), 
 	description text, 
+	customer_note text, 
 	material varchar(255), 
 	process varchar(255), 
 	machine varchar(255), 

@@ -147,6 +147,7 @@ class ComponentRevision extends CommonObject
 		"description" => array("type" => "text", "label" => "RevisionNotes", "enabled" => "1", 'position' => 60, 'notnull' => 0, "visible" => "3", "help" => "RevisionNotesHelp", "validate" => "1",),
 		"change_reason" => array("type" => "integer", "label" => "ChangeReason", "enabled" => "1", 'position' => 58, 'notnull' => 0, "visible" => "1", "arrayofkeyval" => array("1" => "ChangeReasonInitial", "2" => "ChangeReasonCustomer", "3" => "ChangeReasonFix", "4" => "ChangeReasonImprovement", "5" => "ChangeReasonProcess", "6" => "ChangeReasonOther"), "validate" => "1", "help" => "ChangeReasonHelp"),
 		"fk_eco" => array("type" => "integer:ChangeOrder:designtrace/class/changeorder.class.php:0:((status:in:0,1,2))", "label" => "ChangeOrder", "picto" => "fa-exchange-alt", "enabled" => "1", 'position' => 59, 'notnull' => -1, "visible" => "1", "index" => "1", "css" => "maxwidth500 widthcentpercentminusxx", "csslist" => "tdoverflowmax150", "help" => "RevisionEcoHelp",),
+		"customer_note" => array("type" => "text", "label" => "CustomerReleaseNote", "enabled" => "1", 'position' => 63, 'notnull' => 0, "visible" => "3", "help" => "CustomerReleaseNoteHelp", "validate" => "1",),
 		"customer_approval" => array("type" => "integer", "label" => "CustomerApproval", "enabled" => "1", 'position' => 60, 'notnull' => 1, "visible" => "-5", "noteditable" => "1", "default" => "0", "index" => "1", "arrayofkeyval" => array("0" => "CustomerApprovalNone", "1" => "CustomerApprovalApproved", "2" => "CustomerApprovalChanges"), "help" => "CustomerApprovalHelp",),
 		"date_customer_approval" => array("type" => "datetime", "label" => "DateCustomerApproval", "enabled" => "1", 'position' => 61, 'notnull' => 0, "visible" => "-5", "noteditable" => "1",),
 		"customer_approval_by" => array("type" => "varchar(128)", "label" => "CustomerApprovalBy", "enabled" => "1", 'position' => 62, 'notnull' => 0, "visible" => "-5", "noteditable" => "1",),
@@ -183,6 +184,11 @@ class ComponentRevision extends CommonObject
 	/**
 	 * @var int	Customer approval of a proof (DesignTraceProofApproval::DECISION_*), set only by the customer
 	 */
+	/**
+	 * @var string Release note shown to customers (separate from the internal notes)
+	 */
+	public $customer_note;
+
 	public $customer_approval;
 	/**
 	 * @var int|string	Date of the customer's last decision
@@ -337,6 +343,7 @@ class ComponentRevision extends CommonObject
 		$object->rev = '';
 		$object->change_reason = null;
 		$object->fk_eco = null;			// Each revision states its own reason and ECO; notes, material, process and machine carry over
+		$object->customer_note = null;		// Each revision has its own release note
 		$object->customer_approval = 0;		// The customer approves each proof revision
 		$object->date_customer_approval = null;
 		$object->customer_approval_by = null;
