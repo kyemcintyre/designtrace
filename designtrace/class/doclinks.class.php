@@ -43,7 +43,7 @@ class DesignTraceDocLinks
 
 	/**
 	 * Which documents can link to which components, from the spec:
-	 * quotes, orders and invoices: any component (quotes also before release); BOMs: assemblies; tickets: any.
+	 * quotes, orders and invoices: any component (quotes also before release); BOMs: assemblies; tickets and projects: any.
 	 *
 	 * @return	array<string,array{class:string,file:string,module:string,right:array{0:string,1:string},label:string,picto:string,types:int[],statuses:string,table:string}>
 	 */
@@ -56,6 +56,7 @@ class DesignTraceDocLinks
 			'facture' => array('class' => 'Facture', 'file' => '/compta/facture/class/facture.class.php', 'module' => 'invoice', 'right' => array('facture', 'lire'), 'label' => 'Invoice', 'picto' => 'bill', 'types' => $all, 'statuses' => self::RELEASED_ONLY, 'table' => 'facture'),
 			'bom' => array('class' => 'BOM', 'file' => '/bom/class/bom.class.php', 'module' => 'bom', 'right' => array('bom', 'read'), 'label' => 'BOM', 'picto' => 'bom', 'types' => array(Component::TYPE_ASSEMBLY), 'statuses' => self::RELEASED_ONLY, 'table' => 'bom_bom'),
 			'ticket' => array('class' => 'Ticket', 'file' => '/ticket/class/ticket.class.php', 'module' => 'ticket', 'right' => array('ticket', 'read'), 'label' => 'Ticket', 'picto' => 'ticket', 'types' => $all, 'statuses' => self::RELEASED_ONLY, 'table' => 'ticket'),
+			'project' => array('class' => 'Project', 'file' => '/projet/class/project.class.php', 'module' => 'project', 'right' => array('projet', 'lire'), 'label' => 'Project', 'picto' => 'project', 'types' => $all, 'statuses' => self::RELEASED_ONLY, 'table' => 'projet'),
 		);
 	}
 
@@ -286,6 +287,8 @@ class DesignTraceDocLinks
 		$entityelement = ($element == 'commande' ? 'order' : ($element == 'facture' ? 'invoice' : $element));
 		if ($element == 'bom') {
 			$sql = "SELECT t.rowid, t.ref, t.label as extra, '' as socname FROM ".$db->prefix()."bom_bom as t";
+		} elseif ($element == 'project') {
+			$sql = "SELECT t.rowid, t.ref, t.title as extra, s.nom as socname FROM ".$db->prefix()."projet as t LEFT JOIN ".$db->prefix()."societe as s ON s.rowid = t.fk_soc";
 		} elseif ($element == 'ticket') {
 			$sql = "SELECT t.rowid, t.ref, t.subject as extra, s.nom as socname FROM ".$db->prefix()."ticket as t LEFT JOIN ".$db->prefix()."societe as s ON s.rowid = t.fk_soc";
 		} else {

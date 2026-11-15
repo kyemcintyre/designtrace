@@ -63,6 +63,7 @@ class DesignTraceClientAccess
 			'propal' => array('table' => 'propal', 'hidden' => array(-1, 0), 'completed' => array(), 'label' => 'Proposal', 'picto' => 'propal', 'module' => 'propal'),
 			'commande' => array('table' => 'commande', 'hidden' => array(-1, 0), 'completed' => array(3), 'label' => 'Order', 'picto' => 'order', 'module' => 'order'),
 			'ticket' => array('table' => 'ticket', 'hidden' => array(9), 'completed' => array(), 'label' => 'Ticket', 'picto' => 'ticket', 'module' => 'ticket'),
+			'project' => array('table' => 'projet', 'hidden' => array(0), 'completed' => array(2), 'label' => 'Project', 'picto' => 'project', 'module' => 'project'),
 		);
 	}
 
@@ -135,7 +136,7 @@ class DesignTraceClientAccess
 	 */
 	public static function normaliseElement($element)
 	{
-		$map = array('propal' => 'propal', 'proposal' => 'propal', 'quote' => 'propal', 'commande' => 'commande', 'order' => 'commande', 'ticket' => 'ticket');
+		$map = array('propal' => 'propal', 'proposal' => 'propal', 'quote' => 'propal', 'commande' => 'commande', 'order' => 'commande', 'ticket' => 'ticket', 'project' => 'project');
 		$element = strtolower(trim((string) $element));
 		return isset($map[$element]) ? $map[$element] : '';
 	}
@@ -211,6 +212,54 @@ class DesignTraceClientAccess
 					if (!DesignTraceLicensing::allowsSourceFiles($db, $channel, (int) $obj->doc_id, (int) $obj->design_id)) {
 						continue;
 					}
+				}
+				$rows[] = $obj;
+			}
+			$db->free($resql);
+		}
+
+		// Design-level grants: the pinned revisions of grants in force
+		if (($element === '' || $element === 'grant') && is_array($rows)) {
+			dol_include_once('/designtrace/class/grant.class.php');
+			$sql = "SELECT f.rowid as file_id, f.filename, f.role, f.format, f.filesize, f.sha256, f.visibility,";
+			$sql .= " r.rowid as rev_id, r.ref as rev_ref, r.rev, r.status as rev_status, r.date_release,";
+			$sql .= " c.rowid as comp_id, c.ref as comp_ref, c.label as comp_label, c.type as comp_type, c.drawing_type, c.fk_design as design_id,";
+			$sql .= " 'grant' as element, g.rowid as doc_id, d.ref as doc_ref, 1 as doc_status";
+			$sql .= " FROM ".$db->prefix()."designtrace_grant as g";
+			$sql .= " INNER JOIN ".$db->prefix()."designtrace_design as d ON d.rowid = g.fk_design";
+			$sql .= " INNER JOIN ".$db->prefix()."designtrace_grant_pin as p ON p.fk_grant = g.rowid";
+			$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.rowid = p.fk_revision";
+			$sql .= " INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
+			$sql .= " INNER JOIN ".$db->prefix()."designtrace_revisionfile as f ON f.fk_revision = r.rowid";
+			$sql .= " WHERE g.fk_soc = ".((int) $socid)." AND g.entity IN (".getEntity('designtrace_design').")";
+			$sql .= " AND g.date_revoked IS NULL AND (g.date_expiry IS NULL OR g.date_expiry > '".$db->idate(dol_now())."')";
+			// Source files need the licence accepted for the design (not available through grants yet), production never
+			$sql .= " AND f.role = ".((int) RevisionFile::ROLE_PRESENTATION);
+			if ((int) $docid > 0) {
+				$sql .= " AND g.rowid = ".((int) $docid);
+			}
+			if ((int) $fileid > 0) {
+				$sql .= " AND f.rowid = ".((int) $fileid);
+			}
+			$sql .= " ORDER BY g.rowid DESC, c.ref, r.rowid, f.filename";
+			$resql = $db->query($sql);
+			if (!$resql) {
+				dol_syslog(__METHOD__.' '.$db->lasterror(), LOG_ERR);
+				return -1;
+			}
+			$completed = array();
+			while ($obj = $db->fetch_object($resql)) {
+				if ((int) $obj->visibility === RevisionFile::VISIBILITY_ON_COMPLETION) {
+					// Hidden until a linked order or project of this customer completes
+					$key = (int) $obj->design_id;
+					if (!isset($completed[$key])) {
+						$completed[$key] = DesignTraceGrant::isDesignCompleted($db, $socid, $key);
+					}
+					if (!$completed[$key]) {
+						continue;
+					}
+				} elseif ((int) $obj->visibility !== RevisionFile::VISIBILITY_NOW) {
+					continue;
 				}
 				$rows[] = $obj;
 			}
