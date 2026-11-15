@@ -14,6 +14,8 @@
 -- along with this program.  If not, see https://www.gnu.org/licenses/.
 
 
-ALTER TABLE llx_designtrace_licenceaccept ADD UNIQUE INDEX uk_designtrace_licenceaccept (element, fk_element, fk_design, fk_licenceversion);
+ALTER TABLE llx_designtrace_licenceaccept ADD COLUMN date_revoked datetime;
+ALTER TABLE llx_designtrace_licenceaccept DROP INDEX uk_designtrace_licenceaccept;
+ALTER TABLE llx_designtrace_licenceaccept ADD UNIQUE INDEX uk_designtrace_licenceaccept_soc (fk_soc, element, fk_element, fk_design, fk_licenceversion);
 ALTER TABLE llx_designtrace_licenceaccept ADD INDEX idx_designtrace_licenceaccept_soc (fk_soc);
 ALTER TABLE llx_designtrace_licenceaccept ADD INDEX idx_designtrace_licenceaccept_version (fk_licenceversion);

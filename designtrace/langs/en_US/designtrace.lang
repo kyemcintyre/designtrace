@@ -632,3 +632,4 @@ WebPortalLicenceCopy = Download your copy (PDF)
 CustomerReleaseNote = Release note for the customer
 CustomerReleaseNoteHelp = Shown to customers with this revision. Separate from the internal revision notes, which they never see.
 Project = Project
+LicenceScopeDesign = access to the design

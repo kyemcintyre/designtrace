@@ -23,20 +23,6 @@
 
 class LicensingTest extends DesignTraceTestCase
 {
-	private function newLicence($code, $sourceAllowed)
-	{
-		$licence = new Licence($this->db);
-		$licence->ref = $code;
-		$licence->label = 'ZZ '.$code;
-		$this->assertOk($licence->create($this->user), $licence, 'Create licence');
-		$draft = $licence->getDraftVersion();
-		$draft->wording = '<p>Licence for {customer}, design {design} rev {revision}, {scope}, {date}.</p>';
-		$draft->perm_source = $sourceAllowed ? 1 : 0;
-		$this->assertGreaterThan(0, $draft->update($this->user));
-		$this->assertOk($draft->activate($this->user), $draft, 'Activate');
-		return $licence;
-	}
-
 	public function testTemplatesAndVersions()
 	{
 		$bad = new Licence($this->db);
@@ -110,7 +96,12 @@ class LicensingTest extends DesignTraceTestCase
 
 		$design->ownership = Design::OWNERSHIP_CUSTOMER;
 		$design->update($this->user);
-		$this->assertTrue($sourceShown(), 'Customer-owned under a licence with source');
+		$this->assertFalse($sourceShown(), 'Visible, but the licence must be accepted before any download');
+		DesignTraceClientAccess::getDownloadableFile($this->db, $customer->id, $src->id, '', 0, $blocked);
+		$this->assertSame('licence', $blocked);
+		$err = '';
+		$this->assertGreaterThan(0, DesignTraceLicensing::accept($this->db, $customer->id, 'propal', $quote->id, $design->id, $withSource->getCurrentVersion()->id, 'api', 'zz', $err), $err);
+		$this->assertTrue($sourceShown(), 'Customer-owned under an accepted licence with source');
 	}
 
 	public function testAcceptanceWritesAPdfAndIsCarriedToTheOrder()
@@ -132,7 +123,7 @@ class LicensingTest extends DesignTraceTestCase
 		$this->assertGreaterThan(0, $id, $err);
 		$this->assertSame($id, DesignTraceLicensing::accept($this->db, $customer->id, 'propal', $quote->id, $design->id, $version->id, 'webportal', 'portal:zz', $err), 'Accepting again returns the same id');
 
-		$acc = DesignTraceLicensing::getAcceptance($this->db, 'propal', $quote->id, $design->id);
+		$acc = DesignTraceLicensing::getAcceptance($this->db, $customer->id, $design->id);
 		$this->assertSame('198.51.100.20', $acc->ip);
 		$res = $this->db->query('SELECT useragent, wording_sha256 FROM '.MAIN_DB_PREFIX.'designtrace_licenceaccept WHERE rowid = '.((int) $id));
 		$row = $this->db->fetch_object($res);
@@ -160,10 +151,35 @@ class LicensingTest extends DesignTraceTestCase
 		$order->linked_objects = array('propal' => $quote->id);
 		$this->assertOk($order->create($this->user), $order, 'Order from quote');
 		$order->fetch($order->id);
-		$orderAcc = DesignTraceLicensing::getAcceptance($this->db, 'commande', $order->id, $design->id);
+		$orderAcc = DesignTraceLicensing::getAcceptance($this->db, $customer->id, $design->id);
 		$this->assertNotEmpty($orderAcc);
 		$this->assertSame((int) $acc->fk_licenceversion, (int) $orderAcc->fk_licenceversion);
 		$this->assertFileExists($conf->commande->multidir_output[$conf->entity].'/'.dol_sanitizeFileName($order->ref).'/'.$acc->filename);
+
+		// Anchored to design + customer: the order is covered without a second acceptance
+		$orderInfo = DesignTraceLicensing::fetchDocumentLicences($this->db, 'commande', $order->id);
+		$this->assertNotEmpty($orderInfo[$design->id]['acceptance']);
+		$this->assertTrue(DesignTraceLicensing::isAccepted($this->db, $customer->id, $design->id, 'commande', $order->id));
+		$this->assertFalse(DesignTraceLicensing::isAccepted($this->db, $other->id, $design->id), 'Other customers accept for themselves');
+
+		// A forced re-acceptance ends it everywhere; the record stays
+		$this->assertGreaterThan(0, DesignTraceLicensing::forceReacceptance($this->db, $design->id, $customer->id));
+		$this->assertFalse(DesignTraceLicensing::isAccepted($this->db, $customer->id, $design->id, 'propal', $quote->id));
+		$this->assertFalse(DesignTraceLicensing::isAccepted($this->db, $customer->id, $design->id, 'commande', $order->id));
+		$res = $this->db->query('SELECT COUNT(*) as n FROM '.MAIN_DB_PREFIX.'designtrace_licenceaccept WHERE fk_design = '.((int) $design->id));
+		$this->assertGreaterThanOrEqual(2, (int) $this->db->fetch_object($res)->n);
+
+		// Accepting again, for the design itself (no document), covers the quote and the order too
+		$current = $licence->getCurrentVersion();
+		$this->assertSame($v2->id, $current->id);
+		$id2 = DesignTraceLicensing::acceptDesign($this->db, $customer->id, $design->id, $current->id, 'api', 'zz', $err, '198.51.100.21');
+		$this->assertGreaterThan(0, $id2, $err);
+		$this->assertTrue(DesignTraceLicensing::isAccepted($this->db, $customer->id, $design->id, 'commande', $order->id));
+		$res = $this->db->query('SELECT filename, ip FROM '.MAIN_DB_PREFIX.'designtrace_licenceaccept WHERE rowid = '.((int) $id2));
+		$row = $this->db->fetch_object($res);
+		$this->assertSame('198.51.100.21', $row->ip);
+		$this->assertFileExists(DesignTraceLicensing::getAcceptancePdfPath($this->db, DesignTraceLicensing::getAcceptance($this->db, $customer->id, $design->id)));
+		$this->assertSame($id2, DesignTraceLicensing::acceptDesign($this->db, $customer->id, $design->id, $current->id, 'api', 'zz', $err), 'Idempotent');
 
 		$this->assertLessThan(0, $licence->delete($this->user), 'A used template cannot be deleted');
 	}

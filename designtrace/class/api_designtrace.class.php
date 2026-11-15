@@ -86,7 +86,7 @@ class DesignTrace extends DolibarrApi
 		if ($element !== '') {
 			$type = DesignTraceClientAccess::normaliseElement($element);
 			if ($type === '') {
-				throw new RestException(400, 'Bad document type, use quote, order or ticket');
+				throw new RestException(400, 'Bad document type, use quote, order, ticket, project or grant');
 			}
 		}
 		return $this->formatRows(DesignTraceClientAccess::fetchVisibleFiles($this->db, $socid, $type));
@@ -113,7 +113,7 @@ class DesignTrace extends DolibarrApi
 		$socid = $this->checkCustomer($socid);
 		$type = DesignTraceClientAccess::normaliseElement($element);
 		if ($type === '') {
-			throw new RestException(400, 'Bad document type, use quote, order or ticket');
+			throw new RestException(400, 'Bad document type, use quote, order, ticket, project or grant');
 		}
 		return $this->formatRows(DesignTraceClientAccess::fetchVisibleFiles($this->db, $socid, $type, (int) $docid));
 	}
@@ -145,7 +145,7 @@ class DesignTrace extends DolibarrApi
 		if ($element !== '') {
 			$type = DesignTraceClientAccess::normaliseElement($element);
 			if ($type === '') {
-				throw new RestException(400, 'Bad document type, use quote, order or ticket');
+				throw new RestException(400, 'Bad document type, use quote, order, ticket, project or grant');
 			}
 		}
 		$result = array();
@@ -177,7 +177,7 @@ class DesignTrace extends DolibarrApi
 		$socid = $this->checkCustomer($socid);
 		$type = DesignTraceClientAccess::normaliseElement($element);
 		if ($type === '') {
-			throw new RestException(400, 'Bad document type, use quote, order or ticket');
+			throw new RestException(400, 'Bad document type, use quote, order, ticket, project or grant');
 		}
 		$docs = DesignTraceCustomerPortal::fetchDocuments($this->db, $socid, $type, (int) $docid);
 		if (empty($docs)) {
@@ -253,10 +253,13 @@ class DesignTrace extends DolibarrApi
 		if ($element !== '') {
 			$type = DesignTraceClientAccess::normaliseElement($element);
 			if ($type === '') {
-				throw new RestException(400, 'Bad document type, use quote, order or ticket');
+				throw new RestException(400, 'Bad document type, use quote, order, ticket, project or grant');
 			}
 		}
-		$row = DesignTraceClientAccess::getDownloadableFile($this->db, $socid, (int) $fileid, $type, (int) $docid);
+		$row = DesignTraceClientAccess::getDownloadableFile($this->db, $socid, (int) $fileid, $type, (int) $docid, $blocked);
+		if (!$row && $blocked === 'licence') {
+			throw new RestException(403, 'Licence not accepted for this design');
+		}
 		if (!$row) {
 			throw new RestException(404, 'File not visible to this customer');
 		}
@@ -318,10 +321,13 @@ class DesignTrace extends DolibarrApi
 		if ($element !== '') {
 			$type = DesignTraceClientAccess::normaliseElement($element);
 			if ($type === '') {
-				throw new RestException(400, 'Bad document type, use quote, order or ticket');
+				throw new RestException(400, 'Bad document type, use quote, order, ticket, project or grant');
 			}
 		}
-		$row = DesignTraceClientAccess::getDownloadableFile($this->db, $socid, (int) $fileid, $type, (int) $docid);
+		$row = DesignTraceClientAccess::getDownloadableFile($this->db, $socid, (int) $fileid, $type, (int) $docid, $blocked);
+		if (!$row && $blocked === 'licence') {
+			throw new RestException(403, 'Licence not accepted for this design');
+		}
 		if (!$row) {
 			throw new RestException(404, 'File not visible to this customer');
 		}
@@ -440,7 +446,7 @@ class DesignTrace extends DolibarrApi
 		$socid = $this->checkCustomer($socid);
 		$type = DesignTraceClientAccess::normaliseElement($element);
 		if ($type === '') {
-			throw new RestException(400, 'Bad document type, use quote, order or ticket');
+			throw new RestException(400, 'Bad document type, use quote, order, ticket, project or grant');
 		}
 		return $this->formatProofs(DesignTraceProofApproval::fetchProofs($this->db, $socid, $type, (int) $docid));
 	}
@@ -475,7 +481,7 @@ class DesignTrace extends DolibarrApi
 		$socid = $this->checkCustomer($socid);
 		$type = DesignTraceClientAccess::normaliseElement($element);
 		if ($type === '') {
-			throw new RestException(400, 'Bad document type, use quote, order or ticket');
+			throw new RestException(400, 'Bad document type, use quote, order, ticket, project or grant');
 		}
 		$values = array('approve' => DesignTraceProofApproval::DECISION_APPROVED, 'changes' => DesignTraceProofApproval::DECISION_CHANGES);
 		$decision = strtolower(trim((string) $decision));

@@ -132,11 +132,11 @@ class DesignTraceClientAccess
 	 * Normalise a document type given by a caller (API: quote, proposal, order...)
 	 *
 	 * @param	string	$element	Element name
-	 * @return	string				Key of getChannels(), or '' if unknown
+	 * @return	string				Key of getChannels() or 'grant', '' if unknown
 	 */
 	public static function normaliseElement($element)
 	{
-		$map = array('propal' => 'propal', 'proposal' => 'propal', 'quote' => 'propal', 'commande' => 'commande', 'order' => 'commande', 'ticket' => 'ticket', 'project' => 'project');
+		$map = array('propal' => 'propal', 'proposal' => 'propal', 'quote' => 'propal', 'commande' => 'commande', 'order' => 'commande', 'ticket' => 'ticket', 'project' => 'project', 'grant' => 'grant');
 		$element = strtolower(trim((string) $element));
 		return isset($map[$element]) ? $map[$element] : '';
 	}
@@ -209,7 +209,7 @@ class DesignTraceClientAccess
 			while ($obj = $db->fetch_object($resql)) {
 				if ((int) $obj->role === RevisionFile::ROLE_SOURCE) {
 					dol_include_once('/designtrace/class/licensing.class.php');
-					if (!DesignTraceLicensing::allowsSourceFiles($db, $channel, (int) $obj->doc_id, (int) $obj->design_id)) {
+					if (!in_array($channel, array('propal', 'commande', 'project'), true) || !DesignTraceLicensing::allowsSourceFiles($db, $channel, (int) $obj->doc_id, (int) $obj->design_id, (int) $socid)) {
 						continue;
 					}
 				}
@@ -233,8 +233,8 @@ class DesignTraceClientAccess
 			$sql .= " INNER JOIN ".$db->prefix()."designtrace_revisionfile as f ON f.fk_revision = r.rowid";
 			$sql .= " WHERE g.fk_soc = ".((int) $socid)." AND g.entity IN (".getEntity('designtrace_design').")";
 			$sql .= " AND g.date_revoked IS NULL AND (g.date_expiry IS NULL OR g.date_expiry > '".$db->idate(dol_now())."')";
-			// Source files need the licence accepted for the design (not available through grants yet), production never
-			$sql .= " AND f.role = ".((int) RevisionFile::ROLE_PRESENTATION);
+			// Production files never; source files when the design's licence allows them (checked per row)
+			$sql .= " AND f.role IN (".((int) RevisionFile::ROLE_PRESENTATION).", ".((int) RevisionFile::ROLE_SOURCE).")";
 			if ((int) $docid > 0) {
 				$sql .= " AND g.rowid = ".((int) $docid);
 			}
@@ -249,6 +249,12 @@ class DesignTraceClientAccess
 			}
 			$completed = array();
 			while ($obj = $db->fetch_object($resql)) {
+				if ((int) $obj->role === RevisionFile::ROLE_SOURCE) {
+					dol_include_once('/designtrace/class/licensing.class.php');
+					if (!DesignTraceLicensing::allowsSourceFiles($db, 'grant', (int) $obj->doc_id, (int) $obj->design_id, (int) $socid)) {
+						continue;
+					}
+				}
 				if ((int) $obj->visibility === RevisionFile::VISIBILITY_ON_COMPLETION) {
 					// Hidden until a linked order or project of this customer completes
 					$key = (int) $obj->design_id;
@@ -277,16 +283,25 @@ class DesignTraceClientAccess
 	 * @param	int		$fileid		RevisionFile id
 	 * @param	string	$element	Preferred document type it is downloaded through ('' = any)
 	 * @param	int		$docid		Preferred document id (0 = any)
+	 * @param	string	$blocked	Set to 'licence' when the file is visible but the licence is not accepted yet
 	 * @return	stdClass|null		Row as in fetchVisibleFiles(), null if not allowed
 	 */
-	public static function getDownloadableFile($db, $socid, $fileid, $element = '', $docid = 0)
+	public static function getDownloadableFile($db, $socid, $fileid, $element = '', $docid = 0, &$blocked = '')
 	{
+		$blocked = '';
 		if ((int) $fileid <= 0) {
 			return null;
 		}
 		$rows = self::fetchVisibleFiles($db, $socid, $element, $docid, $fileid);
 		if (is_array($rows) && !empty($rows)) {
-			return $rows[0];
+			// The licence must be accepted before any download (the order-level override counts)
+			dol_include_once('/designtrace/class/licensing.class.php');
+			foreach ($rows as $row) {
+				if (DesignTraceLicensing::isAccepted($db, $socid, (int) $row->design_id, (string) $row->element, (int) $row->doc_id)) {
+					return $row;
+				}
+			}
+			$blocked = 'licence';
 		}
 		return null;
 	}

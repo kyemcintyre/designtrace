@@ -124,17 +124,37 @@ class DesignTraceLicensing
 	}
 
 	/**
-	 * Acceptance of a licence for a design on a document (the latest one)
+	 * Customer (third party) of a quote or order
 	 *
 	 * @param	DoliDB	$db			Database handler
 	 * @param	string	$element	propal or commande
 	 * @param	int		$docid		Document id
+	 * @return	int					Customer id, 0 if unknown
+	 */
+	public static function getDocumentSocid($db, $element, $docid)
+	{
+		$types = self::getDocumentTypes();
+		if (!isset($types[$element])) {
+			return 0;
+		}
+		$resql = $db->query("SELECT fk_soc FROM ".$db->prefix().$types[$element]['table']." WHERE rowid = ".((int) $docid));
+		$obj = $resql ? $db->fetch_object($resql) : null;
+		return $obj ? (int) $obj->fk_soc : 0;
+	}
+
+	/**
+	 * Acceptance of a licence by a customer for a design (the latest one in force). Anchored to
+	 * design + customer: it covers every quote, order, project and grant of that customer for the
+	 * design, whichever of them it was given through. A forced re-acceptance ends it (kept as record).
+	 *
+	 * @param	DoliDB	$db			Database handler
+	 * @param	int		$socid		Customer id
 	 * @param	int		$designid	Design id
 	 * @return	stdClass|null		Row of llx_designtrace_licenceaccept
 	 */
-	public static function getAcceptance($db, $element, $docid, $designid)
+	public static function getAcceptance($db, $socid, $designid)
 	{
-		$sql = "SELECT * FROM ".$db->prefix()."designtrace_licenceaccept WHERE element = '".$db->escape($element)."' AND fk_element = ".((int) $docid)." AND fk_design = ".((int) $designid);
+		$sql = "SELECT * FROM ".$db->prefix()."designtrace_licenceaccept WHERE fk_soc = ".((int) $socid)." AND fk_design = ".((int) $designid)." AND date_revoked IS NULL";
 		$sql .= " ORDER BY date_accept DESC, rowid DESC".$db->plimit(1);
 		$resql = $db->query($sql);
 		$obj = $resql ? $db->fetch_object($resql) : null;
@@ -142,6 +162,135 @@ class DesignTraceLicensing
 			$obj->date_accept = $db->jdate($obj->date_accept);
 		}
 		return $obj ?: null;
+	}
+
+	/**
+	 * Licence of a design for a customer without a quote or order (project, grant): the design's
+	 * template, the version that counts and the acceptance
+	 *
+	 * @param	DoliDB	$db			Database handler
+	 * @param	int		$socid		Customer id
+	 * @param	int		$designid	Design id
+	 * @param	int		$overridelicence	Template forced by a document (0 = none)
+	 * @return	array<string,mixed>|null	As an entry of fetchDocumentLicences(); null if the design does not exist
+	 */
+	public static function fetchDesignLicence($db, $socid, $designid, $overridelicence = 0)
+	{
+		$resql = $db->query("SELECT rowid, ref, label, fk_licence, ownership, confidential FROM ".$db->prefix()."designtrace_design WHERE rowid = ".((int) $designid));
+		$obj = $resql ? $db->fetch_object($resql) : null;
+		if (!$obj) {
+			return null;
+		}
+		$design = array('id' => (int) $obj->rowid, 'ref' => $obj->ref, 'label' => (string) $obj->label, 'fk_licence' => (int) $obj->fk_licence, 'ownership' => (int) $obj->ownership, 'confidential' => (int) $obj->confidential, 'revisions' => array());
+		return self::buildInfo($db, $design, (int) $socid, $overridelicence);
+	}
+
+	/**
+	 * @param	DoliDB	$db			Database handler
+	 * @param	array<string,mixed>	$design	Design row
+	 * @param	int		$socid		Customer
+	 * @param	int		$override	Template forced by a document, 0 = none
+	 * @return	array<string,mixed>
+	 */
+	private static function buildInfo($db, $design, $socid, $override)
+	{
+		$licenceid = ($override > 0 ? $override : (int) $design['fk_licence']);
+		$licence = null;
+		if ($licenceid > 0) {
+			$licence = new Licence($db);
+			if ($licence->fetch($licenceid) <= 0) {
+				$licence = null;
+			}
+		}
+		$acceptance = self::getAcceptance($db, $socid, (int) $design['id']);
+		$version = null;
+		if ($acceptance && $licence && (int) $acceptance->fk_licence === (int) $licence->id) {
+			$version = new LicenceVersion($db);
+			if ($version->fetch((int) $acceptance->fk_licenceversion) <= 0) {
+				$version = null;
+			}
+		} else {
+			$acceptance = null;		// Accepted under another template: not valid for this one
+		}
+		if (!$version && $licence) {
+			$version = $licence->getCurrentVersion();
+		}
+		return array(
+			'design' => $design,
+			'licence' => $licence,
+			'source' => ($licence ? ($override > 0 ? 'document' : 'design') : ''),
+			'version' => $version,
+			'acceptance' => $acceptance,
+		);
+	}
+
+	/**
+	 * Whether the customer has nothing left to accept for a design: no licence applies, or the
+	 * licence that applies is accepted. Required before any download.
+	 *
+	 * @param	DoliDB	$db			Database handler
+	 * @param	int		$socid		Customer id
+	 * @param	int		$designid	Design id
+	 * @param	string	$element	Document the file is reached through (propal, commande: its override applies)
+	 * @param	int		$docid		Document id
+	 * @return	bool
+	 */
+	public static function isAccepted($db, $socid, $designid, $element = '', $docid = 0)
+	{
+		$override = (isset(self::getDocumentTypes()[$element]) ? self::getOverride($db, $element, $docid) : 0);
+		$info = self::fetchDesignLicence($db, $socid, $designid, $override);
+		if (!$info || !$info['licence'] || !$info['version']) {
+			return true;	// Nothing to accept
+		}
+		return !empty($info['acceptance']);
+	}
+
+	/**
+	 * End the acceptances of a design (of one customer, or of all) so the licence is accepted again.
+	 * The records, PDFs and download log stay.
+	 *
+	 * @param	DoliDB	$db			Database handler
+	 * @param	int		$designid	Design id
+	 * @param	int		$socid		Customer id, 0 = every customer
+	 * @return	int					Number of acceptances ended, <0 if KO
+	 */
+	public static function forceReacceptance($db, $designid, $socid = 0)
+	{
+		$sql = "UPDATE ".$db->prefix()."designtrace_licenceaccept SET date_revoked = '".$db->idate(dol_now())."' WHERE fk_design = ".((int) $designid)." AND date_revoked IS NULL";
+		if ((int) $socid > 0) {
+			$sql .= " AND fk_soc = ".((int) $socid);
+		}
+		$resql = $db->query($sql);
+		return $resql ? (int) $db->affected_rows($resql) : -1;
+	}
+
+	/**
+	 * Full path of the PDF copy of an acceptance
+	 *
+	 * @param	DoliDB		$db		Database handler
+	 * @param	stdClass	$acc	Row of llx_designtrace_licenceaccept
+	 * @return	string				Path, '' if not found
+	 */
+	public static function getAcceptancePdfPath($db, $acc)
+	{
+		global $conf;
+
+		if (empty($acc->filename)) {
+			return '';
+		}
+		$entity = (empty($acc->entity) ? $conf->entity : (int) $acc->entity);
+		$types = self::getDocumentTypes();
+		if (isset($types[$acc->element])) {
+			$doc = self::fetchDocument($db, $acc->element, (int) $acc->fk_element);
+			$base = $conf->{$types[$acc->element]['dir']}->multidir_output[$entity] ?? '';
+			$dir = ($doc && $base !== '') ? $base.'/'.dol_sanitizeFileName($doc->ref) : '';
+		} else {
+			$resql = $db->query("SELECT ref FROM ".$db->prefix()."designtrace_design WHERE rowid = ".((int) $acc->fk_design));
+			$obj = $resql ? $db->fetch_object($resql) : null;
+			$dir = ($obj && !empty($conf->designtrace->multidir_output[$entity])) ? $conf->designtrace->multidir_output[$entity].'/design/'.dol_sanitizeFileName($obj->ref) : '';
+		}
+		$path = $dir.'/'.$acc->filename;
+		return ($dir !== '' && is_file(dol_osencode($path))) ? $path : '';
 	}
 
 	/**
@@ -158,39 +307,9 @@ class DesignTraceLicensing
 	{
 		$result = array();
 		$override = self::getOverride($db, $element, $docid);
-		$cache = array();
+		$socid = self::getDocumentSocid($db, $element, $docid);
 		foreach (self::fetchDesignsOfDocument($db, $element, $docid) as $id => $design) {
-			$licenceid = ($override > 0 ? $override : (int) $design['fk_licence']);
-			$licence = null;
-			if ($licenceid > 0) {
-				if (!isset($cache[$licenceid])) {
-					$cache[$licenceid] = new Licence($db);
-					if ($cache[$licenceid]->fetch($licenceid) <= 0) {
-						$cache[$licenceid] = null;
-					}
-				}
-				$licence = $cache[$licenceid];
-			}
-			$acceptance = self::getAcceptance($db, $element, $docid, $id);
-			$version = null;
-			if ($acceptance && $licence && (int) $acceptance->fk_licence === (int) $licence->id) {
-				$version = new LicenceVersion($db);
-				if ($version->fetch((int) $acceptance->fk_licenceversion) <= 0) {
-					$version = null;
-				}
-			} else {
-				$acceptance = null;		// Accepted under another template: not valid for this one
-			}
-			if (!$version && $licence) {
-				$version = $licence->getCurrentVersion();
-			}
-			$result[$id] = array(
-				'design' => $design,
-				'licence' => $licence,
-				'source' => ($licence ? ($override > 0 ? 'document' : 'design') : ''),
-				'version' => $version,
-				'acceptance' => $acceptance,
-			);
+			$result[$id] = self::buildInfo($db, $design, $socid, $override);
 		}
 		return $result;
 	}
@@ -200,46 +319,57 @@ class DesignTraceLicensing
 	 * not workshop-owned and the licence that counts there allows it (no licence = no)
 	 *
 	 * @param	DoliDB	$db			Database handler
-	 * @param	string	$element	Document type (propal, commande; others: no)
+	 * @param	string	$element	Document type (propal, commande; project and grant use the design's licence)
 	 * @param	int		$docid		Document id
 	 * @param	int		$designid	Design id
+	 * @param	int		$socid		Customer (needed for projects and grants, which have no document licence)
 	 * @return	bool
 	 */
-	public static function allowsSourceFiles($db, $element, $docid, $designid)
+	public static function allowsSourceFiles($db, $element, $docid, $designid, $socid = 0)
 	{
 		// No cache: overrides and acceptances can change within a request, and only source files
 		// come here
-		if (!isset(self::getDocumentTypes()[$element])) {
+		if (isset(self::getDocumentTypes()[$element])) {
+			$licences = self::fetchDocumentLicences($db, $element, $docid);
+			$info = isset($licences[(int) $designid]) ? $licences[(int) $designid] : null;
+		} elseif ((int) $socid > 0) {
+			$info = self::fetchDesignLicence($db, $socid, $designid);	// Project or grant: the design's licence
+		} else {
 			return false;
 		}
-		$licences = self::fetchDocumentLicences($db, $element, $docid);
-		$info = isset($licences[(int) $designid]) ? $licences[(int) $designid] : null;
 		return ($info && Design::ownershipAllowsSource($info['design']['ownership']) && $info['version'] && (int) $info['version']->perm_source === 1);
 	}
 
 	/**
 	 * Values of the wording variables for a design on a document
 	 *
-	 * @param	CommonObject	$doc		Quote or order (thirdparty fetched or not)
+	 * @param	CommonObject|null	$doc	Quote or order (thirdparty fetched or not), null = access to the design itself
 	 * @param	array<string,mixed>	$design	Design row from fetchDesignsOfDocument()
 	 * @param	int				$date		Date of acceptance (or now)
+	 * @param	string			$customername	Customer name when there is no document
 	 * @return	array<string,string>
 	 */
-	public static function getWordingValues($doc, $design, $date)
+	public static function getWordingValues($doc, $design, $date, $customername = '')
 	{
 		global $langs;
 
 		$langs->loadLangs(array('designtrace@designtrace', 'propal', 'orders'));
-		if (empty($doc->thirdparty) && method_exists($doc, 'fetch_thirdparty')) {
+		if ($doc && empty($doc->thirdparty) && method_exists($doc, 'fetch_thirdparty')) {
 			$doc->fetch_thirdparty();
 		}
 		$types = self::getDocumentTypes();
+		if ($doc) {
+			$scope = (isset($types[$doc->element]) ? $langs->transnoentitiesnoconv($types[$doc->element]['label']) : $doc->element).' '.$doc->ref;
+			$customername = (!empty($doc->thirdparty) ? (string) $doc->thirdparty->name : '');
+		} else {
+			$scope = $langs->transnoentitiesnoconv('LicenceScopeDesign');
+		}
 		return array(
-			'customer' => (!empty($doc->thirdparty) ? (string) $doc->thirdparty->name : ''),
+			'customer' => $customername,
 			'design' => trim($design['ref'].' '.$design['label']),
 			'revision' => implode(', ', $design['revisions']),
 			'date' => dol_print_date($date, 'day'),
-			'scope' => (isset($types[$doc->element]) ? $langs->transnoentitiesnoconv($types[$doc->element]['label']) : $doc->element).' '.$doc->ref,
+			'scope' => $scope,
 		);
 	}
 
@@ -323,7 +453,7 @@ class DesignTraceLicensing
 			return -1;
 		}
 		$id = (int) $db->last_insert_id($db->prefix().'designtrace_licenceaccept');
-		$filename = self::writeAcceptancePdf($db, $doc, $info, $wording, $hash, $now, $channel, $actor, $ip);
+		$filename = self::writeAcceptancePdf($db, $doc, $info, $wording, $hash, $now, $channel, $actor, $ip, $socid);
 		if ($filename === '') {
 			$error = $langs->trans('ErrorLicencePdf');
 			$db->rollback();
@@ -342,6 +472,99 @@ class DesignTraceLicensing
 	}
 
 	/**
+	 * Record that a customer accepts the licence version that counts for a design, without a quote
+	 * or order (access through a project or grant, or ahead of a quote acceptance). Covers every
+	 * document and grant of that customer for the design. Writes a PDF copy.
+	 *
+	 * @param	DoliDB	$db			Database handler
+	 * @param	int		$socid		Customer accepting
+	 * @param	int		$designid	Design id
+	 * @param	int		$versionid	Version shown to the customer (refused if it is no longer the one that counts)
+	 * @param	string	$channel	DesignTraceClientAccess::CHANNEL_* or 'backoffice'
+	 * @param	string	$actor		Who
+	 * @param	string	$error		Error, filled on failure
+	 * @param	?string	$ip			Customer's IP as seen by a proxying backend (evidence only)
+	 * @param	?string	$useragent	Customer's user agent as seen by a proxying backend
+	 * @return	int					Id of the acceptance, <0 if KO
+	 */
+	public static function acceptDesign($db, $socid, $designid, $versionid, $channel, $actor, &$error, $ip = null, $useragent = null)
+	{
+		global $conf, $langs;
+
+		dol_include_once('/designtrace/class/clientaccess.class.php');
+		$ip = DesignTraceClientAccess::resolveClientIp($ip);
+		$useragent = DesignTraceClientAccess::resolveUserAgent($useragent);
+		$langs->load('designtrace@designtrace');
+		$error = '';
+
+		$info = self::fetchDesignLicence($db, $socid, $designid, self::getForcedLicence($db, $socid, $designid));
+		if (!$info || !$info['licence'] || !$info['version']) {
+			$error = $langs->trans('ErrorLicenceNothingToAccept');
+			return -1;
+		}
+		if ((int) $info['version']->id !== (int) $versionid) {
+			$error = $langs->trans('ErrorLicenceVersionChanged', $info['version']->ref);
+			return -1;
+		}
+		if ($info['acceptance'] && (int) $info['acceptance']->fk_licenceversion === (int) $versionid) {
+			return (int) $info['acceptance']->rowid;	// Already accepted
+		}
+		$soc = new Societe($db);
+		$soc->fetch((int) $socid);
+		$now = dol_now();
+		$wording = $info['version']->renderWording(self::getWordingValues(null, $info['design'], $now, (string) $soc->name));
+		$hash = hash('sha256', $wording);
+
+		$db->begin();
+		$sql = "INSERT INTO ".$db->prefix()."designtrace_licenceaccept (entity, fk_licenceversion, fk_licence, fk_design, element, fk_element, fk_soc, channel, actor, ip, useragent, wording_sha256, date_accept)";
+		$sql .= " VALUES (".((int) $conf->entity).", ".((int) $info['version']->id).", ".((int) $info['licence']->id).", ".((int) $designid);
+		$sql .= ", '', 0, ".((int) $socid).", '".$db->escape($channel)."'";
+		$sql .= ", '".$db->escape(dol_trunc((string) $actor, 128, 'right', 'UTF-8', 1))."', '".$db->escape($ip)."'";
+		$sql .= ", '".$db->escape($useragent)."', '".$db->escape($hash)."', '".$db->idate($now)."')";
+		if (!$db->query($sql)) {
+			$error = $db->lasterror();
+			$db->rollback();
+			return -1;
+		}
+		$id = (int) $db->last_insert_id($db->prefix().'designtrace_licenceaccept');
+		$filename = self::writeAcceptancePdf($db, null, $info, $wording, $hash, $now, $channel, $actor, $ip, $socid, (string) $soc->name);
+		if ($filename === '') {
+			$error = $langs->trans('ErrorLicencePdf');
+			$db->rollback();
+			return -1;
+		}
+		$db->query("UPDATE ".$db->prefix()."designtrace_licenceaccept SET filename = '".$db->escape($filename)."' WHERE rowid = ".$id);
+		$db->commit();
+		return $id;
+	}
+
+	/**
+	 * Template forced on a design by one of the customer's quotes or orders (the order-level override)
+	 *
+	 * @param	DoliDB	$db			Database handler
+	 * @param	int		$socid		Customer id
+	 * @param	int		$designid	Design id
+	 * @return	int					Licence id of the most recent override, 0 if none
+	 */
+	public static function getForcedLicence($db, $socid, $designid)
+	{
+		$best = 0;
+		foreach (self::getDocumentTypes() as $element => $def) {
+			$sql = "SELECT dl.fk_licence FROM ".$db->prefix()."designtrace_doclicence as dl";
+			$sql .= " INNER JOIN ".$db->prefix().$def['table']." as d ON d.rowid = dl.fk_element AND d.fk_soc = ".((int) $socid);
+			$sql .= " WHERE dl.element = '".$db->escape($element)."' AND EXISTS (SELECT 1 FROM ".$db->prefix()."element_element as ee WHERE ee.sourcetype = '".$db->escape($element)."' AND ee.fk_source = d.rowid AND ((ee.targettype = 'designtrace_design' AND ee.fk_target = ".((int) $designid).")";
+			$sql .= " OR (ee.targettype = 'designtrace_componentrevision' AND ee.fk_target IN (SELECT r.rowid FROM ".$db->prefix()."designtrace_componentrevision as r INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component WHERE c.fk_design = ".((int) $designid)."))))";
+			$sql .= " ORDER BY dl.rowid DESC".$db->plimit(1);
+			$resql = $db->query($sql);
+			$obj = $resql ? $db->fetch_object($resql) : null;
+			if ($obj) {
+				$best = max($best, (int) $obj->fk_licence);
+			}
+		}
+		return $best;
+	}
+
+	/**
 	 * PDF copy of an accepted licence, saved in the document's folder (shown in its Documents tab)
 	 *
 	 * @param	DoliDB				$db			Database handler
@@ -355,24 +578,29 @@ class DesignTraceLicensing
 	 * @param	string				$ip			Customer's IP
 	 * @return	string						File name, '' if KO
 	 */
-	private static function writeAcceptancePdf($db, $doc, $info, $wording, $hash, $date, $channel, $actor, $ip)
+	private static function writeAcceptancePdf($db, $doc, $info, $wording, $hash, $date, $channel, $actor, $ip, $socid = 0, $customername = '')
 	{
 		global $conf, $langs, $mysoc;
 
 		require_once DOL_DOCUMENT_ROOT.'/core/lib/pdf.lib.php';
 		require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
 		$types = self::getDocumentTypes();
-		$entity = (empty($doc->entity) ? $conf->entity : $doc->entity);
-		$dirroot = (string) ($conf->{$types[$doc->element]['dir']}->multidir_output[$entity] ?? '');
-		if ($dirroot === '') {
-			return '';
+		if ($doc) {
+			$entity = (empty($doc->entity) ? $conf->entity : $doc->entity);
+			$dirroot = (string) ($conf->{$types[$doc->element]['dir']}->multidir_output[$entity] ?? '');
+			$dir = $dirroot.'/'.dol_sanitizeFileName($doc->ref);
+			$prefix = $doc->ref;
+		} else {
+			// Accepted for the design itself: copy kept in the design's documents folder
+			$dirroot = (string) ($conf->designtrace->multidir_output[$conf->entity] ?? '');
+			$dir = $dirroot.'/design/'.dol_sanitizeFileName($info['design']['ref']);
+			$prefix = $info['design']['ref'].'-'.(int) $socid;
 		}
-		$dir = $dirroot.'/'.dol_sanitizeFileName($doc->ref);
-		if (dol_mkdir($dir) < 0) {
+		if ($dirroot === '' || dol_mkdir($dir) < 0) {
 			return '';
 		}
 		$version = $info['version'];
-		$filename = dol_sanitizeFileName($doc->ref.'-licence-'.$info['design']['ref'].'-'.$version->ref.'.pdf');
+		$filename = dol_sanitizeFileName($prefix.'-licence-'.($doc ? $info['design']['ref'].'-' : '').$version->ref.'.pdf');
 
 		$pdf = pdf_getInstance('A4');
 		$font = pdf_getPDFFont($langs);
@@ -384,7 +612,7 @@ class DesignTraceLicensing
 		$pdf->SetFont($font, 'B', 14);
 		$pdf->MultiCell(0, 8, $info['licence']->label.' ('.$version->ref.')', 0, 'L');
 		$pdf->SetFont($font, '', 9);
-		$values = self::getWordingValues($doc, $info['design'], $date);
+		$values = self::getWordingValues($doc, $info['design'], $date, $customername);
 		$pdf->MultiCell(0, 5, $langs->transnoentities('LicencePdfFor', $values['customer'], $values['design'], $values['scope']), 0, 'L');
 		$pdf->Ln(2);
 		$perms = '';

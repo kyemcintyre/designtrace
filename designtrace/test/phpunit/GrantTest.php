@@ -161,4 +161,39 @@ class GrantTest extends DesignTraceTestCase
 		$this->assertEmpty($new->customer_note, 'Release note is per revision');
 		$this->assertSame('internal: tolerance tweak', $new->description, 'Internal notes still carry over');
 	}
+
+	public function testLicenceGatesDownloadsAndSourceFilesThroughGrants()
+	{
+		$CA = DesignTraceClientAccess::class;
+		$customer = $this->newCustomer();
+		$licence = $this->newLicence('ZZGRT', true);
+		$design = $this->newDesign(array('fk_soc' => $customer->id, 'fk_licence' => $licence->id, 'ownership' => Design::OWNERSHIP_CUSTOMER), true);
+		$part = $this->newComponent($design);
+		$a = $this->newRevision($part);
+		$pdf = $this->addFile($a, 'a.pdf', '%PDF', RevisionFile::ROLE_PRESENTATION, RevisionFile::VISIBILITY_NOW);
+		$src = $this->addFile($a, 'a.FCStd', 'src', RevisionFile::ROLE_SOURCE, RevisionFile::VISIBILITY_NOW);
+		$this->release($a);
+		$grantid = DesignTraceGrant::create($this->db, $this->user, $customer->id, $design->id);
+
+		$this->assertCount(2, $CA::fetchVisibleFiles($this->db, $customer->id, 'grant'), 'Listed before acceptance (licence allows source)');
+		$this->assertNull($CA::getDownloadableFile($this->db, $customer->id, $pdf->id, 'grant', $grantid, $blocked));
+		$this->assertSame('licence', $blocked);
+
+		$err = '';
+		$id = DesignTraceLicensing::acceptDesign($this->db, $customer->id, $design->id, $licence->getCurrentVersion()->id, 'api', 'zz', $err);
+		$this->assertGreaterThan(0, $id, $err);
+		$this->assertNotNull($CA::getDownloadableFile($this->db, $customer->id, $pdf->id, 'grant', $grantid));
+		$this->assertNotNull($CA::getDownloadableFile($this->db, $customer->id, $src->id, 'grant', $grantid));
+
+		// Revoking the grant keeps the acceptance and ends the access
+		DesignTraceGrant::revoke($this->db, $this->user, $grantid);
+		$this->assertNull($CA::getDownloadableFile($this->db, $customer->id, $pdf->id, 'grant', $grantid));
+		$this->assertNotNull(DesignTraceLicensing::getAcceptance($this->db, $customer->id, $design->id));
+
+		// A workshop-owned design never delivers source whatever the licence
+		$design->ownership = Design::OWNERSHIP_WORKSHOP;
+		$design->update($this->user);
+		$grant2 = DesignTraceGrant::create($this->db, $this->user, $customer->id, $design->id);
+		$this->assertCount(1, $CA::fetchVisibleFiles($this->db, $customer->id, 'grant', $grant2));
+	}
 }
