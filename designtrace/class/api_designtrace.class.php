@@ -45,6 +45,7 @@ dol_include_once('/designtrace/class/reorder.class.php');
 dol_include_once('/designtrace/class/customerportal.class.php');
 dol_include_once('/designtrace/class/designlibrary.class.php');
 dol_include_once('/designtrace/class/approvals.class.php');
+dol_include_once('/designtrace/class/changerequests.class.php');
 
 /**
  * API class for DesignTrace customer files (named DesignTrace so the endpoints are /designtrace/...)
@@ -1388,6 +1389,205 @@ class DesignTrace extends DolibarrApi
 		if (!is_array($res)) {
 			throw new RestException(409, $error);
 		}
+	}
+
+	/**
+	 * Report a problem or ask for a change on a revision the customer holds
+	 *
+	 * One flow, type `problem` (defect) or `change`. It creates a ticket (type Design problem / Design
+	 * change) and a linked draft ECO (reason customer) shared with the customer. A problem may name
+	 * one of the customer's orders that delivered the revision (`order_id`).
+	 *
+	 * @param	int		$socid			Customer (third party) id
+	 * @param	int		$revision_id	Revision the request is about (one the customer holds) {@from body}
+	 * @param	string	$type			problem or change {@from body}
+	 * @param	string	$summary		Short summary {@from body}
+	 * @param	string	$text			What is wrong, or what to change {@from body}
+	 * @param	int		$order_id		Problems only: an order that delivered the revision {@from body}
+	 * @param	string	$actor			Who asks, for the log {@from body}
+	 * @param	string	$client_ip		Customer's IP address as seen by the calling backend, recorded on the ticket {@from body}
+	 * @return	array					eco_id, eco_ref, ticket_id, ticket_ref
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	POST customers/{socid}/change-requests
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 409 Not possible (revision not held, bad type, order did not deliver it...)
+	 */
+	public function reportChangeRequest($socid, $revision_id, $type, $summary, $text, $order_id = 0, $actor = '', $client_ip = '')
+	{
+		$socid = $this->checkCustomer($socid);
+		$error = '';
+		$res = DesignTraceChangeRequests::report($this->db, DolibarrApiAccess::$user, $socid, (string) $type, (int) $revision_id, (string) $summary, (string) $text, (int) $order_id, $this->getActor($actor), $error, (string) $client_ip);
+		if (!is_array($res)) {
+			throw new RestException(409, $error);
+		}
+		return $res;
+	}
+
+	/**
+	 * Change requests and ECOs shared with the customer: the ones they raised, and any other ECO whose
+	 * "shareable" toggle is on. Newest first.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @return	array				id, ref, summary, status (open, approved, implemented, closed, withdrawn, cancelled), type (problem, change or empty),
+	 *								requested_by, round, date_creation, ticket_id, ticket_ref
+	 * @phan-return array<int,array<string,mixed>>
+	 * @phpstan-return array<int,array<string,mixed>>
+	 *
+	 * @url	GET customers/{socid}/ecos
+	 *
+	 * @throws RestException 403 Not allowed
+	 */
+	public function listEcos($socid)
+	{
+		$socid = $this->checkCustomer($socid);
+		return DesignTraceChangeRequests::fetchList($this->db, $socid);
+	}
+
+	/**
+	 * Detail of a shared ECO: summary and request text (never internal notes), status timeline with
+	 * rounds, affected components and resulting released revisions (only components the customer
+	 * reaches), linked ticket and quote (`waiting_for_quote`), reference files, ticket comments,
+	 * and what the customer can still do (`can_withdraw`, `can_attach`).
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$ecoid		ECO id
+	 * @return	array				The detail
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET customers/{socid}/ecos/{ecoid}
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Not shared with this customer
+	 */
+	public function getEco($socid, $ecoid)
+	{
+		$socid = $this->checkCustomer($socid);
+		$detail = DesignTraceChangeRequests::fetchDetail($this->db, $socid, (int) $ecoid);
+		if (!$detail) {
+			throw new RestException(404, 'Change order not found for this customer');
+		}
+		return $detail;
+	}
+
+	/**
+	 * Withdraw a request while its ECO is a draft: the ECO and the ticket are cancelled with a
+	 * "withdrawn" message and both stay in history
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$ecoid		ECO id
+	 * @param	string	$comment	Optional reason {@from body}
+	 * @param	string	$actor		Who withdraws, for the log {@from body}
+	 * @return	array				status
+	 * @phan-return array<string,string>
+	 * @phpstan-return array<string,string>
+	 *
+	 * @url	POST customers/{socid}/ecos/{ecoid}/withdraw
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 409 Not a request of this customer, or no longer a draft
+	 */
+	public function withdrawEco($socid, $ecoid, $comment = '', $actor = '')
+	{
+		$socid = $this->checkCustomer($socid);
+		$error = '';
+		if (DesignTraceChangeRequests::withdraw($this->db, DolibarrApiAccess::$user, $socid, (int) $ecoid, $this->getActor($actor), (string) $comment, $error) <= 0) {
+			throw new RestException(409, $error);
+		}
+		return array('status' => 'withdrawn');
+	}
+
+	/**
+	 * Comment on a request, through its ticket (the workshop sees it there and answers there)
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$ecoid		ECO id
+	 * @param	string	$text		The comment {@from body}
+	 * @param	string	$actor		Who comments, for the log {@from body}
+	 * @return	array				ok
+	 * @phan-return array<string,bool>
+	 * @phpstan-return array<string,bool>
+	 *
+	 * @url	POST customers/{socid}/ecos/{ecoid}/comments
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 409 Not a request of this customer, empty comment, or closed
+	 */
+	public function commentOnEco($socid, $ecoid, $text, $actor = '')
+	{
+		$socid = $this->checkCustomer($socid);
+		$error = '';
+		if (DesignTraceChangeRequests::comment($this->db, DolibarrApiAccess::$user, $socid, (int) $ecoid, (string) $text, $this->getActor($actor), $error) <= 0) {
+			throw new RestException(409, $error);
+		}
+		return array('ok' => true);
+	}
+
+	/**
+	 * Attach a reference file to a request while it is open. The content is sent base64 encoded
+	 * (reference files are small; design files are never uploaded through the API). Executable
+	 * files are neutralised (`.noexe`), at most 20 files per request.
+	 *
+	 * @param	int		$socid			Customer (third party) id
+	 * @param	int		$ecoid			ECO id
+	 * @param	string	$filename		File name {@from body}
+	 * @param	string	$filecontent	Content, base64 encoded {@from body}
+	 * @param	string	$actor			Who attaches it, for the log {@from body}
+	 * @return	array					filename as stored
+	 * @phan-return array<string,string>
+	 * @phpstan-return array<string,string>
+	 *
+	 * @url	POST customers/{socid}/ecos/{ecoid}/files
+	 *
+	 * @throws RestException 400 Content is not base64
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 409 Not a request of this customer, closed, too large or too many files
+	 */
+	public function attachEcoFile($socid, $ecoid, $filename, $filecontent, $actor = '')
+	{
+		$socid = $this->checkCustomer($socid);
+		$content = base64_decode((string) $filecontent, true);
+		if ($content === false) {
+			throw new RestException(400, 'filecontent must be base64 encoded');
+		}
+		$error = '';
+		$stored = DesignTraceChangeRequests::addReferenceFile($this->db, $socid, (int) $ecoid, (string) $filename, $content, $this->getActor($actor), $error);
+		if ($stored === '') {
+			throw new RestException(409, $error);
+		}
+		return array('filename' => $stored);
+	}
+
+	/**
+	 * Ask for access again to a design whose access ended: opens a ticket for the workshop (asking
+	 * again while it is open returns the same ticket)
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$designid	Design id
+	 * @param	string	$message	Optional message {@from body}
+	 * @param	string	$actor		Who asks, for the log {@from body}
+	 * @param	string	$client_ip	Customer's IP address as seen by the calling backend, recorded on the ticket {@from body}
+	 * @return	array				ticket_id, ticket_ref, existing
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	POST customers/{socid}/designs/{designid}/request-access
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 409 The customer never had access, or still has it
+	 */
+	public function requestAccess($socid, $designid, $message = '', $actor = '', $client_ip = '')
+	{
+		$socid = $this->checkCustomer($socid);
+		$error = '';
+		$res = DesignTraceChangeRequests::askAccess($this->db, DolibarrApiAccess::$user, $socid, (int) $designid, (string) $message, $this->getActor($actor), $error, (string) $client_ip);
+		if (!is_array($res)) {
+			throw new RestException(409, $error);
+		}
+		return $res;
 	}
 
 	/**

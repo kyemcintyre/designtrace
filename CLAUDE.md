@@ -313,7 +313,7 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
   "advanced" mask rules ignore type); release gated on customer approval of a proof; a 3D viewer
   in Dolibarr's Web portal; designs tied to tasks (time uses the design's default task).
 
-## Customer design library (issue #1, phases 1-2 of 4 built)
+## Customer design library (issue #1, phases 1-3 of 4 built)
 
 REST-first, same conventions as above (`{socid}` from the caller, optional actor/client IP/user agent,
 no automated emails). Reference for the Go side: `designtrace/API.md`.
@@ -363,11 +363,24 @@ no automated emails). Reference for the Go side: `designtrace/API.md`.
 - `DesignTraceLibrary::fetchAttention()` (counts) and `fetchHistory()` (releases, approvals, acceptances,
   consent, downloads with actors; consent has no customer column, so it is shown per design reached).
   Design-level consent endpoints use `DesignTracePortfolio::setConsent()` with no document.
-- Still to build from issue #1: ECO request flow (problem/change tickets, shareable ECOs, customer ECO
-  views, withdraw, reference files, quote link, ticket types, "ask for access again"), staff endpoints and
-  metrics (phases 3-4). Not done in phase 2: showing the approval block and release reason on the revision
-  card (the field is on the card and the release error names the reason), staff "force re-acceptance"
-  and role-setting UI beyond the thirdparty extrafield.
+- **Change requests** (phase 3, `class/changerequests.class.php`): `report()` = ticket (types `DESIGN_PROBLEM` /
+  `DESIGN_CHANGE`, inserted into `c_ticket_type` on activation) + draft ECO (reason customer) through
+  `ChangeOrder::markCustomerRequest()`, which sets the ECO columns outside the Module Builder fields:
+  `shareable`, `request_type` (1 problem / 2 change), `requested_by`, `fk_revision_source`, `fk_ticket`,
+  `fk_order_source`, `fk_propal` (read with `getRequestInfo()`). The proof and approval "request changes"
+  ECOs are marked the same way (shared automatically); staff ECOs are shared only with `setShareable()`.
+  A problem may name a closed order of the customer linked to that revision. `withdraw()` cancels ECO
+  (Draft only) and ticket (status canceled, public "withdrawn" message), timeline entry `withdrawn`.
+  Comments are public ticket messages (`TICKET_MSG`); reference files are saved as `customer-<name>` in the
+  ECO's documents folder (base64 through the API, `dol_move_uploaded_file()` neutralises executables).
+  `ChangeOrder::linkQuote()` sets `fk_propal` (same customer); `approve()` is refused until that quote is
+  signed or billed (`isQuoteSettled()`). `askAccess()` opens a ticket (default type) linked to the design
+  from an access-ended design, the same one while open.
+- Still to build from issue #1: staff endpoints and metrics (phase 4: triage queue, customer design view,
+  grants, file visibility and links, revisions, ECO actions incl. shareable and quote link, forced
+  re-acceptance, metrics). Not done in phase 3: UI on the ECO card for shareable / linked quote / request
+  info (only the class methods and the upcoming staff endpoints set them), and the Dolibarr side showing
+  the customer's reference files on the ticket (they are on the ECO's Documents tab).
 
 ## Module Builder pitfalls (24.0.2)
 

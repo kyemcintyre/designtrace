@@ -122,6 +122,26 @@ ECO, or in the same design when there is no ECO.
 reserves them to admins you get `403` with a message starting `role_not_allowed` (distinct from other
 `403`s). Every decision is logged with its `actor`, so the history of a customer covers every user.
 
+### Change requests and ECOs
+
+One flow, raised from a revision the customer holds: `problem` (defect) or `change`. It creates a ticket
+(types *Design problem* / *Design change*) and a linked **draft ECO** (reason customer) that is shared with
+the customer automatically. Other ECOs are shared only when their *shareable* toggle is on. Customers see
+the summary and the request text, never internal notes.
+
+| Method and path | What |
+|---|---|
+| `POST customers/{socid}/change-requests` | Body `revision_id`, `type` (`problem`/`change`), `summary`, `text`, `order_id` (problems only: one of the customer's delivered orders that delivered the revision), `actor`, `client_ip`. Returns `eco_id`, `eco_ref`, `ticket_id`, `ticket_ref`. `409` if the revision is not held, the order did not deliver it... |
+| `GET customers/{socid}/ecos` | Shared ECOs, newest first: `summary`, `status` (`open`, `approved`, `implemented`, `closed`, `withdrawn`, `cancelled`), `type`, `requested_by`, `round`, `ticket_ref`. |
+| `GET customers/{socid}/ecos/{ecoid}` | Detail: `request_text`, `timeline` (`opened`, `changes_requested` per `round`, `reference_file`, `withdrawn`, each with `actor`), `components`, `resulting_revisions` (released ones; only components the customer reaches), `ticket`, `quote` and `waiting_for_quote`, `reference_files`, `comments`, `can_withdraw`, `can_attach`. |
+| `POST customers/{socid}/ecos/{ecoid}/comments` | Body `text`, `actor`. A public message on the ticket. |
+| `POST customers/{socid}/ecos/{ecoid}/files` | Body `filename`, `filecontent` (**base64**), `actor`. Reference files only (small, max 20 per request, executables neutralised as `.noexe`); design files are never uploaded through the API. |
+| `POST customers/{socid}/ecos/{ecoid}/withdraw` | Body `comment`, `actor`. Only while the ECO is a draft: cancels ECO and ticket with a "withdrawn" message; both stay in history. `409` otherwise. |
+| `POST customers/{socid}/designs/{designid}/request-access` | Body `message`, `actor`, `client_ip`. For a design whose access ended: opens a ticket (the same one while it is open). `409` if the customer still has access. |
+
+A quote can be linked to an ECO by staff; the ECO then shows it (`quote`, `waiting_for_quote`) and cannot
+be approved until the quote is accepted.
+
 ### What waits, and history
 
 | Method and path | What |

@@ -221,4 +221,63 @@ class ApiLibraryTest extends DesignTraceTestCase
 		});
 		$this->assertSame(0, $this->api->getAttention($customer->id)['consent'], 'No consent question for a confidential design');
 	}
+
+	public function testChangeRequestEndpoints()
+	{
+		global $conf;
+
+		$customer = $this->newCustomer();
+		$design = $this->newDesign(array('fk_soc' => $customer->id), true);
+		$rev = $this->newRevision($this->newComponent($design), true);
+		$order = $this->newOrder($customer->id, true);
+		$this->linkDoc($rev, 'commande', $order->id);
+		$order->cloture($this->user);
+
+		$this->expectCode(409, function () use ($customer, $rev) {
+			$this->api->reportChangeRequest($customer->id, $rev->id, 'bogus', 'x', 'y');
+		});
+		$res = $this->api->reportChangeRequest($customer->id, $rev->id, 'problem', 'Cracked', 'It cracked in use', $order->id, 'portal:ann');
+		$this->assertGreaterThan(0, $res['eco_id']);
+		$this->assertGreaterThan(0, $res['ticket_id']);
+		$list = $this->api->listEcos($customer->id);
+		$this->assertSame($res['eco_ref'], $list[0]['ref']);
+		$this->assertSame('problem', $list[0]['type']);
+		$detail = $this->api->getEco($customer->id, $res['eco_id']);
+		$this->assertSame('It cracked in use', $detail['request_text']);
+		$this->expectCode(404, function () use ($res) {
+			$this->api->getEco($this->newCustomer('ZZ Other')->id, $res['eco_id']);
+		});
+
+		$this->assertTrue($this->api->commentOnEco($customer->id, $res['eco_id'], 'Photos follow', 'portal:ann')['ok']);
+		$this->expectCode(409, function () use ($customer, $res) {
+			$this->api->commentOnEco($customer->id, $res['eco_id'], ' ');
+		});
+		$this->expectCode(400, function () use ($customer, $res) {
+			$this->api->attachEcoFile($customer->id, $res['eco_id'], 'a.png', '***not base64***');
+		});
+		$stored = $this->api->attachEcoFile($customer->id, $res['eco_id'], 'crack.png', base64_encode('PNG'), 'portal:ann')['filename'];
+		$this->assertSame('customer-crack.png', $stored);
+		$this->assertSame(array('customer-crack.png'), array_column($this->api->getEco($customer->id, $res['eco_id'])['reference_files'], 'filename'));
+		$eco = new ChangeOrder($this->db);
+		$eco->fetch($res['eco_id']);
+		dol_delete_dir_recursive($conf->designtrace->multidir_output[$conf->entity].'/changeorder/'.dol_sanitizeFileName($eco->ref));
+
+		$this->assertSame('withdrawn', $this->api->withdrawEco($customer->id, $res['eco_id'], 'Fixed it myself', 'portal:ann')['status']);
+		$this->expectCode(409, function () use ($customer, $res) {
+			$this->api->withdrawEco($customer->id, $res['eco_id']);
+		});
+		$this->assertSame('withdrawn', $this->api->listEcos($customer->id)[0]['status']);
+
+		// Ask for access again
+		$d2 = $this->newDesign(array('fk_soc' => $customer->id), true);
+		$this->newRevision($this->newComponent($d2), true);
+		$g2 = DesignTraceGrant::create($this->db, $this->user, $customer->id, $d2->id);
+		$this->expectCode(409, function () use ($customer, $d2) {
+			$this->api->requestAccess($customer->id, $d2->id);
+		});
+		DesignTraceGrant::revoke($this->db, $this->user, $g2);
+		$t = $this->api->requestAccess($customer->id, $d2->id, 'Please', 'portal:ann');
+		$this->assertFalse($t['existing']);
+		$this->assertTrue($this->api->requestAccess($customer->id, $d2->id)['existing']);
+	}
 }
