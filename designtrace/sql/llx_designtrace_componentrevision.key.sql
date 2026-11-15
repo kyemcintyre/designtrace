@@ -32,3 +32,4 @@ ALTER TABLE llx_designtrace_componentrevision ADD INDEX idx_designtrace_componen
 
 ALTER TABLE llx_designtrace_componentrevision ADD COLUMN customer_note text;
 ALTER TABLE llx_designtrace_componentrevision ADD COLUMN needs_approval smallint DEFAULT 0 NOT NULL;
+ALTER TABLE llx_designtrace_componentrevision ADD COLUMN date_review datetime;

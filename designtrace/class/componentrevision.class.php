@@ -661,7 +661,12 @@ class ComponentRevision extends CommonObject
 			return $this->setErrorAndFail($langs->trans('ErrorRevisionChildrenNotReviewed', $this->ref, implode(', ', $blocking)));
 		}
 
-		return $this->setStatusCommon($user, self::STATUS_INREVIEW, $notrigger, 'DESIGNTRACE_COMPONENTREVISION_SUBMIT');
+		$result = $this->setStatusCommon($user, self::STATUS_INREVIEW, $notrigger, 'DESIGNTRACE_COMPONENTREVISION_SUBMIT');
+		if ($result > 0) {
+			// When it went to review: the start of the customer approval turnaround (metrics)
+			$this->db->query("UPDATE ".$this->db->prefix().$this->table_element." SET date_review = '".$this->db->idate(dol_now())."' WHERE rowid = ".((int) $this->id));
+		}
+		return $result;
 	}
 
 	/**

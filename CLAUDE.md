@@ -313,7 +313,7 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
   "advanced" mask rules ignore type); release gated on customer approval of a proof; a 3D viewer
   in Dolibarr's Web portal; designs tied to tasks (time uses the design's default task).
 
-## Customer design library (issue #1, phases 1-3 of 4 built)
+## Customer design library (issue #1, all 4 phases built)
 
 REST-first, same conventions as above (`{socid}` from the caller, optional actor/client IP/user agent,
 no automated emails). Reference for the Go side: `designtrace/API.md`.
@@ -376,11 +376,19 @@ no automated emails). Reference for the Go side: `designtrace/API.md`.
   `ChangeOrder::linkQuote()` sets `fk_propal` (same customer); `approve()` is refused until that quote is
   signed or billed (`isQuoteSettled()`). `askAccess()` opens a ticket (default type) linked to the design
   from an access-ended design, the same one while open.
-- Still to build from issue #1: staff endpoints and metrics (phase 4: triage queue, customer design view,
-  grants, file visibility and links, revisions, ECO actions incl. shareable and quote link, forced
-  re-acceptance, metrics). Not done in phase 3: UI on the ECO card for shareable / linked quote / request
-  info (only the class methods and the upcoming staff endpoints set them), and the Dolibarr side showing
-  the customer's reference files on the ticket (they are on the ECO's Documents tab).
+- **Staff endpoints** (phase 4, `staff/...` in `api_designtrace.class.php`, logic in `class/staffapi.class.php`
+  `DesignTraceStaff`): called with the staff user's own API key, so rights are checked per endpoint with
+  `checkStaff($object, $perm)` (never the `clientfiles api` right), external users are refused, confidential
+  designs the user cannot see are 404 / left out (`Design::userCanSee()`, `getHiddenDesignIds()`).
+  Triage, customer view (with per-file `reason_not_shown`), grants, file visibility, design and revision links
+  (`DesignTraceStaff::linkDesign()` / `unlinkRevision()`, a project is now a link target too), revision edit and
+  release, ECO approve/implement/close/shareable/quote, forced re-acceptance, metrics. Revision `date_review`
+  (stamped in `validate()`) and ECO `date_closed` (stamped in `close()`) feed the turnaround and cycle-time
+  metrics; older items have none and are not counted. Release note and `needs_approval` can only be edited
+  before release.
+- Not built from issue #1: UI on the Dolibarr cards for what the endpoints set (ECO shareable / linked quote /
+  request info, grants list on the design card, approval block on the revision card) and a way for the
+  customer's reference files to show on the ticket; the staff API is the way to manage them for now.
 
 ## Module Builder pitfalls (24.0.2)
 

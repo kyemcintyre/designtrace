@@ -872,7 +872,11 @@ class ChangeOrder extends CommonObject
 		if ((int) $this->status !== self::STATUS_IMPLEMENTED) {
 			return 0;
 		}
-		return $this->setStatusCommon($user, self::STATUS_CLOSED, $notrigger, 'DESIGNTRACE_CHANGEORDER_CLOSE');
+		$result = $this->setStatusCommon($user, self::STATUS_CLOSED, $notrigger, 'DESIGNTRACE_CHANGEORDER_CLOSE');
+		if ($result > 0) {
+			$this->db->query("UPDATE ".$this->db->prefix().$this->table_element." SET date_closed = '".$this->db->idate(dol_now())."' WHERE rowid = ".((int) $this->id));
+		}
+		return $result;
 	}
 
 	/**

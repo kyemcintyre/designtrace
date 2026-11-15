@@ -669,3 +669,4 @@ ErrorRequestCannotWithdraw = A request can only be withdrawn while its change or
 ErrorRequestClosed = This request is closed
 ErrorRequestTooManyFiles = At most %s reference files per request
 ErrorRequestAccessNotEnded = The customer still has access to this design
+ErrorDesignOtherCustomer = That document belongs to another customer than the design's

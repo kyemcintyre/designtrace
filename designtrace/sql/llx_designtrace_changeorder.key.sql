@@ -32,3 +32,4 @@ ALTER TABLE llx_designtrace_changeorder ADD COLUMN fk_revision_source integer;
 ALTER TABLE llx_designtrace_changeorder ADD COLUMN fk_ticket integer;
 ALTER TABLE llx_designtrace_changeorder ADD COLUMN fk_order_source integer;
 ALTER TABLE llx_designtrace_changeorder ADD COLUMN fk_propal integer;
+ALTER TABLE llx_designtrace_changeorder ADD COLUMN date_closed datetime;

@@ -179,6 +179,36 @@ be approved until the quote is accepted.
 | `GET portfolio/{designid}/images/{imageid}/content` | The image itself. |
 | `GET portfolio/{designid}/images/{imageid}/link` | Or a short-lived signed link. |
 
+## Staff endpoints
+
+Called with the **staff user's own Dolibarr API key**, not the service user's: that user's rights apply
+(each endpoint names the one it needs; `403` otherwise), external users are refused, and a confidential
+design the user cannot see is `404`. Nothing here emails a customer.
+
+| Method and path | Right | What |
+|---|---|---|
+| `GET staff/triage` | design read | `approvals` (flagged revisions In review, `awaiting_customer` or `changes_requested`), `ecos` (open ECOs, customer requests first, with `next_action`: approve / implement / close), `licences` (designs with active work whose licence is not accepted), `needs_update`, `counts`. |
+| `GET staff/customers/{socid}/library[?q&action&page&limit]` | design read | The customer's library as they see it. |
+| `GET staff/customers/{socid}/designs/{designid}` | design read | Everything the customer sees of the design, plus `grants`, `licence` state and `files` with `shown_to_customer` and `reason_not_shown` (hidden, production file, source not allowed by licence or ownership, waits for completion). |
+| `GET staff/customers/{socid}/grants[?design_id]` | design read | Grants with their pins. |
+| `POST staff/customers/{socid}/grants` | design write | Body `design_id`, `component_ids` (empty = whole design), `pins` (`{"componentid": revisionid}`, default the current revision), `expiry` (date or timestamp, empty = never), `note`. `409` if nothing is released. |
+| `POST staff/grants/{id}/expiry` | design write | Body `expiry` (empty = never). |
+| `POST staff/grants/{id}/revoke` | design write | Keeps the log and the licence record. |
+| `POST staff/grants/{id}/pins/{componentid}` | design write | Body `revision_id`: move the pin by hand (a released revision of that component). |
+| `POST staff/files/{fileid}/visibility` | managevisibility | Body `visibility`: `hidden`, `now`, `on_completion`. Production files stay hidden. |
+| `POST staff/designs/{designid}/links` | design write | Body `element` (`quote`/`order`), `docid`: the design-level link (same customer). |
+| `POST staff/revisions/{revid}/links` | revision write | Body `element` (`quote`, `order`, `invoice`, `bom`, `ticket`, `project`), `docid`. Same rules as the revision card. |
+| `DELETE staff/revisions/{revid}/links/{element}/{docid}` | revision write | A delivered order keeps its revisions (`409`). |
+| `POST staff/revisions/{revid}/links/{element}/{docid}/client-visible` | managevisibility | Body `visible` 0/1. |
+| `PUT staff/revisions/{revid}` | revision write | Body `customer_note` and/or `needs_approval`. Released revisions are read-only (`409`). |
+| `POST staff/revisions/{revid}/release` | revision release | Refused (`409`, with the reason) while the customer's approval is missing, a child is not released... |
+| `POST staff/ecos/{id}/approve` | changeorder approve | Refused while the linked quote is not accepted. |
+| `POST staff/ecos/{id}/implement`, `.../close` | changeorder write | Workflow steps. |
+| `POST staff/ecos/{id}/shareable` | changeorder write | Body `shareable` 0/1. A request the customer raised stays shared. |
+| `POST staff/ecos/{id}/quote` | changeorder write | Body `quote_id` (0 removes): the ECO waits on it. |
+| `POST staff/licences/force-reacceptance` | licence write | Body `design_id`, `socid` (0 = every customer). Records and PDFs stay. |
+| `GET staff/metrics[?from&to]` | design + revision read | Default last 12 months: `approval_turnaround` and `eco_cycle_time` (`count`, `average_seconds`, `average_days`), `designs_delivered_per_month`, `revisions_released_per_month`, `cad_hours_per_design`. Turnaround counts revisions that went to review, and cycle time ECOs that were closed, since the module began stamping those dates. |
+
 ## A customer page in My workshop
 
 1. `GET customers/{socid}/documents`: render each document; badge it with `todo`.

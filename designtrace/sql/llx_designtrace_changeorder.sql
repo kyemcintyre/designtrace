@@ -27,6 +27,7 @@ CREATE TABLE llx_designtrace_changeorder(
 	fk_user_requester integer,
 	description text,
 	round integer DEFAULT 1 NOT NULL,
+	date_closed datetime,
 	shareable smallint DEFAULT 0 NOT NULL,
 	request_type smallint DEFAULT 0 NOT NULL,
 	requested_by varchar(128),

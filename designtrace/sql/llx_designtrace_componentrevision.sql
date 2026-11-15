@@ -32,6 +32,7 @@ CREATE TABLE llx_designtrace_componentrevision(
 	material varchar(255), 
 	process varchar(255), 
 	machine varchar(255), 
+	date_review datetime, 
 	date_release datetime, 
 	fk_user_release integer, 
 	note_public text, 
