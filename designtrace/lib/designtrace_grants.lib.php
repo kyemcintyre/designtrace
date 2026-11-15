@@ -42,14 +42,36 @@ function designtraceDoGrantActions($object, $action)
 		setEventMessages($langs->trans('NotEnoughPermissions'), null, 'errors');
 		return;
 	}
+	// Revoking is a link: the token is checked here, whatever the install's CSRF mode
+	if ($action == 'grant_revoke' && (GETPOST('token', 'alpha') === '' || GETPOST('token', 'alpha') !== currentToken())) {
+		setEventMessages($langs->trans('ErrorGrantBadToken'), null, 'errors');
+		return;
+	}
 	$grantid = GETPOSTINT('grantid');
-	$expiry = GETPOST('expiry', 'alpha') !== '' ? dol_mktime(23, 59, 59, GETPOSTINT('expirymonth'), GETPOSTINT('expiryday'), GETPOSTINT('expiryyear')) : null;
+	// The date picker sends day, month and year; a date that is incomplete or does not exist is refused, never "no expiry"
+	$expiry = null;
+	if (GETPOSTINT('expiryyear') > 0 || GETPOSTINT('expirymonth') > 0 || GETPOSTINT('expiryday') > 0) {
+		$expiry = dol_mktime(23, 59, 59, GETPOSTINT('expirymonth'), GETPOSTINT('expiryday'), GETPOSTINT('expiryyear'));
+		if ($expiry === '' || $expiry === false || $expiry === null || (int) $expiry <= dol_now()) {
+			setEventMessages($langs->trans('ErrorGrantBadExpiry'), null, 'errors');
+			return;
+		}
+	}
 	$grant = $grantid > 0 ? DesignTraceGrant::fetchOne($db, $grantid) : null;
 	if ($action != 'grant_add' && (!$grant || (int) $grant->fk_design !== (int) $object->id)) {
 		setEventMessages($langs->trans('ErrorRecordNotFound'), null, 'errors');
 		return;
 	}
 	if ($action == 'grant_add') {
+		$soc = new Societe($db);
+		if (GETPOSTINT('socid') <= 0 || $soc->fetch(GETPOSTINT('socid')) <= 0) {
+			setEventMessages($langs->trans('ErrorFieldRequired', $langs->transnoentitiesnoconv('Customer')), null, 'errors');
+			return;
+		}
+		if ((int) $object->status !== Design::STATUS_VALIDATED) {
+			setEventMessages($langs->trans('ErrorGrantDesignNotActive'), null, 'errors');
+			return;
+		}
 		$res = DesignTraceGrant::create($db, $user, GETPOSTINT('socid'), (int) $object->id, array(), array(), $expiry, GETPOST('note', 'alphanohtml'));
 		$msg = $res > 0 ? $langs->trans('GrantCreated') : ($res == -2 ? $langs->trans('ErrorGrantNothingToGrant') : $langs->trans('Error'));
 	} elseif ($action == 'grant_revoke') {

@@ -338,8 +338,10 @@ no automated emails). Reference for the Go side: `designtrace/API.md`.
   **No download before acceptance** (`getDownloadableFile(..., &$blocked)` sets `'licence'`, the API
   answers 403); listings still show the files. Source files reach customers through quotes, orders,
   projects and grants when the design's licence allows them and it is not workshop-owned.
-  The unique index of `llx_designtrace_licenceaccept` now starts with `fk_soc`; existing databases
-  pick up the new column/index from the `.key.sql` ALTERs on module re-activation.
+  `llx_designtrace_licenceaccept` has no unique key (ended acceptances are kept, so the same version can be accepted
+  again after a forced re-acceptance); "already accepted" is checked against active rows. `getAcceptance()` takes the
+  template, so acceptances under the design's template and a quote/order override live side by side. Existing databases
+  pick up the new column/indexes from the `.key.sql` ALTERs on module re-activation.
 - **Library** (`class/designlibrary.class.php`): list with filters and flags, design tree, revision,
   compare, newer revisions; confidential is a label only, archived designs stay, external components
   only with access. Endpoints in `api_designtrace.class.php` (`library`, `designs/{id}`,

@@ -147,9 +147,9 @@ be approved until the quote is accepted.
 | Method and path | What |
 |---|---|
 | `GET customers/{socid}/attention` | Counts: `licences` (designs to accept), `approvals`, `consent` (designs not asked yet; never confidential ones), `newer_revisions`, `total`, and the design ids behind them. |
-| `GET customers/{socid}/history[?design_id&limit]` | Releases, approvals and change requests, licence acceptances, consent and downloads, newest first, each with its `actor`. Also for designs whose access ended. |
+| `GET customers/{socid}/history[?design_id&limit]` | Releases (of the revisions the customer holds and newer ones, no staff login), approvals and change requests, licence acceptances, consent (only answers for this customer; the actor is named only on their own document) and downloads, newest first. Also for designs whose access ended. |
 | `GET customers/{socid}/designs/{designid}/consent` | Portfolio consent of a design (`none`, `granted`, `refused`, `confidential`). |
-| `POST customers/{socid}/designs/{designid}/consent` | Body `consent` (`granted`/`refused`), `actor`, `client_ip`. `409` for a confidential design. |
+| `POST customers/{socid}/designs/{designid}/consent` | Body `consent` (`granted`/`refused`), `actor`, `client_ip`. `403` unless the design is made for this customer, `409` for a confidential design. |
 
 ### Proofs
 

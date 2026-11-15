@@ -150,11 +150,15 @@ class DesignTraceLicensing
 	 * @param	DoliDB	$db			Database handler
 	 * @param	int		$socid		Customer id
 	 * @param	int		$designid	Design id
+	 * @param	int		$licenceid	Only an acceptance under this template (0 = any: the latest)
 	 * @return	stdClass|null		Row of llx_designtrace_licenceaccept
 	 */
-	public static function getAcceptance($db, $socid, $designid)
+	public static function getAcceptance($db, $socid, $designid, $licenceid = 0)
 	{
 		$sql = "SELECT * FROM ".$db->prefix()."designtrace_licenceaccept WHERE fk_soc = ".((int) $socid)." AND fk_design = ".((int) $designid)." AND date_revoked IS NULL";
+		if ((int) $licenceid > 0) {
+			$sql .= " AND fk_licence = ".((int) $licenceid);
+		}
 		$sql .= " ORDER BY date_accept DESC, rowid DESC".$db->plimit(1);
 		$resql = $db->query($sql);
 		$obj = $resql ? $db->fetch_object($resql) : null;
@@ -202,7 +206,8 @@ class DesignTraceLicensing
 				$licence = null;
 			}
 		}
-		$acceptance = self::getAcceptance($db, $socid, (int) $design['id']);
+		// Under the template that applies: acceptances under the design's own template and a document's override live side by side
+		$acceptance = self::getAcceptance($db, $socid, (int) $design['id'], $licence ? (int) $licence->id : 0);
 		$version = null;
 		if ($acceptance && $licence && (int) $acceptance->fk_licence === (int) $licence->id) {
 			$version = new LicenceVersion($db);
@@ -242,7 +247,19 @@ class DesignTraceLicensing
 		if (!$info || !$info['licence'] || !$info['version']) {
 			return true;	// Nothing to accept
 		}
-		return !empty($info['acceptance']);
+		if (!empty($info['acceptance'])) {
+			return true;
+		}
+		if ($override <= 0) {
+			// Reached with no document licence (project, grant, ticket): what the customer accepted through the
+			// design endpoint, under the template of their own quote or order, counts as well
+			$forced = self::getForcedLicence($db, $socid, $designid);
+			if ($forced > 0 && $forced !== (int) $info['licence']->id) {
+				$other = self::fetchDesignLicence($db, $socid, $designid, $forced);
+				return !empty($other['acceptance']);
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -534,6 +551,17 @@ class DesignTraceLicensing
 			return -1;
 		}
 		$db->query("UPDATE ".$db->prefix()."designtrace_licenceaccept SET filename = '".$db->escape($filename)."' WHERE rowid = ".$id);
+		// A licence allowing portfolio use counts as consent, only for the customer the design is made for
+		$resql = $db->query("SELECT fk_soc FROM ".$db->prefix()."designtrace_design WHERE rowid = ".((int) $designid));
+		$owner = $resql ? $db->fetch_object($resql) : null;
+		if ($owner && (int) $owner->fk_soc === (int) $socid) {
+			dol_include_once('/designtrace/class/portfolio.class.php');
+			if (DesignTracePortfolio::consentFromLicence($db, (int) $designid, $info['version'], '', 0, $actor, $ip) < 0) {
+				$error = $db->lasterror();
+				$db->rollback();
+				return -1;
+			}
+		}
 		$db->commit();
 		return $id;
 	}
@@ -601,6 +629,10 @@ class DesignTraceLicensing
 		}
 		$version = $info['version'];
 		$filename = dol_sanitizeFileName($prefix.'-licence-'.($doc ? $info['design']['ref'].'-' : '').$version->ref.'.pdf');
+		if (is_file($dir.'/'.$filename)) {
+			// Same version accepted again after a forced re-acceptance: keep the earlier copy as evidence
+			$filename = dol_sanitizeFileName(preg_replace('/\.pdf$/', '', $filename).'-'.dol_print_date($date, '%Y%m%d%H%M%S', 'gmt').'.pdf');
+		}
 
 		$pdf = pdf_getInstance('A4');
 		$font = pdf_getPDFFont($langs);
@@ -654,7 +686,7 @@ class DesignTraceLicensing
 		}
 		$sql = "INSERT INTO ".$db->prefix()."designtrace_licenceaccept (entity, fk_licenceversion, fk_licence, fk_design, element, fk_element, fk_soc, channel, actor, ip, useragent, wording_sha256, filename, note, date_accept)";
 		$sql .= " SELECT entity, fk_licenceversion, fk_licence, fk_design, 'commande', ".((int) $newdoc->id).", fk_soc, channel, actor, ip, useragent, wording_sha256, filename, 'propal:".((int) $propalid)."', date_accept";
-		$sql .= " FROM ".$db->prefix()."designtrace_licenceaccept as a WHERE a.element = 'propal' AND a.fk_element = ".((int) $propalid);
+		$sql .= " FROM ".$db->prefix()."designtrace_licenceaccept as a WHERE a.element = 'propal' AND a.fk_element = ".((int) $propalid)." AND a.date_revoked IS NULL";
 		$sql .= " AND NOT EXISTS (SELECT 1 FROM ".$db->prefix()."designtrace_licenceaccept as b WHERE b.element = 'commande' AND b.fk_element = ".((int) $newdoc->id)." AND b.fk_design = a.fk_design AND b.fk_licenceversion = a.fk_licenceversion)";
 		if (!$db->query($sql)) {
 			return -1;
@@ -666,7 +698,7 @@ class DesignTraceLicensing
 		if ($quote && !empty($conf->propal->multidir_output[$entity]) && !empty($conf->commande->multidir_output[$entity])) {
 			$from = $conf->propal->multidir_output[$entity].'/'.dol_sanitizeFileName($quote->ref);
 			$to = $conf->commande->multidir_output[$entity].'/'.dol_sanitizeFileName($newdoc->ref);
-			$resql = $db->query("SELECT DISTINCT filename FROM ".$db->prefix()."designtrace_licenceaccept WHERE element = 'propal' AND fk_element = ".((int) $propalid)." AND filename IS NOT NULL");
+			$resql = $db->query("SELECT DISTINCT filename FROM ".$db->prefix()."designtrace_licenceaccept WHERE element = 'propal' AND fk_element = ".((int) $propalid)." AND filename IS NOT NULL AND date_revoked IS NULL");
 			while ($resql && ($obj = $db->fetch_object($resql))) {
 				if (is_file($from.'/'.$obj->filename) && dol_mkdir($to) >= 0) {
 					dol_copy($from.'/'.$obj->filename, $to.'/'.$obj->filename, '0', 1);

@@ -704,3 +704,6 @@ GrantCreated = Access granted
 GrantRevoked = Access revoked
 GrantExpirySaved = Expiry saved
 ErrorGrantNothingToGrant = Nothing to grant: the design has no released revision
+ErrorGrantBadExpiry = The expiry date is incomplete, does not exist or is in the past
+ErrorGrantDesignNotActive = Only an active design can be granted
+ErrorGrantBadToken = Security token missing or expired, reload the page and try again

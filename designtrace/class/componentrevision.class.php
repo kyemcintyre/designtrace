@@ -665,6 +665,7 @@ class ComponentRevision extends CommonObject
 		if ($result > 0) {
 			// When it went to review: the start of the customer approval turnaround (metrics)
 			$this->db->query("UPDATE ".$this->db->prefix().$this->table_element." SET date_review = '".$this->db->idate(dol_now())."' WHERE rowid = ".((int) $this->id));
+			$this->resetCustomerDecision();
 		}
 		return $result;
 	}
@@ -690,7 +691,25 @@ class ComponentRevision extends CommonObject
 			return $this->setErrorAndFail($langs->trans('ErrorRevisionParentsInReview', $this->ref, implode(', ', $parents)));
 		}
 
-		return $this->setStatusCommon($user, self::STATUS_DRAFT, $notrigger, 'DESIGNTRACE_COMPONENTREVISION_UNVALIDATE');
+		$result = $this->setStatusCommon($user, self::STATUS_DRAFT, $notrigger, 'DESIGNTRACE_COMPONENTREVISION_UNVALIDATE');
+		if ($result > 0) {
+			$this->resetCustomerDecision();	// Reworked after the customer saw it: they decide again
+		}
+		return $result;
+	}
+
+	/**
+	 * Forget the customer's decision: the revision changed hands again, so what they approved or
+	 * asked to change no longer describes it (the history of decisions stays in llx_designtrace_approval)
+	 *
+	 * @return	void
+	 */
+	private function resetCustomerDecision()
+	{
+		$this->db->query("UPDATE ".$this->db->prefix().$this->table_element." SET customer_approval = 0, date_customer_approval = NULL, customer_approval_by = NULL WHERE rowid = ".((int) $this->id));
+		$this->customer_approval = 0;
+		$this->date_customer_approval = null;
+		$this->customer_approval_by = null;
 	}
 
 	/**

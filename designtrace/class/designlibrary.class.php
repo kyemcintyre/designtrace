@@ -294,6 +294,9 @@ class DesignTraceLibrary
 			if (!empty($filters['design']) && (int) $filters['design'] !== $id) {
 				continue;
 			}
+			if (!empty($filters['exclude']) && in_array($id, array_map('intval', $filters['exclude']), true)) {
+				continue;	// Designs the caller may not see (staff with confidential designs): out before the total and the paging
+			}
 			if (!empty($filters['element']) && empty(array_filter($info['bases'], function ($b) use ($filters) {
 				return $b['type'] === $filters['element'] && (empty($filters['docid']) || $b['id'] === (int) $filters['docid']);
 			}))) {
@@ -588,13 +591,23 @@ class DesignTraceLibrary
 				return null;
 			}
 		}
-		$side = function ($revid) use ($db, $state) {
+		// Metadata only for what the customer could download: source files need a licence that allows them
+		// and a design that is not workshop-owned, "on completion" files need the revision to be delivered
+		$sourceok = DesignTraceLicensing::allowsSourceFiles($db, '', 0, (int) $state['design_id'], (int) $socid);
+		$delivered = self::getDeliveredRevisionIds($db, $socid);
+		$side = function ($revid) use ($db, $state, $sourceok, $delivered) {
 			$out = array();
 			$sql = "SELECT f.filename, f.sha256, f.filesize, r.rev, c.ref as comp_ref FROM ".$db->prefix()."designtrace_revisionfile as f";
 			$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.rowid = f.fk_revision";
 			$sql .= " INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
 			$sql .= " WHERE f.fk_revision = ".((int) $revid)." AND f.role IN (".((int) RevisionFile::ROLE_PRESENTATION).", ".((int) RevisionFile::ROLE_SOURCE).")";
 			$sql .= " AND f.visibility <> ".((int) RevisionFile::VISIBILITY_HIDDEN);
+			if (!$sourceok) {
+				$sql .= " AND f.role = ".((int) RevisionFile::ROLE_PRESENTATION);
+			}
+			if (!isset($delivered[(int) $revid])) {
+				$sql .= " AND f.visibility = ".((int) RevisionFile::VISIBILITY_NOW);
+			}
 			$resql = $db->query($sql);
 			while ($resql && ($obj = $db->fetch_object($resql))) {
 				$name = (strpos($obj->filename, $obj->comp_ref.'-') === 0 ? substr($obj->filename, strlen($obj->comp_ref) + 1) : $obj->filename);
@@ -748,12 +761,16 @@ class DesignTraceLibrary
 			$events[] = array('date' => (int) $date, 'type' => $type, 'design_id' => (int) $designid, 'design_ref' => $refs[(int) $designid] ?? '', 'text' => (string) $text, 'actor' => (string) $actor);
 		};
 
-		// Releases of components the customer holds (by their revisions), with the releasing user
+		// Releases of the revisions the customer holds and of newer ones (they are told those exist), never
+		// older revisions they were not given; no staff login
 		$states = self::fetchComponentStates($db, $socid, $access);
 		if (!empty($states)) {
-			$resql = $db->query("SELECT r.ref, r.date_release, c.fk_design, u.login FROM ".$db->prefix()."designtrace_componentrevision as r INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component LEFT JOIN ".$db->prefix()."user as u ON u.rowid = r.fk_user_release WHERE r.fk_component IN (".$db->sanitize(implode(',', array_map('intval', array_keys($states)))).") AND r.status IN (".((int) ComponentRevision::STATUS_RELEASED).", ".((int) ComponentRevision::STATUS_OBSOLETE).") AND r.date_release IS NOT NULL");
+			$resql = $db->query("SELECT r.rowid, r.ref, r.date_release, r.fk_component, c.fk_design FROM ".$db->prefix()."designtrace_componentrevision as r INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component WHERE r.fk_component IN (".$db->sanitize(implode(',', array_map('intval', array_keys($states)))).") AND r.status IN (".((int) ComponentRevision::STATUS_RELEASED).", ".((int) ComponentRevision::STATUS_OBSOLETE).") AND r.date_release IS NOT NULL");
 			while ($resql && ($obj = $db->fetch_object($resql))) {
-				$add($db->jdate($obj->date_release), 'release', $obj->fk_design, $obj->ref, $obj->login);
+				$state = $states[(int) $obj->fk_component];
+				if (in_array((int) $obj->rowid, array_map('intval', $state['held']), true) || (int) $obj->rowid > (int) $state['held_id']) {
+					$add($db->jdate($obj->date_release), 'release', $obj->fk_design, $obj->ref, '');
+				}
 			}
 		}
 		$sql = "SELECT a.decision, a.comment, a.actor, a.date_decision, c.fk_design, r.ref FROM ".$db->prefix()."designtrace_approval as a";
@@ -769,11 +786,15 @@ class DesignTraceLibrary
 		while ($resql && ($obj = $db->fetch_object($resql))) {
 			$add($db->jdate($obj->date_accept), 'licence_accepted', $obj->fk_design, $obj->ref, $obj->actor);
 		}
-		// Consent is recorded per design (not per customer): shown for the designs the customer reaches
-		$sql = "SELECT fk_design, consent, actor, date_consent FROM ".$db->prefix()."designtrace_consent WHERE fk_design IN (".$in.")";
+		// Consent is recorded per design, not per customer: only answers given for this customer (the design is
+		// made for them, or the document it was given on is theirs) are shown, and the actor only on their own document
+		$mine = "(cs.element = 'propal' AND cs.fk_element IN (SELECT rowid FROM ".$db->prefix()."propal WHERE fk_soc = ".((int) $socid).")) OR (cs.element = 'commande' AND cs.fk_element IN (SELECT rowid FROM ".$db->prefix()."commande WHERE fk_soc = ".((int) $socid)."))";
+		$sql = "SELECT cs.fk_design, cs.consent, cs.actor, cs.channel, cs.date_consent, (CASE WHEN ".$mine." THEN 1 ELSE 0 END) as mine FROM ".$db->prefix()."designtrace_consent as cs";
+		$sql .= " INNER JOIN ".$db->prefix()."designtrace_design as dd ON dd.rowid = cs.fk_design";
+		$sql .= " WHERE cs.fk_design IN (".$in.") AND (dd.fk_soc = ".((int) $socid)." OR ".$mine.")";
 		$resql = $db->query($sql);
 		while ($resql && ($obj = $db->fetch_object($resql))) {
-			$add($db->jdate($obj->date_consent), 'consent', $obj->fk_design, ((int) $obj->consent === DesignTracePortfolio::CONSENT_GRANTED ? 'granted' : 'refused'), $obj->actor);
+			$add($db->jdate($obj->date_consent), 'consent', $obj->fk_design, ((int) $obj->consent === DesignTracePortfolio::CONSENT_GRANTED ? 'granted' : 'refused'), (!empty($obj->mine) && $obj->channel !== DesignTracePortfolio::CHANNEL_BACKOFFICE ? $obj->actor : ''));
 		}
 		$sql = "SELECT dl.filename, dl.actor, dl.date_download, c.fk_design FROM ".$db->prefix()."designtrace_download as dl";
 		$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.rowid = dl.fk_revision INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";

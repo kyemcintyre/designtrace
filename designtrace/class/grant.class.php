@@ -26,6 +26,7 @@
  * "delivered" to a customer as soon as a grant is given for it.
  */
 
+dol_include_once('/designtrace/class/design.class.php');
 dol_include_once('/designtrace/class/componentrevision.class.php');
 dol_include_once('/designtrace/class/componentlink.class.php');
 
@@ -45,7 +46,7 @@ class DesignTraceGrant
 	 * @param	array<int,int>	$pins		Revision to pin per component id; default = its current (latest released) revision
 	 * @param	?int		$expiry			Expiry timestamp, null = none
 	 * @param	string		$note			Note
-	 * @return	int						Grant id, <0 on error (-2 nothing to grant, -3 invalid pin)
+	 * @return	int						Grant id, <0 on error (-2 nothing to grant, -3 invalid pin, -4 design not active or customer unknown)
 	 */
 	public static function create($db, $user, $socid, $designid, $componentids = array(), $pins = array(), $expiry = null, $note = '')
 	{
@@ -53,6 +54,13 @@ class DesignTraceGrant
 
 		if ((int) $socid <= 0 || (int) $designid <= 0) {
 			return -1;
+		}
+		// A design that is not active (draft, archived) is not given away; the customer must exist
+		$resql = $db->query("SELECT 1 FROM ".$db->prefix()."designtrace_design WHERE rowid = ".((int) $designid)." AND status = ".((int) Design::STATUS_VALIDATED));
+		$ok = $resql && $db->num_rows($resql) > 0;
+		$resql = $db->query("SELECT 1 FROM ".$db->prefix()."societe WHERE rowid = ".((int) $socid));
+		if (!$ok || !$resql || !$db->num_rows($resql)) {
+			return -4;
 		}
 		$whole = empty($componentids);
 		$sql = "SELECT c.rowid FROM ".$db->prefix()."designtrace_component as c WHERE c.fk_design = ".((int) $designid);
@@ -122,6 +130,18 @@ class DesignTraceGrant
 	 * @param	DoliDB	$db			Database handler
 	 * @param	int		$grantid	Grant
 	 * @param	int		$cid		Component
+	 * @return	bool
+	 */
+	private static function hasPin($db, $grantid, $cid)
+	{
+		$resql = $db->query("SELECT 1 FROM ".$db->prefix()."designtrace_grant_pin WHERE fk_grant = ".((int) $grantid)." AND fk_component = ".((int) $cid));
+		return $resql && $db->num_rows($resql) > 0;
+	}
+
+	/**
+	 * @param	DoliDB	$db			Database handler
+	 * @param	int		$grantid	Grant
+	 * @param	int		$cid		Component
 	 * @param	int		$revid		Revision
 	 * @return	bool
 	 */
@@ -176,12 +196,16 @@ class DesignTraceGrant
 	public static function movePin($db, $grantid, $cid, $revid)
 	{
 		$grant = self::fetchOne($db, $grantid);
-		if (!$grant || !self::isPinnable($db, $cid, $revid)) {
+		if (!$grant || !self::isActive($grant) || !self::isPinnable($db, $cid, $revid)) {
 			return -3;
 		}
 		$sql = "UPDATE ".$db->prefix()."designtrace_grant_pin SET fk_revision = ".((int) $revid)." WHERE fk_grant = ".((int) $grantid)." AND fk_component = ".((int) $cid);
-		if (!$db->query($sql)) {
+		$resql = $db->query($sql);
+		if (!$resql) {
 			return -1;
+		}
+		if (!self::hasPin($db, $grantid, $cid)) {
+			return -3;	// The grant does not cover that component: nothing was moved, nothing is delivered
 		}
 		return self::markDelivered($db, (int) $grant->fk_soc, $revid, 'grant', $grantid) >= 0 ? 1 : -1;
 	}

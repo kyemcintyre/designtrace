@@ -39,14 +39,14 @@ class GrantTest extends DesignTraceTestCase
 		$CA = DesignTraceClientAccess::class;
 		$customer = $this->newCustomer();
 		$other = $this->newCustomer('ZZ Other');
-		$design = $this->newDesign(array('fk_soc' => $customer->id));
+		$design = $this->newDesign(array('fk_soc' => $customer->id), true);
 		$part = $this->newComponent($design);
 		$a = $this->newRevision($part);
 		$this->addFile($a, 'a.pdf', '%PDF a', RevisionFile::ROLE_PRESENTATION, RevisionFile::VISIBILITY_NOW);
 		$this->addFile($a, 'a.gcode', 'G1', RevisionFile::ROLE_PRODUCTION, RevisionFile::VISIBILITY_NOW);
 		$this->release($a);
 
-		$unreleased = $this->newDesign(array('fk_soc' => $customer->id));
+		$unreleased = $this->newDesign(array('fk_soc' => $customer->id), true);
 		$this->newRevision($this->newComponent($unreleased));
 		$this->assertSame(-2, DesignTraceGrant::create($this->db, $this->user, $customer->id, $unreleased->id), 'Nothing released to pin');
 		$grantid = DesignTraceGrant::create($this->db, $this->user, $customer->id, $design->id);
@@ -78,7 +78,7 @@ class GrantTest extends DesignTraceTestCase
 	{
 		$CA = DesignTraceClientAccess::class;
 		$customer = $this->newCustomer();
-		$design = $this->newDesign(array('fk_soc' => $customer->id));
+		$design = $this->newDesign(array('fk_soc' => $customer->id), true);
 		$part = $this->newComponent($design);
 		$a = $this->newRevision($part);
 		$this->addFile($a, 'a.pdf', '%PDF a', RevisionFile::ROLE_PRESENTATION, RevisionFile::VISIBILITY_NOW);
@@ -104,7 +104,7 @@ class GrantTest extends DesignTraceTestCase
 	{
 		$CA = DesignTraceClientAccess::class;
 		$customer = $this->newCustomer();
-		$design = $this->newDesign(array('fk_soc' => $customer->id));
+		$design = $this->newDesign(array('fk_soc' => $customer->id), true);
 		$part = $this->newComponent($design);
 		$a = $this->newRevision($part);
 		$this->addFile($a, 'now.pdf', '%PDF', RevisionFile::ROLE_PRESENTATION, RevisionFile::VISIBILITY_NOW);
@@ -125,7 +125,7 @@ class GrantTest extends DesignTraceTestCase
 		$CA = DesignTraceClientAccess::class;
 		$customer = $this->newCustomer();
 		$other = $this->newCustomer('ZZ Other');
-		$part = $this->newComponent($this->newDesign(array('fk_soc' => $customer->id)));
+		$part = $this->newComponent($this->newDesign(array('fk_soc' => $customer->id), true));
 		$a = $this->newRevision($part);
 		$this->addFile($a, 'now.pdf', '%PDF', RevisionFile::ROLE_PRESENTATION, RevisionFile::VISIBILITY_NOW);
 		$this->addFile($a, 'later.step', 'ISO', RevisionFile::ROLE_PRESENTATION, RevisionFile::VISIBILITY_ON_COMPLETION);
@@ -142,7 +142,7 @@ class GrantTest extends DesignTraceTestCase
 
 	public function testCustomerReleaseNoteIsSeparateAndNotCloned()
 	{
-		$part = $this->newComponent($this->newDesign());
+		$part = $this->newComponent($this->newDesign(array(), true));
 		$a = $this->newRevision($part);
 		$a->customer_note = 'New bracket radius, fits the 2026 housing';
 		$a->description = 'internal: tolerance tweak';

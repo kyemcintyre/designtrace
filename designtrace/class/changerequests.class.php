@@ -30,6 +30,7 @@
 
 require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
 dol_include_once('/designtrace/class/changeorder.class.php');
+dol_include_once('/designtrace/class/clientaccess.class.php');
 dol_include_once('/designtrace/class/componentrevision.class.php');
 dol_include_once('/designtrace/class/designlibrary.class.php');
 dol_include_once('/designtrace/class/proofapproval.class.php');
@@ -143,6 +144,13 @@ class DesignTraceChangeRequests
 			return -1;
 		}
 		if (!$revision->add_object_linked('ticket', $ticket->id) || ($orderid > 0 && !$ticket->add_object_linked('commande', $orderid))) {
+			$error = $db->lasterror();
+			$db->rollback();
+			return -1;
+		}
+		// The ticket link is for staff (quality history), never a way to reach the files: the customer
+		// keeps access through whatever gave it to them, so it ends when that ends
+		if (DesignTraceClientAccess::setLinkVisibility($db, $user, (int) $revision->id, 'ticket', (int) $ticket->id, 0) < 0) {
 			$error = $db->lasterror();
 			$db->rollback();
 			return -1;
@@ -311,7 +319,7 @@ class DesignTraceChangeRequests
 		$detail['resulting_revisions'] = array();
 		foreach ($eco->fetchRevisions(array(ComponentRevision::STATUS_RELEASED, ComponentRevision::STATUS_OBSOLETE)) as $rev) {
 			if (isset($reached[(int) $rev->fk_component])) {
-				$detail['resulting_revisions'][] = array('id' => (int) $rev->rowid, 'ref' => $rev->ref, 'rev' => $rev->rev, 'component_id' => (int) $rev->fk_component, 'date_release' => (int) $db->jdate($rev->date_release));
+				$detail['resulting_revisions'][] = array('id' => (int) $rev->rowid, 'ref' => $rev->ref, 'rev' => $rev->rev, 'component_id' => (int) $rev->fk_component, 'date_release' => (int) $rev->date_release);
 			}
 		}
 

@@ -1312,7 +1312,7 @@ class DesignTrace extends DolibarrApi
 	 * @url	POST customers/{socid}/designs/{designid}/consent
 	 *
 	 * @throws RestException 400 Bad consent
-	 * @throws RestException 403 Not allowed or access ended
+	 * @throws RestException 403 Not allowed, access ended, or the design is not made for this customer
 	 * @throws RestException 404 Design not found for this customer
 	 * @throws RestException 409 Confidential designs are not asked
 	 */
@@ -1320,6 +1320,13 @@ class DesignTrace extends DolibarrApi
 	{
 		$socid = $this->checkCustomer($socid);
 		$this->checkDesignAccess($socid, $designid);
+		// Consent is the design's, so only the customer it is made for answers; a customer who merely
+		// reaches it (grant, ticket) cannot overwrite that answer
+		$resql = $this->db->query("SELECT fk_soc FROM ".$this->db->prefix()."designtrace_design WHERE rowid = ".((int) $designid));
+		$owner = $resql ? $this->db->fetch_object($resql) : null;
+		if (!$owner || (int) $owner->fk_soc !== (int) $socid) {
+			throw new RestException(403, 'Only the customer the design is made for can answer for its portfolio consent');
+		}
 		$values = array('granted' => DesignTracePortfolio::CONSENT_GRANTED, 'refused' => DesignTracePortfolio::CONSENT_REFUSED);
 		$consent = strtolower(trim((string) $consent));
 		if (!isset($values[$consent])) {
@@ -1637,11 +1644,8 @@ class DesignTrace extends DolibarrApi
 	{
 		$this->checkStaff('design', 'read');
 		$socid = $this->checkStaffCustomer($socid);
-		$result = DesignTraceLibrary::fetchLibrary($this->db, $socid, array('q' => $q, 'action' => (int) $action), (int) $page, (int) $limit);
 		$hidden = Design::getHiddenDesignIds($this->db, DolibarrApiAccess::$user);
-		$result['items'] = array_values(array_filter($result['items'], function ($item) use ($hidden) {
-			return !in_array($item['id'], $hidden, true);
-		}));
+		$result = DesignTraceLibrary::fetchLibrary($this->db, $socid, array('q' => $q, 'action' => (int) $action, 'exclude' => $hidden), (int) $page, (int) $limit);
 		return $result;
 	}
 
@@ -1727,7 +1731,7 @@ class DesignTrace extends DolibarrApi
 		$this->getStaffDesign($design_id);
 		$id = DesignTraceGrant::create($this->db, DolibarrApiAccess::$user, $socid, (int) $design_id, array_map('intval', (array) $component_ids), array_map('intval', (array) $pins), $this->parseDate($expiry), (string) $note);
 		if ($id < 0) {
-			throw new RestException(409, $id === -2 ? 'Nothing released to grant' : ($id === -3 ? 'A pin must be a released revision of its component' : 'Error creating the grant'));
+			throw new RestException(409, $id === -2 ? 'Nothing released to grant' : ($id === -3 ? 'A pin must be a released revision of its component' : ($id === -4 ? 'Only an active design can be granted to an existing customer' : 'Error creating the grant')));
 		}
 		return array('id' => $id);
 	}
@@ -1795,7 +1799,7 @@ class DesignTrace extends DolibarrApi
 		$this->checkStaff('design', 'write');
 		$this->getStaffGrant($grantid);
 		if (DesignTraceGrant::movePin($this->db, (int) $grantid, (int) $componentid, (int) $revision_id) < 0) {
-			throw new RestException(409, 'A pin must be a released revision of the component');
+			throw new RestException(409, 'The grant must be active, cover the component, and the pin must be a released revision of it');
 		}
 		return array('ok' => true);
 	}
@@ -2278,7 +2282,7 @@ class DesignTrace extends DolibarrApi
 	private function getStaffEco($ecoid)
 	{
 		$eco = new ChangeOrder($this->db);
-		if ($eco->fetch((int) $ecoid) <= 0) {
+		if ($eco->fetch((int) $ecoid) <= 0 || DesignTraceStaff::isEcoHidden($this->db, $eco, Design::getHiddenDesignIds($this->db, DolibarrApiAccess::$user))) {
 			throw new RestException(404, 'Change order not found');
 		}
 		return $eco;

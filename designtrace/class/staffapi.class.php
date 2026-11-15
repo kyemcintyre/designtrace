@@ -74,7 +74,7 @@ class DesignTraceStaff
 		$next = array(ChangeOrder::STATUS_DRAFT => 'approve', ChangeOrder::STATUS_APPROVED => 'implement', ChangeOrder::STATUS_IMPLEMENTED => 'close');
 		foreach ($ids as $id) {
 			$eco = new ChangeOrder($db);
-			if ($eco->fetch($id) <= 0) {
+			if ($eco->fetch($id) <= 0 || self::isEcoHidden($db, $eco, $hidden)) {
 				continue;
 			}
 			$info = $eco->getRequestInfo();
@@ -104,6 +104,9 @@ class DesignTraceStaff
 
 		$needsupdate = array();
 		foreach (ComponentLink::fetchFlagged($db) as $row) {
+			if (in_array((int) $row->design_id, $hidden, true) || in_array((int) $row->parent_design_id, $hidden, true)) {
+				continue;
+			}
 			$needsupdate[] = array('link_id' => (int) $row->rowid, 'flag' => (int) $row->flag_status, 'note' => (string) $row->flag_note);
 		}
 
@@ -114,6 +117,28 @@ class DesignTraceStaff
 			'needs_update' => $needsupdate,
 			'counts' => array('approvals' => count($approvals), 'ecos' => count($ecos), 'licences' => count($licences), 'needs_update' => count($needsupdate)),
 		);
+	}
+
+	/**
+	 * Whether an ECO touches a design the user may not see (affected components, revision the request is about)
+	 *
+	 * @param	DoliDB		$db			Database handler
+	 * @param	ChangeOrder	$eco		ECO
+	 * @param	int[]		$hidden		Design ids the user cannot see (Design::getHiddenDesignIds())
+	 * @return	bool
+	 */
+	public static function isEcoHidden($db, $eco, $hidden)
+	{
+		if (empty($hidden)) {
+			return false;
+		}
+		$list = $db->sanitize(implode(',', array_map('intval', $hidden)));
+		$sql = "SELECT 1 FROM ".$db->prefix()."designtrace_changeorder_component as ac INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = ac.fk_component";
+		$sql .= " WHERE ac.fk_eco = ".((int) $eco->id)." AND c.fk_design IN (".$list.")";
+		$sql .= " UNION SELECT 1 FROM ".$db->prefix()."designtrace_changeorder as e INNER JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.rowid = e.fk_revision_source";
+		$sql .= " INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component WHERE e.rowid = ".((int) $eco->id)." AND c.fk_design IN (".$list.")";
+		$resql = $db->query($sql);
+		return $resql && $db->num_rows($resql) > 0;
 	}
 
 	/**
