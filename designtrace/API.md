@@ -28,7 +28,8 @@ Always JSON, before any file data: `{"error": {"code": 404, "message": "..."}}`.
 `409` the action is not possible now (licence changed, proof already approved, order not
 delivered...), `503` system error.
 
-Document types in URLs and parameters: `quote`, `order`, `ticket`.
+Document types in URLs and parameters: `quote`, `order`, `ticket`, `project`; `grant` for design-level grants
+(file entries through a grant have `document_type` `grant` and `document_ref` `GRANT-<id>`).
 
 ## Endpoints
 
@@ -43,6 +44,31 @@ Each document: `type`, `id`, `ref`, `status`, `date`, `files`, `licences`, `proo
 `todo` (`licences`, `proofs`, `consent`: what waits for the customer) and, for orders,
 `delivered` and `reorder` (`possible`, `pending_quote_id`). The lists below return the same
 entries for one document.
+
+### Design library
+
+A customer reaches a design through a quote, order, ticket or project link, or a design-level grant
+(a whole design or single components, each pinned to one released revision; the pin moves only when
+staff move it; it can expire or be revoked, and ended grants stay on record). The library lists all
+of them whatever the basis.
+
+| Method and path | What |
+|---|---|
+| `GET customers/{socid}/library[?q&type&project&element&docid&action=1&page&limit]` | Paged list. `q` searches design name, DSN and part numbers/names; `type` is `part`, `assembly` or `drawing`; `element`/`docid` keep designs reached through that document; `action=1` only designs that need the customer. Returns `total`, `page`, `limit`, `items`. |
+| `GET customers/{socid}/designs/{designid}` | The design: summary, `tree` (components with `children`, `revisions`, files with `size` and `sha256`), `roots`, `history`. |
+| `GET customers/{socid}/revisions/{revisionid}` | One revision: `release_note`, status, `is_current`, `is_delivered`, files (only for a revision the customer holds). |
+| `GET customers/{socid}/components/{componentid}/compare[?from&to]` | Delivered (else held) against current: both release notes and files `added` / `removed` / `changed` / `unchanged` (by SHA-256). Hidden and production files never appear. |
+| `GET customers/{socid}/newer-revisions` | Components with a newer released revision than the one the customer holds, also for pinned grants, with the release note. |
+
+Library items: `id`, `ref`, `label`, `archived`, `confidential` and `confidential_label` (a label only:
+it does not restrict the customer, but keeps the design out of consent questions and the gallery),
+`access_ended`, `project_id`, `project_ref`, `bases` (`type`, `id`, `ref`, `active`), `components`
+(counts per type), `flags` (`licence`, `approval`, `consent`, `newer_revision`) and `needs_action`.
+**Access ended**: a revoked or expired grant with no other basis returns the design with `access_ended`
+true, the name and the `history` (grants given and ended, downloads), and an empty `tree`.
+Archived designs stay reachable. Components of another design are returned only when the customer
+also has access to them (`external` true). A revision counts as **delivered** when a linked order
+completes, or as soon as a grant is given for it.
 
 ### Files
 
@@ -66,6 +92,64 @@ allows them; "Visible on completion" files once the order is delivered. Every do
 | `GET customers/{socid}/documents/{quote\|order}/{docid}/licences` | Licence of each design: wording (HTML, filled in), permissions, `accepted` (with `pdf`). |
 | `POST customers/{socid}/documents/{quote\|order}/{docid}/licences/accept` | Body `design_id`, `version_id` (the one you showed), `actor`, `client_ip`, `user_agent`. `409` if the licence changed since. Accepting again returns the same id. |
 | `GET customers/{socid}/documents/{quote\|order}/{docid}/licences/{designid}/pdf` | **The customer's copy** (PDF written at acceptance). |
+
+A licence acceptance is anchored to design + customer and covers every quote, order, project and
+grant for that design; a new licence version leaves it in force (an order-level override, which is a
+different template, needs its own). **The licence must be accepted before any download**: file
+calls answer `403` ("Licence not accepted for this design") until then.
+
+| Method and path | What |
+|---|---|
+| `GET customers/{socid}/designs/{designid}/licence` | The licence that applies to the design, as above (empty if none). |
+| `POST customers/{socid}/designs/{designid}/licence/accept` | Accept without a document. Body `version_id`, `actor`, `client_ip`, `user_agent`. `409` if the licence changed. Call it first when a quote is accepted. |
+| `GET customers/{socid}/designs/{designid}/licence/pdf` | **The customer's copy** (PDF), whichever way it was accepted. |
+
+### Approvals
+
+Any revision can be flagged **needs customer approval** (proof drawings are by default); staff cannot
+release it until the customer approves. One approval covers every flagged revision waiting in the same
+ECO, or in the same design when there is no ECO.
+
+| Method and path | What |
+|---|---|
+| `GET customers/{socid}/approvals` | Entries waiting for the customer: `scope` (`eco` or `design`), `id`, `ref`, `label`, `round` (ECOs), `awaiting`, `changes_requested`, `revisions` (with `release_note`). |
+| `POST customers/{socid}/approvals/{eco\|design}/{id}/approve` | Body `comment`, `actor`, `actor_role`, `client_ip`, `user_agent`. Approves all revisions of the entry. `409` if nothing waits. |
+| `POST customers/{socid}/approvals/{eco\|design}/{id}/request-changes` | Body `comment` (required), `revision_ids` (the revisions the changes are for; empty = all), `actor`, `actor_role`, `client_ip`, `user_agent`. Reopens the same ECO as a new round (a timeline entry per round), or opens a draft ECO (reason customer) when there is none. Returns `eco_id`, `round`, `revision_ids`. |
+
+**Who may accept and approve**: for a customer with several users, a setting on the third party (DesignTrace:
+"who accepts licences and approves") says any user or the customer's admins only. Pass the acting user's
+`actor_role` (`admin` or `user`) with licence acceptance, proof decisions and approvals; when the setting
+reserves them to admins you get `403` with a message starting `role_not_allowed` (distinct from other
+`403`s). Every decision is logged with its `actor`, so the history of a customer covers every user.
+
+### Change requests and ECOs
+
+One flow, raised from a revision the customer holds: `problem` (defect) or `change`. It creates a ticket
+(types *Design problem* / *Design change*) and a linked **draft ECO** (reason customer) that is shared with
+the customer automatically. Other ECOs are shared only when their *shareable* toggle is on. Customers see
+the summary and the request text, never internal notes.
+
+| Method and path | What |
+|---|---|
+| `POST customers/{socid}/change-requests` | Body `revision_id`, `type` (`problem`/`change`), `summary`, `text`, `order_id` (problems only: one of the customer's delivered orders that delivered the revision), `actor`, `client_ip`. Returns `eco_id`, `eco_ref`, `ticket_id`, `ticket_ref`. `409` if the revision is not held, the order did not deliver it... |
+| `GET customers/{socid}/ecos` | Shared ECOs, newest first: `summary`, `status` (`open`, `approved`, `implemented`, `closed`, `withdrawn`, `cancelled`), `type`, `requested_by`, `round`, `ticket_ref`. |
+| `GET customers/{socid}/ecos/{ecoid}` | Detail: `request_text`, `timeline` (`opened`, `changes_requested` per `round`, `reference_file`, `withdrawn`, each with `actor`), `components`, `resulting_revisions` (released ones; only components the customer reaches), `ticket`, `quote` and `waiting_for_quote`, `reference_files`, `comments`, `can_withdraw`, `can_attach`. |
+| `POST customers/{socid}/ecos/{ecoid}/comments` | Body `text`, `actor`. A public message on the ticket. |
+| `POST customers/{socid}/ecos/{ecoid}/files` | Body `filename`, `filecontent` (**base64**), `actor`. Reference files only (small, max 20 per request, executables neutralised as `.noexe`); design files are never uploaded through the API. |
+| `POST customers/{socid}/ecos/{ecoid}/withdraw` | Body `comment`, `actor`. Only while the ECO is a draft: cancels ECO and ticket with a "withdrawn" message; both stay in history. `409` otherwise. |
+| `POST customers/{socid}/designs/{designid}/request-access` | Body `message`, `actor`, `client_ip`. For a design whose access ended: opens a ticket (the same one while it is open). `409` if the customer still has access. |
+
+A quote can be linked to an ECO by staff; the ECO then shows it (`quote`, `waiting_for_quote`) and cannot
+be approved until the quote is accepted.
+
+### What waits, and history
+
+| Method and path | What |
+|---|---|
+| `GET customers/{socid}/attention` | Counts: `licences` (designs to accept), `approvals`, `consent` (designs not asked yet; never confidential ones), `newer_revisions`, `total`, and the design ids behind them. |
+| `GET customers/{socid}/history[?design_id&limit]` | Releases (of the revisions the customer holds and newer ones, no staff login), approvals and change requests, licence acceptances, consent (only answers for this customer; the actor is named only on their own document) and downloads, newest first. Also for designs whose access ended. |
+| `GET customers/{socid}/designs/{designid}/consent` | Portfolio consent of a design (`none`, `granted`, `refused`, `confidential`). |
+| `POST customers/{socid}/designs/{designid}/consent` | Body `consent` (`granted`/`refused`), `actor`, `client_ip`. `403` unless the design is made for this customer, `409` for a confidential design. |
 
 ### Proofs
 
@@ -94,6 +178,36 @@ allows them; "Visible on completion" files once the order is delivered. Every do
 | `GET portfolio` | Active, non-confidential designs whose customer consented, with their images. Internal service user only. |
 | `GET portfolio/{designid}/images/{imageid}/content` | The image itself. |
 | `GET portfolio/{designid}/images/{imageid}/link` | Or a short-lived signed link. |
+
+## Staff endpoints
+
+Called with the **staff user's own Dolibarr API key**, not the service user's: that user's rights apply
+(each endpoint names the one it needs; `403` otherwise), external users are refused, and a confidential
+design the user cannot see is `404`. Nothing here emails a customer.
+
+| Method and path | Right | What |
+|---|---|---|
+| `GET staff/triage` | design read | `approvals` (flagged revisions In review, `awaiting_customer` or `changes_requested`), `ecos` (open ECOs, customer requests first, with `next_action`: approve / implement / close), `licences` (designs with active work whose licence is not accepted), `needs_update`, `counts`. |
+| `GET staff/customers/{socid}/library[?q&action&page&limit]` | design read | The customer's library as they see it. |
+| `GET staff/customers/{socid}/designs/{designid}` | design read | Everything the customer sees of the design, plus `grants`, `licence` state and `files` with `shown_to_customer` and `reason_not_shown` (hidden, production file, source not allowed by licence or ownership, waits for completion). |
+| `GET staff/customers/{socid}/grants[?design_id]` | design read | Grants with their pins. |
+| `POST staff/customers/{socid}/grants` | design write | Body `design_id`, `component_ids` (empty = whole design), `pins` (`{"componentid": revisionid}`, default the current revision), `expiry` (date or timestamp, empty = never), `note`. `409` if nothing is released. |
+| `POST staff/grants/{id}/expiry` | design write | Body `expiry` (empty = never). |
+| `POST staff/grants/{id}/revoke` | design write | Keeps the log and the licence record. |
+| `POST staff/grants/{id}/pins/{componentid}` | design write | Body `revision_id`: move the pin by hand (a released revision of that component). |
+| `POST staff/files/{fileid}/visibility` | managevisibility | Body `visibility`: `hidden`, `now`, `on_completion`. Production files stay hidden. |
+| `POST staff/designs/{designid}/links` | design write | Body `element` (`quote`/`order`), `docid`: the design-level link (same customer). |
+| `POST staff/revisions/{revid}/links` | revision write | Body `element` (`quote`, `order`, `invoice`, `bom`, `ticket`, `project`), `docid`. Same rules as the revision card. |
+| `DELETE staff/revisions/{revid}/links/{element}/{docid}` | revision write | A delivered order keeps its revisions (`409`). |
+| `POST staff/revisions/{revid}/links/{element}/{docid}/client-visible` | managevisibility | Body `visible` 0/1. |
+| `PUT staff/revisions/{revid}` | revision write | Body `customer_note` and/or `needs_approval`. Released revisions are read-only (`409`). |
+| `POST staff/revisions/{revid}/release` | revision release | Refused (`409`, with the reason) while the customer's approval is missing, a child is not released... |
+| `POST staff/ecos/{id}/approve` | changeorder approve | Refused while the linked quote is not accepted. |
+| `POST staff/ecos/{id}/implement`, `.../close` | changeorder write | Workflow steps. |
+| `POST staff/ecos/{id}/shareable` | changeorder write | Body `shareable` 0/1. A request the customer raised stays shared. |
+| `POST staff/ecos/{id}/quote` | changeorder write | Body `quote_id` (0 removes): the ECO waits on it. |
+| `POST staff/licences/force-reacceptance` | licence write | Body `design_id`, `socid` (0 = every customer). Records and PDFs stay. |
+| `GET staff/metrics[?from&to]` | design + revision read | Default last 12 months: `approval_turnaround` and `eco_cycle_time` (`count`, `average_seconds`, `average_days`), `designs_delivered_per_month`, `revisions_released_per_month`, `cad_hours_per_design`. Turnaround counts revisions that went to review, and cycle time ECOs that were closed, since the module began stamping those dates. |
 
 ## A customer page in My workshop
 

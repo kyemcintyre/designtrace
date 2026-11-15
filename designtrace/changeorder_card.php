@@ -207,6 +207,7 @@ if (empty($reshook)) {
 
 	// Workflow and affected components (redirect when handled)
 	$action = designtraceDoEcoActions($action, $object, $user);
+	$action = designtraceDoEcoSharingActions($action, $object, $user);
 
 	// Raised from a ticket: link it (the ECO adds the components of the revisions linked to it)
 	if ($action == 'add' && GETPOST('origin', 'aZ09') == 'ticket' && GETPOSTINT('originid') > 0 && isModEnabled('ticket') && $user->hasRight('ticket', 'read')) {
@@ -567,6 +568,8 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 		}
 
 		print '</div><div class="fichehalfright">';
+
+		designtracePrintEcoCustomerRequest($object);
 
 		designtracePrintCadTime($object);
 

@@ -225,8 +225,6 @@ class DesignTraceCustomerPortal
 	 */
 	public static function getAcceptancePdf($db, $socid, $element, $docid, $designid)
 	{
-		global $conf;
-
 		$doc = self::fetchCustomerDocument($db, $socid, $element, $docid);
 		if (!$doc) {
 			return null;
@@ -236,10 +234,9 @@ class DesignTraceCustomerPortal
 		if (!$info || empty($info['acceptance']) || empty($info['acceptance']->filename) || (int) $info['acceptance']->fk_soc !== (int) $socid) {
 			return null;
 		}
-		$module = ($element == 'propal' ? 'propal' : 'commande');
-		$entity = (empty($doc->entity) ? $conf->entity : $doc->entity);
-		$path = $conf->$module->multidir_output[$entity].'/'.dol_sanitizeFileName($doc->ref).'/'.$info['acceptance']->filename;
-		if (!is_file(dol_osencode($path))) {
+		// The acceptance may have been given through another document or the design itself
+		$path = DesignTraceLicensing::getAcceptancePdfPath($db, $info['acceptance']);
+		if ($path === '') {
 			return null;
 		}
 		return array('path' => $path, 'filename' => $info['acceptance']->filename, 'version_ref' => $info['version'] ? $info['version']->ref : '', 'date' => (int) $info['acceptance']->date_accept);

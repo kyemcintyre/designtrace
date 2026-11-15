@@ -358,3 +358,116 @@ function designtraceEcoPrefillFromTicket()
 	}
 	return (int) $ticket->id;
 }
+
+/**
+ * Actions of the customer-request block: share with the customer, link a quote
+ *
+ * @param	string		$action		Action
+ * @param	ChangeOrder	$object		ECO shown
+ * @param	User		$user		User
+ * @return	string					Action to go on with
+ */
+function designtraceDoEcoSharingActions($action, $object, $user)
+{
+	global $langs;
+
+	if (empty($object->id) || !in_array($action, array('eco_setshareable', 'eco_linkquote'), true)) {
+		return $action;
+	}
+	if (!$user->hasRight('designtrace', 'changeorder', 'write')) {
+		setEventMessages($langs->trans('NotEnoughPermissions'), null, 'errors');
+	} elseif ($action == 'eco_setshareable') {
+		$res = $object->setShareable(GETPOSTINT('shareable') > 0);
+		setEventMessages($res > 0 ? $langs->trans('EcoSharingSaved') : $object->error, null, $res > 0 ? 'mesgs' : 'errors');
+	} else {
+		$res = $object->linkQuote(GETPOSTINT('fk_propal'));
+		setEventMessages($res > 0 ? $langs->trans('EcoQuoteSaved') : ($object->error ?: $langs->trans('Error')), null, $res > 0 ? 'mesgs' : 'errors');
+	}
+	header('Location: '.dol_buildpath('/designtrace/changeorder_card.php', 1).'?id='.((int) $object->id));
+	exit;
+}
+
+/**
+ * Customer side of an ECO: who asked, ticket and revision, sharing, linked quote (an ECO waits for it
+ * to be signed before approval) and the timeline of rounds
+ *
+ * @param	ChangeOrder	$object		ECO shown
+ * @return	void
+ */
+function designtracePrintEcoCustomerRequest($object)
+{
+	global $db, $langs, $user, $form;
+
+	$langs->loadLangs(array('designtrace@designtrace', 'ticket', 'orders'));
+	dol_include_once('/designtrace/class/clientaccess.class.php');
+	$info = $object->getRequestInfo();
+	if (!$info) {
+		return;
+	}
+	$canwrite = $user->hasRight('designtrace', 'changeorder', 'write');
+	$url = dol_buildpath('/designtrace/changeorder_card.php', 1).'?id='.((int) $object->id);
+
+	print load_fiche_titre($langs->trans('EcoCustomerRequest'), '', 'fa-user');
+	print '<div class="div-table-responsive-no-min"><table class="noborder centpercent">';
+
+	$types = array(ChangeOrder::REQUEST_NONE => $langs->trans('EcoRequestStaff'), ChangeOrder::REQUEST_PROBLEM => $langs->trans('EcoRequestProblem'), ChangeOrder::REQUEST_CHANGE => $langs->trans('EcoRequestChange'));
+	print '<tr class="oddeven"><td>'.$langs->trans('EcoRequestType').'</td><td>'.dol_escape_htmltag($types[(int) $info->request_type] ?? '');
+	if ((int) $info->request_type !== ChangeOrder::REQUEST_NONE && $info->requested_by !== '') {
+		print ' <span class="opacitymedium">&middot; '.dol_escape_htmltag((string) $info->requested_by).'</span>';
+	}
+	print '</td></tr>';
+	print '<tr class="oddeven"><td>'.$langs->trans('EcoRound').'</td><td>'.max(1, (int) $info->round).'</td></tr>';
+
+	if ($info->fk_revision_source > 0) {
+		$rev = new ComponentRevision($db);
+		if ($rev->fetch((int) $info->fk_revision_source) > 0) {
+			print '<tr class="oddeven"><td>'.$langs->trans('EcoRequestRevision').'</td><td>'.$rev->getNomUrl(1).'</td></tr>';
+		}
+	}
+	if ($info->fk_ticket > 0) {
+		print '<tr class="oddeven"><td>'.$langs->trans('Ticket').'</td><td>'.DesignTraceClientAccess::getDocumentNomUrl($db, 'ticket', (int) $info->fk_ticket).'</td></tr>';
+	}
+	if ($info->fk_order_source > 0) {
+		print '<tr class="oddeven"><td>'.$langs->trans('Order').'</td><td>'.DesignTraceClientAccess::getDocumentNomUrl($db, 'commande', (int) $info->fk_order_source).'</td></tr>';
+	}
+
+	// Sharing
+	print '<tr class="oddeven"><td>'.$langs->trans('EcoShareable').'</td><td>';
+	if ($canwrite) {
+		print '<form method="POST" action="'.$url.'" class="inline-block"><input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="eco_setshareable">';
+		print '<input type="hidden" name="shareable" value="'.(empty($info->shareable) ? 1 : 0).'">';
+		print yn((int) $info->shareable, 1).' <input type="submit" class="button smallpaddingimp" value="'.dol_escape_htmltag($langs->trans(empty($info->shareable) ? 'EcoShareWithCustomer' : 'EcoStopSharing')).'">';
+		print '</form>';
+	} else {
+		print yn((int) $info->shareable, 1);
+	}
+	print '</td></tr>';
+
+	// Quote: approval waits until it is signed or billed
+	print '<tr class="oddeven"><td>'.$langs->trans('EcoLinkedQuote').'</td><td>';
+	if ($info->fk_propal > 0) {
+		print DesignTraceClientAccess::getDocumentNomUrl($db, 'propal', (int) $info->fk_propal).' ';
+		print $object->isQuoteSettled() ? '<span class="badge badge-status4">'.$langs->trans('EcoQuoteSettled').'</span>' : '<span class="badge badge-status1">'.$langs->trans('EcoQuoteWaiting').'</span>';
+	}
+	if ($canwrite && isModEnabled('propal') && !in_array((int) $object->status, array(ChangeOrder::STATUS_CLOSED, ChangeOrder::STATUS_CANCELED), true)) {
+		print '<form method="POST" action="'.$url.'" class="inline-block marginleftonly"><input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="eco_linkquote">';
+		print '<input type="number" name="fk_propal" class="width75" min="0" value="'.((int) $info->fk_propal).'" title="'.dol_escape_htmltag($langs->trans('EcoLinkQuoteHelp')).'">';
+		print ' <input type="submit" class="button smallpaddingimp" value="'.dol_escape_htmltag($langs->trans('Save')).'"></form>';
+	}
+	print '</td></tr>';
+	print '</table></div>';
+
+	// Timeline
+	$timeline = $object->fetchTimeline();
+	if ($timeline) {
+		print '<div class="div-table-responsive-no-min margintoponly"><table class="noborder centpercent">';
+		print '<tr class="liste_titre"><td colspan="4">'.$langs->trans('EcoTimeline').'</td></tr>';
+		foreach ($timeline as $row) {
+			print '<tr class="oddeven"><td class="nowraponall">'.dol_print_date($row->date_event, 'dayhour').'</td><td>'.(int) $row->round.'</td>';
+			print '<td class="nowraponall">'.dol_escape_htmltag((string) $row->type).' &middot; '.dol_escape_htmltag((string) $row->actor).'</td>';
+			print '<td>'.dol_nl2br(dol_escape_htmltag((string) $row->comment)).'</td></tr>';
+		}
+		print '</table></div>';
+	}
+	print '<br>';
+}

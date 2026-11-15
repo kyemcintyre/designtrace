@@ -32,5 +32,6 @@ CREATE TABLE llx_designtrace_licenceaccept(
 	wording_sha256 char(64),
 	filename varchar(255),
 	note varchar(255),
+	date_revoked datetime,
 	date_accept datetime NOT NULL
 ) ENGINE=innodb;

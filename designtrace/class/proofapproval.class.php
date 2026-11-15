@@ -359,6 +359,10 @@ class DesignTraceProofApproval
 			$error = $eco->error ?: implode(', ', $eco->errors);
 			return -1;
 		}
+		if ($eco->markCustomerRequest(ChangeOrder::REQUEST_CHANGE, $actor, (int) $revision->id) < 0) {
+			$error = $eco->error ?: implode(', ', $eco->errors);
+			return -1;
+		}
 		if ($eco->addAffectedComponent($user, (int) $component->id, $langs->transnoentities('ProofChangesEcoNote', $revision->ref), 1) < 0) {
 			$error = $eco->error ?: implode(', ', $eco->errors);
 			return -1;
@@ -430,7 +434,7 @@ class DesignTraceProofApproval
 	 * @param	string	$table	c_ticket_type, c_ticket_category or c_ticket_severity
 	 * @return	string
 	 */
-	private static function getDictionaryDefault($db, $table)
+	public static function getDictionaryDefault($db, $table)
 	{
 		$sql = "SELECT code FROM ".$db->prefix().$table." WHERE active = 1 AND entity IN (".getEntity($table).")";
 		$sql .= " ORDER BY use_default DESC, pos ASC, rowid ASC".$db->plimit(1);

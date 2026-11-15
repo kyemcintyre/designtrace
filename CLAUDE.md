@@ -313,6 +313,88 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
   "advanced" mask rules ignore type); release gated on customer approval of a proof; a 3D viewer
   in Dolibarr's Web portal; designs tied to tasks (time uses the design's default task).
 
+## Customer design library (issue #1, all 4 phases built)
+
+REST-first, same conventions as above (`{socid}` from the caller, optional actor/client IP/user agent,
+no automated emails). Reference for the Go side: `designtrace/API.md`.
+
+- **Access bases** (`DesignTraceLibrary::fetchAccess()`): quote/order/ticket links, **project** link
+  (`project` channel of `DesignTraceClientAccess::getChannels()`, linked from the revision card like
+  the other documents) and **grants** (`class/grant.class.php`, `llx_designtrace_grant` +
+  `_grant_pin`): whole design or components, one pinned released revision per component (moved only
+  by `movePin()`), optional expiry, `revoke()` (ended grants stay). Grant files come through
+  `fetchVisibleFiles()` with element `grant` (doc id = grant id). "Visible on completion" files of
+  grants wait for a completed linked order or project of the customer (`isDesignCompleted()`).
+  Both access and ended state are in the one resolver; **access ended** = only ended grants.
+- **Delivered**: a revision is delivered when a linked order of the customer is closed (computed live
+  in `getDeliveredRevisionIds()`) or a grant covers it (`llx_designtrace_delivered`, written by the
+  grant class). No trigger writes it on order completion.
+- **Licence anchored to design + customer** (`DesignTraceLicensing`): `getAcceptance($db, $socid,
+  $designid)` ignores which document it was given through; `fetchDocumentLicences()` and
+  `fetchDesignLicence()` (project/grant, no document) share `buildInfo()`. An acceptance counts only for
+  the template that applies (an order override is a different template, so it needs its own).
+  `forceReacceptance()` sets `date_revoked` (rows kept), `acceptDesign()` accepts without a document
+  (PDF in the design's documents folder), `getAcceptancePdfPath()` finds the PDF whoever made it.
+  **No download before acceptance** (`getDownloadableFile(..., &$blocked)` sets `'licence'`, the API
+  answers 403); listings still show the files. Source files reach customers through quotes, orders,
+  projects and grants when the design's licence allows them and it is not workshop-owned.
+  `llx_designtrace_licenceaccept` has no unique key (ended acceptances are kept, so the same version can be accepted
+  again after a forced re-acceptance); "already accepted" is checked against active rows. `getAcceptance()` takes the
+  template, so acceptances under the design's template and a quote/order override live side by side. Existing databases
+  pick up the new column/indexes from the `.key.sql` ALTERs on module re-activation.
+- **Library** (`class/designlibrary.class.php`): list with filters and flags, design tree, revision,
+  compare, newer revisions; confidential is a label only, archived designs stay, external components
+  only with access. Endpoints in `api_designtrace.class.php` (`library`, `designs/{id}`,
+  `revisions/{id}`, `components/{id}/compare`, `newer-revisions`, `designs/{id}/licence[/accept|/pdf]`).
+- Revision `customer_note`: the customer release note (not cloned).
+- API tests call the API class directly (`ApiLibraryTest`) with a stand-in `RestException` and
+  `DolibarrApiAccess`: `api_access.class.php` registers Restler's autoloader, which breaks PHPUnit.
+- **Approvals** (phase 2, `class/approvals.class.php`): revision `needs_approval` (default on for proof
+  drawings, set in `create()`, any revision can be flagged); `release()` refuses while flagged and
+  `customer_approval` is not 1. One approval covers all flagged **In review** revisions of the same ECO,
+  or of the design when they have no ECO (`fetchScopeRevisions()`, only designs the customer reaches).
+  `approve()` / `requestChanges()` write `llx_designtrace_approval` rows (element `eco`/`design`),
+  stamp the revisions by SQL and add events. Requesting changes names revisions; with an ECO it calls
+  `ChangeOrder::reopenForNewRound()` (steps closed/implemented back, Draft when possible, `round` + 1,
+  entry in `llx_designtrace_changeorder_event`), else it creates a draft ECO (reason customer) and sets
+  `fk_eco` on those revisions. The per-revision proof flow (`DesignTraceProofApproval::decide()`, ticket/ECO
+  setting) still exists for proofs shown through a document.
+- **Who may accept/approve**: thirdparty extrafield `designtrace_approvers` (created in `modDesignTrace::init()`,
+  0 any user / 1 admins only); `DesignTraceApprovals::checkRole()`; the API takes `actor_role` and answers
+  403 `role_not_allowed: ...` (the `approve`/`requestChanges` methods return -2 for it).
+- `DesignTraceLibrary::fetchAttention()` (counts) and `fetchHistory()` (releases, approvals, acceptances,
+  consent, downloads with actors; consent has no customer column, so it is shown per design reached).
+  Design-level consent endpoints use `DesignTracePortfolio::setConsent()` with no document.
+- **Change requests** (phase 3, `class/changerequests.class.php`): `report()` = ticket (types `DESIGN_PROBLEM` /
+  `DESIGN_CHANGE`, inserted into `c_ticket_type` on activation) + draft ECO (reason customer) through
+  `ChangeOrder::markCustomerRequest()`, which sets the ECO columns outside the Module Builder fields:
+  `shareable`, `request_type` (1 problem / 2 change), `requested_by`, `fk_revision_source`, `fk_ticket`,
+  `fk_order_source`, `fk_propal` (read with `getRequestInfo()`). The proof and approval "request changes"
+  ECOs are marked the same way (shared automatically); staff ECOs are shared only with `setShareable()`.
+  A problem may name a closed order of the customer linked to that revision. `withdraw()` cancels ECO
+  (Draft only) and ticket (status canceled, public "withdrawn" message), timeline entry `withdrawn`.
+  Comments are public ticket messages (`TICKET_MSG`); reference files are saved as `customer-<name>` in the
+  ECO's documents folder (base64 through the API, `dol_move_uploaded_file()` neutralises executables).
+  `ChangeOrder::linkQuote()` sets `fk_propal` (same customer); `approve()` is refused until that quote is
+  signed or billed (`isQuoteSettled()`). `askAccess()` opens a ticket (default type) linked to the design
+  from an access-ended design, the same one while open.
+- **Staff endpoints** (phase 4, `staff/...` in `api_designtrace.class.php`, logic in `class/staffapi.class.php`
+  `DesignTraceStaff`): called with the staff user's own API key, so rights are checked per endpoint with
+  `checkStaff($object, $perm)` (never the `clientfiles api` right), external users are refused, confidential
+  designs the user cannot see are 404 / left out (`Design::userCanSee()`, `getHiddenDesignIds()`).
+  Triage, customer view (with per-file `reason_not_shown`), grants, file visibility, design and revision links
+  (`DesignTraceStaff::linkDesign()` / `unlinkRevision()`, a project is now a link target too), revision edit and
+  release, ECO approve/implement/close/shareable/quote, forced re-acceptance, metrics. Revision `date_review`
+  (stamped in `validate()`) and ECO `date_closed` (stamped in `close()`) feed the turnaround and cycle-time
+  metrics; older items have none and are not counted. Release note and `needs_approval` can only be edited
+  before release.
+- **Card UI** (staff): design card has the grants block (`lib/designtrace_grants.lib.php`: list, expiry, revoke, grant
+  the whole design); ECO card has the customer-request block (`designtracePrintEcoCustomerRequest()`: origin, round,
+  ticket, revision, shareable toggle, linked quote and whether it is settled, timeline); the revision card's Release
+  button is disabled with the reason while `needs_approval` is on and the customer has not approved. Release note and
+  needs-approval are ordinary card fields. A customer's reference file is saved on the ECO and copied to the ticket's
+  Documents tab. Per-component pins are managed through the staff API only.
+
 ## Module Builder pitfalls (24.0.2)
 
 New objects can be generated without the GUI by POSTing Module Builder's `initobject` form

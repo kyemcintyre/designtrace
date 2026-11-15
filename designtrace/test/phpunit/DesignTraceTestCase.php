@@ -180,6 +180,20 @@ abstract class DesignTraceTestCase extends TestCase
 		$this->assertTrue($ok, $what.' failed: '.($object->error ?? '').' '.implode(', ', (array) ($object->errors ?? array())));
 	}
 
+	protected function newLicence($code, $sourceAllowed)
+	{
+		$licence = new Licence($this->db);
+		$licence->ref = $code;
+		$licence->label = 'ZZ '.$code;
+		$this->assertOk($licence->create($this->user), $licence, 'Create licence');
+		$draft = $licence->getDraftVersion();
+		$draft->wording = '<p>Licence for {customer}, design {design} rev {revision}, {scope}, {date}.</p>';
+		$draft->perm_source = $sourceAllowed ? 1 : 0;
+		$this->assertGreaterThan(0, $draft->update($this->user));
+		$this->assertOk($draft->activate($this->user), $draft, 'Activate');
+		return $licence;
+	}
+
 	protected function newCustomer($name = 'ZZ Test customer')
 	{
 		$soc = new Societe($this->db);

@@ -43,6 +43,11 @@ dol_include_once('/designtrace/class/portfolio.class.php');
 dol_include_once('/designtrace/class/proofapproval.class.php');
 dol_include_once('/designtrace/class/reorder.class.php');
 dol_include_once('/designtrace/class/customerportal.class.php');
+dol_include_once('/designtrace/class/designlibrary.class.php');
+dol_include_once('/designtrace/class/approvals.class.php');
+dol_include_once('/designtrace/class/changerequests.class.php');
+dol_include_once('/designtrace/class/staffapi.class.php');
+dol_include_once('/designtrace/class/doclinks.class.php');
 
 /**
  * API class for DesignTrace customer files (named DesignTrace so the endpoints are /designtrace/...)
@@ -86,7 +91,7 @@ class DesignTrace extends DolibarrApi
 		if ($element !== '') {
 			$type = DesignTraceClientAccess::normaliseElement($element);
 			if ($type === '') {
-				throw new RestException(400, 'Bad document type, use quote, order or ticket');
+				throw new RestException(400, 'Bad document type, use quote, order, ticket, project or grant');
 			}
 		}
 		return $this->formatRows(DesignTraceClientAccess::fetchVisibleFiles($this->db, $socid, $type));
@@ -113,7 +118,7 @@ class DesignTrace extends DolibarrApi
 		$socid = $this->checkCustomer($socid);
 		$type = DesignTraceClientAccess::normaliseElement($element);
 		if ($type === '') {
-			throw new RestException(400, 'Bad document type, use quote, order or ticket');
+			throw new RestException(400, 'Bad document type, use quote, order, ticket, project or grant');
 		}
 		return $this->formatRows(DesignTraceClientAccess::fetchVisibleFiles($this->db, $socid, $type, (int) $docid));
 	}
@@ -145,7 +150,7 @@ class DesignTrace extends DolibarrApi
 		if ($element !== '') {
 			$type = DesignTraceClientAccess::normaliseElement($element);
 			if ($type === '') {
-				throw new RestException(400, 'Bad document type, use quote, order or ticket');
+				throw new RestException(400, 'Bad document type, use quote, order, ticket, project or grant');
 			}
 		}
 		$result = array();
@@ -177,7 +182,7 @@ class DesignTrace extends DolibarrApi
 		$socid = $this->checkCustomer($socid);
 		$type = DesignTraceClientAccess::normaliseElement($element);
 		if ($type === '') {
-			throw new RestException(400, 'Bad document type, use quote, order or ticket');
+			throw new RestException(400, 'Bad document type, use quote, order, ticket, project or grant');
 		}
 		$docs = DesignTraceCustomerPortal::fetchDocuments($this->db, $socid, $type, (int) $docid);
 		if (empty($docs)) {
@@ -253,10 +258,13 @@ class DesignTrace extends DolibarrApi
 		if ($element !== '') {
 			$type = DesignTraceClientAccess::normaliseElement($element);
 			if ($type === '') {
-				throw new RestException(400, 'Bad document type, use quote, order or ticket');
+				throw new RestException(400, 'Bad document type, use quote, order, ticket, project or grant');
 			}
 		}
-		$row = DesignTraceClientAccess::getDownloadableFile($this->db, $socid, (int) $fileid, $type, (int) $docid);
+		$row = DesignTraceClientAccess::getDownloadableFile($this->db, $socid, (int) $fileid, $type, (int) $docid, $blocked);
+		if (!$row && $blocked === 'licence') {
+			throw new RestException(403, 'Licence not accepted for this design');
+		}
 		if (!$row) {
 			throw new RestException(404, 'File not visible to this customer');
 		}
@@ -318,10 +326,13 @@ class DesignTrace extends DolibarrApi
 		if ($element !== '') {
 			$type = DesignTraceClientAccess::normaliseElement($element);
 			if ($type === '') {
-				throw new RestException(400, 'Bad document type, use quote, order or ticket');
+				throw new RestException(400, 'Bad document type, use quote, order, ticket, project or grant');
 			}
 		}
-		$row = DesignTraceClientAccess::getDownloadableFile($this->db, $socid, (int) $fileid, $type, (int) $docid);
+		$row = DesignTraceClientAccess::getDownloadableFile($this->db, $socid, (int) $fileid, $type, (int) $docid, $blocked);
+		if (!$row && $blocked === 'licence') {
+			throw new RestException(403, 'Licence not accepted for this design');
+		}
 		if (!$row) {
 			throw new RestException(404, 'File not visible to this customer');
 		}
@@ -392,6 +403,7 @@ class DesignTrace extends DolibarrApi
 	 * @param	string	$actor		Who accepts, for the log (e.g. the portal login)
 	 * @param	string	$client_ip	Customer's IP address as seen by the calling backend, recorded only {@from body}
 	 * @param	string	$user_agent	Customer's browser as seen by the calling backend, recorded only {@from body}
+	 * @param	string	$actor_role	Acting user's role in the customer's account: admin or user (see the setting who may accept and approve) {@from body}
 	 * @return	array				id of the acceptance, date
 	 * @phan-return array<string,int>
 	 * @phpstan-return array<string,int>
@@ -399,14 +411,15 @@ class DesignTrace extends DolibarrApi
 	 * @url	POST customers/{socid}/documents/{element}/{docid}/licences/accept
 	 *
 	 * @throws RestException 400 Bad document type
-	 * @throws RestException 403 Not allowed
+	 * @throws RestException 403 Not allowed, or role_not_allowed (the customer's setting reserves this to its admins)
 	 * @throws RestException 404 Document not found
 	 * @throws RestException 409 Licence changed or nothing to accept
 	 */
-	public function acceptLicence($socid, $element, $docid, $design_id, $version_id, $actor = '', $client_ip = '', $user_agent = '')
+	public function acceptLicence($socid, $element, $docid, $design_id, $version_id, $actor = '', $client_ip = '', $user_agent = '', $actor_role = '')
 	{
 		$socid = $this->checkCustomer($socid);
 		$doc = $this->checkLicenceDocument($socid, $element, $docid);
+		$this->checkApprover($socid, $actor_role);
 		$actor = trim((string) $actor);
 		if ($actor === '') {
 			$actor = 'api:'.DolibarrApiAccess::$user->login;
@@ -440,7 +453,7 @@ class DesignTrace extends DolibarrApi
 		$socid = $this->checkCustomer($socid);
 		$type = DesignTraceClientAccess::normaliseElement($element);
 		if ($type === '') {
-			throw new RestException(400, 'Bad document type, use quote, order or ticket');
+			throw new RestException(400, 'Bad document type, use quote, order, ticket, project or grant');
 		}
 		return $this->formatProofs(DesignTraceProofApproval::fetchProofs($this->db, $socid, $type, (int) $docid));
 	}
@@ -460,6 +473,7 @@ class DesignTrace extends DolibarrApi
 	 * @param	string	$actor		Who decided, for the log {@from body}
 	 * @param	string	$client_ip	Customer's IP address as seen by the calling backend, recorded only {@from body}
 	 * @param	string	$user_agent	Customer's browser as seen by the calling backend, recorded only {@from body}
+	 * @param	string	$actor_role	Acting user's role: admin or user {@from body}
 	 * @return	array				id of the decision, ticket_id, eco_id (0 if none)
 	 * @phan-return array<string,int>
 	 * @phpstan-return array<string,int>
@@ -470,12 +484,13 @@ class DesignTrace extends DolibarrApi
 	 * @throws RestException 403 Not allowed
 	 * @throws RestException 409 Not available or already approved
 	 */
-	public function decideProof($socid, $element, $docid, $revid, $decision, $comment = '', $actor = '', $client_ip = '', $user_agent = '')
+	public function decideProof($socid, $element, $docid, $revid, $decision, $comment = '', $actor = '', $client_ip = '', $user_agent = '', $actor_role = '')
 	{
 		$socid = $this->checkCustomer($socid);
+		$this->checkApprover($socid, $actor_role);
 		$type = DesignTraceClientAccess::normaliseElement($element);
 		if ($type === '') {
-			throw new RestException(400, 'Bad document type, use quote, order or ticket');
+			throw new RestException(400, 'Bad document type, use quote, order, ticket, project or grant');
 		}
 		$values = array('approve' => DesignTraceProofApproval::DECISION_APPROVED, 'changes' => DesignTraceProofApproval::DECISION_CHANGES);
 		$decision = strtolower(trim((string) $decision));
@@ -810,11 +825,12 @@ class DesignTrace extends DolibarrApi
 	/**
 	 * Licences for the API
 	 *
-	 * @param	CommonObject						$doc		Quote or order
+	 * @param	CommonObject|null					$doc		Quote or order, null = licence of the design itself
 	 * @param	array<int,array<string,mixed>>		$licences	Entries of fetchDocumentLicences() with a licence and version
+	 * @param	string								$customername	Customer name when there is no document
 	 * @return	array<int,array<string,mixed>>
 	 */
-	private function formatLicences($doc, $licences)
+	private function formatLicences($doc, $licences, $customername = '')
 	{
 		$result = array();
 		foreach ($licences as $designid => $info) {
@@ -834,7 +850,7 @@ class DesignTrace extends DolibarrApi
 				'version_id' => (int) $version->id,
 				'version' => (int) $version->version,
 				'version_ref' => $version->ref,
-				'wording_html' => $version->renderWording(DesignTraceLicensing::getWordingValues($doc, $info['design'], $date)),
+				'wording_html' => $version->renderWording(DesignTraceLicensing::getWordingValues($doc, $info['design'], $date, $customername)),
 				'permissions' => $permissions,
 				'accepted' => ($acc ? array('date' => (int) $acc->date_accept, 'actor' => $acc->actor, 'channel' => $acc->channel, 'pdf' => !empty($acc->filename)) : null),
 			);
@@ -890,6 +906,1456 @@ class DesignTrace extends DolibarrApi
 			);
 		}
 		return $result;
+	}
+
+	/**
+	 * The customer's design library: every design they reach, whatever the basis
+	 *
+	 * A customer reaches a design through a quote, order, ticket or project link, or a design-level
+	 * grant. One entry per design: ref, label, archived, confidential (and its label: it does not
+	 * restrict the customer), access_ended (a revoked or expired grant with no other basis: name and
+	 * history only), bases (what gives access), component counts, flags (licence to accept, proof
+	 * awaiting approval, consent not asked, newer revision) and needs_action.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	string	$q			Search in design name, DSN and component numbers/names
+	 * @param	string	$type		Only designs with a component of this type: part, assembly or drawing
+	 * @param	int		$project	Only designs of this project id
+	 * @param	string	$element	Only designs reached through this kind of document: quote, order, ticket, project or grant
+	 * @param	int		$docid		With element: only this document
+	 * @param	int		$action		1 = only designs needing the customer's action
+	 * @param	int		$page		Page, from 0
+	 * @param	int		$limit		Page size (1-200)
+	 * @return	array				total, page, limit, items
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET customers/{socid}/library
+	 *
+	 * @throws RestException 400 Bad filter
+	 * @throws RestException 403 Not allowed
+	 */
+	public function getLibrary($socid, $q = '', $type = '', $project = 0, $element = '', $docid = 0, $action = 0, $page = 0, $limit = 25)
+	{
+		$socid = $this->checkCustomer($socid);
+		if ($type !== '' && !in_array($type, array('part', 'assembly', 'drawing'), true)) {
+			throw new RestException(400, 'Bad type, use part, assembly or drawing');
+		}
+		$filters = array('q' => $q, 'type' => $type, 'project' => (int) $project, 'docid' => (int) $docid, 'action' => (int) $action);
+		if ($element !== '') {
+			$filters['element'] = DesignTraceClientAccess::normaliseElement($element);
+			if ($filters['element'] === '') {
+				throw new RestException(400, 'Bad document type, use quote, order, ticket, project or grant');
+			}
+		}
+		return DesignTraceLibrary::fetchLibrary($this->db, $socid, $filters, (int) $page, (int) $limit);
+	}
+
+	/**
+	 * Detail of a design: tree of components (assemblies, parts, drawings) with their current and
+	 * delivered revisions, release notes and files (size, SHA-256), external dependencies the
+	 * customer also has access to, and the history. Revision ids come from here for the file calls.
+	 * With access ended only the name and history are returned (tree is empty).
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$designid	Design id
+	 * @return	array				The design entry (as in the library list) plus tree, roots, history
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET customers/{socid}/designs/{designid}
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 The customer never had access to this design
+	 */
+	public function getDesign($socid, $designid)
+	{
+		$socid = $this->checkCustomer($socid);
+		$design = DesignTraceLibrary::fetchDesign($this->db, $socid, (int) $designid);
+		if (!$design) {
+			throw new RestException(404, 'Design not found for this customer');
+		}
+		return $design;
+	}
+
+	/**
+	 * Detail of a revision the customer holds (or the current one of a component they reach):
+	 * release note, status, files with size and SHA-256 (files only for a revision they hold)
+	 *
+	 * @param	int		$socid			Customer (third party) id
+	 * @param	int		$revisionid		Revision id
+	 * @return	array					Revision
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET customers/{socid}/revisions/{revisionid}
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Revision not reachable by this customer
+	 */
+	public function getRevision($socid, $revisionid)
+	{
+		$socid = $this->checkCustomer($socid);
+		$revision = DesignTraceLibrary::fetchRevision($this->db, $socid, (int) $revisionid);
+		if (!$revision) {
+			throw new RestException(404, 'Revision not found for this customer');
+		}
+		return $revision;
+	}
+
+	/**
+	 * Differences between the delivered and the current revision of a component: release notes and
+	 * files (added, removed, changed by SHA-256, unchanged). Hidden and production files never appear.
+	 *
+	 * @param	int		$socid			Customer (third party) id
+	 * @param	int		$componentid	Component id
+	 * @param	int		$from			Older revision id (default: the delivered one, else the one held)
+	 * @param	int		$to				Newer revision id (default: the current one)
+	 * @return	array					from, to, files
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET customers/{socid}/components/{componentid}/compare
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Nothing to compare for this customer
+	 */
+	public function compareRevisions($socid, $componentid, $from = 0, $to = 0)
+	{
+		$socid = $this->checkCustomer($socid);
+		$result = DesignTraceLibrary::compareRevisions($this->db, $socid, (int) $componentid, (int) $from, (int) $to);
+		if (!$result) {
+			throw new RestException(404, 'Nothing to compare for this customer');
+		}
+		return $result;
+	}
+
+	/**
+	 * Components with a newer released revision than the one the customer holds, also for grants
+	 * pinned to an older revision (the pin only moves by hand). Includes the customer release note.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @return	array				One entry per component
+	 * @phan-return array<int,array<string,mixed>>
+	 * @phpstan-return array<int,array<string,mixed>>
+	 *
+	 * @url	GET customers/{socid}/newer-revisions
+	 *
+	 * @throws RestException 403 Not allowed
+	 */
+	public function getNewerRevisions($socid)
+	{
+		$socid = $this->checkCustomer($socid);
+		return DesignTraceLibrary::fetchNewerRevisions($this->db, $socid);
+	}
+
+	/**
+	 * The licence that applies to a design for this customer (the design's template; a document's
+	 * override counts when the customer accepts through that quote or order), the version that
+	 * counts, its wording and permissions, and the acceptance if any. One acceptance per design and
+	 * customer covers every document and grant.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$designid	Design id
+	 * @return	array				Licence entry (empty if the design has no licence)
+	 * @phan-return array<int,array<string,mixed>>
+	 * @phpstan-return array<int,array<string,mixed>>
+	 *
+	 * @url	GET customers/{socid}/designs/{designid}/licence
+	 *
+	 * @throws RestException 403 Not allowed or access ended
+	 * @throws RestException 404 Design not found for this customer
+	 */
+	public function getDesignLicence($socid, $designid)
+	{
+		$socid = $this->checkCustomer($socid);
+		$this->checkDesignAccess($socid, $designid);
+		$info = DesignTraceLicensing::fetchDesignLicence($this->db, $socid, (int) $designid, DesignTraceLicensing::getForcedLicence($this->db, $socid, (int) $designid));
+		if (!$info || !$info['licence'] || !$info['version']) {
+			return array();
+		}
+		$soc = new Societe($this->db);
+		$soc->fetch($socid);
+		return $this->formatLicences(null, array((int) $designid => $info), (string) $soc->name);
+	}
+
+	/**
+	 * Record that the customer accepts the licence of a design, without a quote or order (also
+	 * what a quote acceptance calls first). Covers every document and grant of the customer for the
+	 * design. Pass the version_id shown: if the licence changed since the call is refused (409).
+	 * A PDF copy is written; fetch it with GET .../licence/pdf.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$designid	Design id
+	 * @param	int		$version_id	Licence version id shown to the customer
+	 * @param	string	$actor		Who accepts, for the log (e.g. the portal login)
+	 * @param	string	$client_ip	Customer's IP address as seen by the calling backend, recorded only {@from body}
+	 * @param	string	$user_agent	Customer's browser as seen by the calling backend, recorded only {@from body}
+	 * @param	string	$actor_role	Acting user's role in the customer's account: admin or user (see the setting who may accept and approve) {@from body}
+	 * @return	array				id of the acceptance, date
+	 * @phan-return array<string,int>
+	 * @phpstan-return array<string,int>
+	 *
+	 * @url	POST customers/{socid}/designs/{designid}/licence/accept
+	 *
+	 * @throws RestException 403 Not allowed or access ended
+	 * @throws RestException 404 Design not found for this customer
+	 * @throws RestException 409 Licence changed or nothing to accept
+	 */
+	public function acceptDesignLicence($socid, $designid, $version_id, $actor = '', $client_ip = '', $user_agent = '', $actor_role = '')
+	{
+		$socid = $this->checkCustomer($socid);
+		$this->checkDesignAccess($socid, $designid);
+		$this->checkApprover($socid, $actor_role);
+		$actor = trim((string) $actor);
+		if ($actor === '') {
+			$actor = 'api:'.DolibarrApiAccess::$user->login;
+		}
+		$error = '';
+		$id = DesignTraceLicensing::acceptDesign($this->db, $socid, (int) $designid, (int) $version_id, DesignTraceClientAccess::CHANNEL_API, $actor, $error, (string) $client_ip, (string) $user_agent);
+		if ($id <= 0) {
+			throw new RestException(409, $error);
+		}
+		return array('id' => (int) $id, 'date' => dol_now());
+	}
+
+	/**
+	 * The customer's copy of the accepted licence of a design: the raw PDF is the response (errors
+	 * are JSON), with X-Content-SHA256. Works for acceptances given through a document too.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$designid	Design id
+	 * @return	void				The raw PDF (never returns)
+	 *
+	 * @url	GET customers/{socid}/designs/{designid}/licence/pdf
+	 *
+	 * @throws RestException 403 Not allowed or access ended
+	 * @throws RestException 404 Design not found, or no accepted licence
+	 */
+	public function getDesignLicencePdf($socid, $designid)
+	{
+		$socid = $this->checkCustomer($socid);
+		$this->checkDesignAccess($socid, $designid);
+		$acc = DesignTraceLicensing::getAcceptance($this->db, $socid, (int) $designid);
+		$path = $acc ? DesignTraceLicensing::getAcceptancePdfPath($this->db, $acc) : '';
+		if ($path === '') {
+			throw new RestException(404, 'No accepted licence for this design');
+		}
+		DesignTraceClientAccess::sendFile($path, $acc->filename, false, array(
+			'X-Content-SHA256' => (string) hash_file('sha256', dol_osencode($path)),
+		));
+	}
+
+	/**
+	 * Approvals waiting for the customer: flagged revisions In review, one entry per ECO (or per
+	 * design when they have no ECO). One approval covers all revisions of an entry. `awaiting`
+	 * counts those not decided yet; `changes_requested` those the customer asked changes for
+	 * (waiting for the workshop; they can still be approved later).
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @return	array				scope (eco or design), id, ref, label, round (ECOs), design_ids, awaiting, changes_requested, revisions
+	 * @phan-return array<int,array<string,mixed>>
+	 * @phpstan-return array<int,array<string,mixed>>
+	 *
+	 * @url	GET customers/{socid}/approvals
+	 *
+	 * @throws RestException 403 Not allowed
+	 */
+	public function listApprovals($socid)
+	{
+		$socid = $this->checkCustomer($socid);
+		return DesignTraceApprovals::fetchPending($this->db, $socid);
+	}
+
+	/**
+	 * Approve: one approval covers every flagged revision waiting in the ECO (scope eco) or in the
+	 * design when it has no ECO (scope design). The actor and IP are recorded. Honours the
+	 * customer's setting on who may approve: pass the acting user's role, refused with
+	 * `role_not_allowed` (403) when the setting reserves it to the customer's admins.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	string	$scope		eco or design
+	 * @param	int		$scopeid	ECO id or design id (from GET approvals)
+	 * @param	string	$comment	Optional comment {@from body}
+	 * @param	string	$actor		Who approves, for the log {@from body}
+	 * @param	string	$actor_role	Acting user's role: admin or user {@from body}
+	 * @param	string	$client_ip	Customer's IP address as seen by the calling backend, recorded only {@from body}
+	 * @param	string	$user_agent	Customer's browser as seen by the calling backend, recorded only {@from body}
+	 * @return	array				revision_ids approved
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	POST customers/{socid}/approvals/{scope}/{scopeid}/approve
+	 *
+	 * @throws RestException 400 Bad scope
+	 * @throws RestException 403 Not allowed, or role_not_allowed
+	 * @throws RestException 409 Nothing to approve
+	 */
+	public function approveScope($socid, $scope, $scopeid, $comment = '', $actor = '', $actor_role = '', $client_ip = '', $user_agent = '')
+	{
+		$socid = $this->checkCustomer($socid);
+		$scope = $this->checkScope($scope);
+		$error = '';
+		$res = DesignTraceApprovals::approve($this->db, DolibarrApiAccess::$user, $socid, $scope, (int) $scopeid, (string) $actor_role, (string) $comment, DesignTraceClientAccess::CHANNEL_API, $this->getActor($actor), $error, (string) $client_ip, (string) $user_agent);
+		$this->checkApprovalResult($res, $error);
+		return array('revision_ids' => $res);
+	}
+
+	/**
+	 * Request changes on named revisions of an approval entry (all of them when revision_ids is
+	 * empty). A comment is required. With an ECO the same ECO is reopened as a new round (another
+	 * timeline entry); without one a draft ECO (reason customer) is opened.
+	 *
+	 * @param	int		$socid			Customer (third party) id
+	 * @param	string	$scope			eco or design
+	 * @param	int		$scopeid		ECO id or design id (from GET approvals)
+	 * @param	string	$comment		What to change {@from body}
+	 * @param	array	$revision_ids	Revisions the changes are for {@from body}
+	 * @param	string	$actor			Who asks, for the log {@from body}
+	 * @param	string	$actor_role		Acting user's role: admin or user {@from body}
+	 * @param	string	$client_ip		Customer's IP address as seen by the calling backend, recorded only {@from body}
+	 * @param	string	$user_agent		Customer's browser as seen by the calling backend, recorded only {@from body}
+	 * @return	array					eco_id, round, revision_ids
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	POST customers/{socid}/approvals/{scope}/{scopeid}/request-changes
+	 *
+	 * @throws RestException 400 Bad scope
+	 * @throws RestException 403 Not allowed, or role_not_allowed
+	 * @throws RestException 409 Nothing to decide, comment missing or revisions not in this entry
+	 */
+	public function requestScopeChanges($socid, $scope, $scopeid, $comment, $revision_ids = array(), $actor = '', $actor_role = '', $client_ip = '', $user_agent = '')
+	{
+		$socid = $this->checkCustomer($socid);
+		$scope = $this->checkScope($scope);
+		$error = '';
+		$res = DesignTraceApprovals::requestChanges($this->db, DolibarrApiAccess::$user, $socid, $scope, (int) $scopeid, is_array($revision_ids) ? $revision_ids : preg_split('/[\s,]+/', (string) $revision_ids, -1, PREG_SPLIT_NO_EMPTY), (string) $comment, (string) $actor_role, DesignTraceClientAccess::CHANNEL_API, $this->getActor($actor), $error, (string) $client_ip, (string) $user_agent);
+		$this->checkApprovalResult($res, $error);
+		return array('eco_id' => $res['eco'], 'round' => $res['round'], 'revision_ids' => $res['revisions']);
+	}
+
+	/**
+	 * What waits for the customer: licences to accept, approvals, consent questions, newer revisions
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @return	array				licences, approvals, consent, newer_revisions, total, designs (design ids behind licences, approvals, consent)
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET customers/{socid}/attention
+	 *
+	 * @throws RestException 403 Not allowed
+	 */
+	public function getAttention($socid)
+	{
+		$socid = $this->checkCustomer($socid);
+		return DesignTraceLibrary::fetchAttention($this->db, $socid);
+	}
+
+	/**
+	 * History of the customer: releases, approvals and change requests, licence acceptances,
+	 * portfolio consent and downloads, newest first, each naming the actor (every user of the
+	 * customer's account, not only the caller's). Also for designs whose access ended.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$design_id	Only this design
+	 * @param	int		$limit		Max entries (1-500)
+	 * @return	array				date, type, design_id, design_ref, text, actor
+	 * @phan-return array<int,array<string,mixed>>
+	 * @phpstan-return array<int,array<string,mixed>>
+	 *
+	 * @url	GET customers/{socid}/history
+	 *
+	 * @throws RestException 403 Not allowed
+	 */
+	public function getHistory($socid, $design_id = 0, $limit = 100)
+	{
+		$socid = $this->checkCustomer($socid);
+		return DesignTraceLibrary::fetchHistory($this->db, $socid, (int) $design_id, (int) $limit);
+	}
+
+	/**
+	 * Portfolio consent of a design the customer reaches, whatever the basis. A confidential design
+	 * is never asked (the answer is `confidential`, and it cannot be set).
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$designid	Design id
+	 * @return	array				design_id, consent (none, granted, refused), confidential, date_consent
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET customers/{socid}/designs/{designid}/consent
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Design not found for this customer
+	 */
+	public function getDesignConsent($socid, $designid)
+	{
+		$socid = $this->checkCustomer($socid);
+		$this->checkDesignAccess($socid, $designid);
+		return $this->formatDesignConsent((int) $designid);
+	}
+
+	/**
+	 * Record the customer's portfolio consent for a design, without a quote or order
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$designid	Design id
+	 * @param	string	$consent	granted or refused {@from body}
+	 * @param	string	$actor		Who answered, for the log {@from body}
+	 * @param	string	$client_ip	Customer's IP address as seen by the calling backend, recorded only {@from body}
+	 * @return	array				design_id, consent, changed (false when it was already the answer)
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	POST customers/{socid}/designs/{designid}/consent
+	 *
+	 * @throws RestException 400 Bad consent
+	 * @throws RestException 403 Not allowed, access ended, or the design is not made for this customer
+	 * @throws RestException 404 Design not found for this customer
+	 * @throws RestException 409 Confidential designs are not asked
+	 */
+	public function setDesignConsent($socid, $designid, $consent, $actor = '', $client_ip = '')
+	{
+		$socid = $this->checkCustomer($socid);
+		$this->checkDesignAccess($socid, $designid);
+		// Consent is the design's, so only the customer it is made for answers; a customer who merely
+		// reaches it (grant, ticket) cannot overwrite that answer
+		$resql = $this->db->query("SELECT fk_soc FROM ".$this->db->prefix()."designtrace_design WHERE rowid = ".((int) $designid));
+		$owner = $resql ? $this->db->fetch_object($resql) : null;
+		if (!$owner || (int) $owner->fk_soc !== (int) $socid) {
+			throw new RestException(403, 'Only the customer the design is made for can answer for its portfolio consent');
+		}
+		$values = array('granted' => DesignTracePortfolio::CONSENT_GRANTED, 'refused' => DesignTracePortfolio::CONSENT_REFUSED);
+		$consent = strtolower(trim((string) $consent));
+		if (!isset($values[$consent])) {
+			throw new RestException(400, 'Bad consent, use granted or refused');
+		}
+		$current = $this->formatDesignConsent((int) $designid);
+		if ($current['confidential']) {
+			throw new RestException(409, 'A confidential design is never asked for portfolio consent');
+		}
+		$res = DesignTracePortfolio::setConsent($this->db, (int) $designid, $values[$consent], DesignTracePortfolio::CHANNEL_API, $this->getActor($actor), '', 0, 0, '', (string) $client_ip);
+		if ($res < 0) {
+			throw new RestException(503, 'Error saving consent');
+		}
+		return array('design_id' => (int) $designid, 'consent' => $consent, 'changed' => ($res > 0));
+	}
+
+	/**
+	 * @param	int		$designid	Design id
+	 * @return	array<string,mixed>
+	 */
+	private function formatDesignConsent($designid)
+	{
+		$names = array(DesignTracePortfolio::CONSENT_NONE => 'none', DesignTracePortfolio::CONSENT_GRANTED => 'granted', DesignTracePortfolio::CONSENT_REFUSED => 'refused');
+		$resql = $this->db->query("SELECT confidential FROM ".$this->db->prefix()."designtrace_design WHERE rowid = ".((int) $designid));
+		$obj = $resql ? $this->db->fetch_object($resql) : null;
+		$history = DesignTracePortfolio::fetchHistory($this->db, $designid);
+		return array('design_id' => $designid, 'consent' => $names[(int) DesignTracePortfolio::getConsent($this->db, $designid)] ?? 'none',
+			'confidential' => ($obj && !empty($obj->confidential)), 'date_consent' => ($history ? $history[0]->date_consent : null));
+	}
+
+	/**
+	 * Refuse, with a distinct error, when the customer reserves licence acceptance and approval to its admins
+	 *
+	 * @param	int		$socid	Customer id
+	 * @param	string	$role	Acting user's role (admin or user)
+	 * @return	void
+	 */
+	private function checkApprover($socid, $role)
+	{
+		$error = '';
+		if (!DesignTraceApprovals::checkRole($this->db, $socid, $role, $error)) {
+			throw new RestException(403, 'role_not_allowed: '.$error);
+		}
+	}
+
+	/**
+	 * @param	string	$scope	eco or design
+	 * @return	string
+	 */
+	private function checkScope($scope)
+	{
+		$scope = strtolower(trim((string) $scope));
+		if (!in_array($scope, array(DesignTraceApprovals::SCOPE_ECO, DesignTraceApprovals::SCOPE_DESIGN), true)) {
+			throw new RestException(400, 'Bad scope, use eco or design');
+		}
+		return $scope;
+	}
+
+	/**
+	 * @param	mixed	$res	Result of an approval call
+	 * @param	string	$error	Its error
+	 * @return	void
+	 */
+	private function checkApprovalResult($res, $error)
+	{
+		if ($res === -2) {
+			throw new RestException(403, 'role_not_allowed: '.$error);
+		}
+		if (!is_array($res)) {
+			throw new RestException(409, $error);
+		}
+	}
+
+	/**
+	 * Report a problem or ask for a change on a revision the customer holds
+	 *
+	 * One flow, type `problem` (defect) or `change`. It creates a ticket (type Design problem / Design
+	 * change) and a linked draft ECO (reason customer) shared with the customer. A problem may name
+	 * one of the customer's orders that delivered the revision (`order_id`).
+	 *
+	 * @param	int		$socid			Customer (third party) id
+	 * @param	int		$revision_id	Revision the request is about (one the customer holds) {@from body}
+	 * @param	string	$type			problem or change {@from body}
+	 * @param	string	$summary		Short summary {@from body}
+	 * @param	string	$text			What is wrong, or what to change {@from body}
+	 * @param	int		$order_id		Problems only: an order that delivered the revision {@from body}
+	 * @param	string	$actor			Who asks, for the log {@from body}
+	 * @param	string	$client_ip		Customer's IP address as seen by the calling backend, recorded on the ticket {@from body}
+	 * @return	array					eco_id, eco_ref, ticket_id, ticket_ref
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	POST customers/{socid}/change-requests
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 409 Not possible (revision not held, bad type, order did not deliver it...)
+	 */
+	public function reportChangeRequest($socid, $revision_id, $type, $summary, $text, $order_id = 0, $actor = '', $client_ip = '')
+	{
+		$socid = $this->checkCustomer($socid);
+		$error = '';
+		$res = DesignTraceChangeRequests::report($this->db, DolibarrApiAccess::$user, $socid, (string) $type, (int) $revision_id, (string) $summary, (string) $text, (int) $order_id, $this->getActor($actor), $error, (string) $client_ip);
+		if (!is_array($res)) {
+			throw new RestException(409, $error);
+		}
+		return $res;
+	}
+
+	/**
+	 * Change requests and ECOs shared with the customer: the ones they raised, and any other ECO whose
+	 * "shareable" toggle is on. Newest first.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @return	array				id, ref, summary, status (open, approved, implemented, closed, withdrawn, cancelled), type (problem, change or empty),
+	 *								requested_by, round, date_creation, ticket_id, ticket_ref
+	 * @phan-return array<int,array<string,mixed>>
+	 * @phpstan-return array<int,array<string,mixed>>
+	 *
+	 * @url	GET customers/{socid}/ecos
+	 *
+	 * @throws RestException 403 Not allowed
+	 */
+	public function listEcos($socid)
+	{
+		$socid = $this->checkCustomer($socid);
+		return DesignTraceChangeRequests::fetchList($this->db, $socid);
+	}
+
+	/**
+	 * Detail of a shared ECO: summary and request text (never internal notes), status timeline with
+	 * rounds, affected components and resulting released revisions (only components the customer
+	 * reaches), linked ticket and quote (`waiting_for_quote`), reference files, ticket comments,
+	 * and what the customer can still do (`can_withdraw`, `can_attach`).
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$ecoid		ECO id
+	 * @return	array				The detail
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET customers/{socid}/ecos/{ecoid}
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Not shared with this customer
+	 */
+	public function getEco($socid, $ecoid)
+	{
+		$socid = $this->checkCustomer($socid);
+		$detail = DesignTraceChangeRequests::fetchDetail($this->db, $socid, (int) $ecoid);
+		if (!$detail) {
+			throw new RestException(404, 'Change order not found for this customer');
+		}
+		return $detail;
+	}
+
+	/**
+	 * Withdraw a request while its ECO is a draft: the ECO and the ticket are cancelled with a
+	 * "withdrawn" message and both stay in history
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$ecoid		ECO id
+	 * @param	string	$comment	Optional reason {@from body}
+	 * @param	string	$actor		Who withdraws, for the log {@from body}
+	 * @return	array				status
+	 * @phan-return array<string,string>
+	 * @phpstan-return array<string,string>
+	 *
+	 * @url	POST customers/{socid}/ecos/{ecoid}/withdraw
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 409 Not a request of this customer, or no longer a draft
+	 */
+	public function withdrawEco($socid, $ecoid, $comment = '', $actor = '')
+	{
+		$socid = $this->checkCustomer($socid);
+		$error = '';
+		if (DesignTraceChangeRequests::withdraw($this->db, DolibarrApiAccess::$user, $socid, (int) $ecoid, $this->getActor($actor), (string) $comment, $error) <= 0) {
+			throw new RestException(409, $error);
+		}
+		return array('status' => 'withdrawn');
+	}
+
+	/**
+	 * Comment on a request, through its ticket (the workshop sees it there and answers there)
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$ecoid		ECO id
+	 * @param	string	$text		The comment {@from body}
+	 * @param	string	$actor		Who comments, for the log {@from body}
+	 * @return	array				ok
+	 * @phan-return array<string,bool>
+	 * @phpstan-return array<string,bool>
+	 *
+	 * @url	POST customers/{socid}/ecos/{ecoid}/comments
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 409 Not a request of this customer, empty comment, or closed
+	 */
+	public function commentOnEco($socid, $ecoid, $text, $actor = '')
+	{
+		$socid = $this->checkCustomer($socid);
+		$error = '';
+		if (DesignTraceChangeRequests::comment($this->db, DolibarrApiAccess::$user, $socid, (int) $ecoid, (string) $text, $this->getActor($actor), $error) <= 0) {
+			throw new RestException(409, $error);
+		}
+		return array('ok' => true);
+	}
+
+	/**
+	 * Attach a reference file to a request while it is open. The content is sent base64 encoded
+	 * (reference files are small; design files are never uploaded through the API). Executable
+	 * files are neutralised (`.noexe`), at most 20 files per request.
+	 *
+	 * @param	int		$socid			Customer (third party) id
+	 * @param	int		$ecoid			ECO id
+	 * @param	string	$filename		File name {@from body}
+	 * @param	string	$filecontent	Content, base64 encoded {@from body}
+	 * @param	string	$actor			Who attaches it, for the log {@from body}
+	 * @return	array					filename as stored
+	 * @phan-return array<string,string>
+	 * @phpstan-return array<string,string>
+	 *
+	 * @url	POST customers/{socid}/ecos/{ecoid}/files
+	 *
+	 * @throws RestException 400 Content is not base64
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 409 Not a request of this customer, closed, too large or too many files
+	 */
+	public function attachEcoFile($socid, $ecoid, $filename, $filecontent, $actor = '')
+	{
+		$socid = $this->checkCustomer($socid);
+		$content = base64_decode((string) $filecontent, true);
+		if ($content === false) {
+			throw new RestException(400, 'filecontent must be base64 encoded');
+		}
+		$error = '';
+		$stored = DesignTraceChangeRequests::addReferenceFile($this->db, $socid, (int) $ecoid, (string) $filename, $content, $this->getActor($actor), $error);
+		if ($stored === '') {
+			throw new RestException(409, $error);
+		}
+		return array('filename' => $stored);
+	}
+
+	/**
+	 * Ask for access again to a design whose access ended: opens a ticket for the workshop (asking
+	 * again while it is open returns the same ticket)
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$designid	Design id
+	 * @param	string	$message	Optional message {@from body}
+	 * @param	string	$actor		Who asks, for the log {@from body}
+	 * @param	string	$client_ip	Customer's IP address as seen by the calling backend, recorded on the ticket {@from body}
+	 * @return	array				ticket_id, ticket_ref, existing
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	POST customers/{socid}/designs/{designid}/request-access
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 409 The customer never had access, or still has it
+	 */
+	public function requestAccess($socid, $designid, $message = '', $actor = '', $client_ip = '')
+	{
+		$socid = $this->checkCustomer($socid);
+		$error = '';
+		$res = DesignTraceChangeRequests::askAccess($this->db, DolibarrApiAccess::$user, $socid, (int) $designid, (string) $message, $this->getActor($actor), $error, (string) $client_ip);
+		if (!is_array($res)) {
+			throw new RestException(409, $error);
+		}
+		return $res;
+	}
+
+	// ---------------------------------------------------------------------------------------------
+	// Staff endpoints. Called with the staff user's own Dolibarr API key: their rights apply, and a
+	// confidential design they cannot see is "not found". External users are refused.
+	// ---------------------------------------------------------------------------------------------
+
+	/**
+	 * What waits for the workshop: flagged revisions waiting for the customer's approval, open ECOs
+	 * (customer requests first, with the next action), designs with active work whose licence is not
+	 * accepted yet, and components flagged "Needs update".
+	 *
+	 * @return	array				approvals, ecos, licences, needs_update, counts
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET staff/triage
+	 *
+	 * @throws RestException 403 Needs the right to read designs
+	 */
+	public function getTriage()
+	{
+		$this->checkStaff('design', 'read');
+		return DesignTraceStaff::fetchTriage($this->db, DolibarrApiAccess::$user);
+	}
+
+	/**
+	 * The customer's library, as the customer sees it
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	string	$q			Search
+	 * @param	int		$action		1 = only designs needing the customer's action
+	 * @param	int		$page		Page, from 0
+	 * @param	int		$limit		Page size (1-200)
+	 * @return	array				total, page, limit, items (see GET customers/{socid}/library)
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET staff/customers/{socid}/library
+	 *
+	 * @throws RestException 403 Needs the right to read designs
+	 * @throws RestException 404 Customer not found
+	 */
+	public function getStaffLibrary($socid, $q = '', $action = 0, $page = 0, $limit = 25)
+	{
+		$this->checkStaff('design', 'read');
+		$socid = $this->checkStaffCustomer($socid);
+		$hidden = Design::getHiddenDesignIds($this->db, DolibarrApiAccess::$user);
+		$result = DesignTraceLibrary::fetchLibrary($this->db, $socid, array('q' => $q, 'action' => (int) $action, 'exclude' => $hidden), (int) $page, (int) $limit);
+		return $result;
+	}
+
+	/**
+	 * Everything a customer can see of a design (tree, revisions, files, history), plus its grants,
+	 * the licence state and, for each file, whether the customer sees it and why not.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$designid	Design id
+	 * @return	array				As GET customers/{socid}/designs/{designid} plus grants, files, licence
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET staff/customers/{socid}/designs/{designid}
+	 *
+	 * @throws RestException 403 Needs the right to read designs
+	 * @throws RestException 404 Customer or design not found, or the customer has no access to it
+	 */
+	public function getStaffCustomerDesign($socid, $designid)
+	{
+		$this->checkStaff('design', 'read');
+		$socid = $this->checkStaffCustomer($socid);
+		$this->getStaffDesign($designid);
+		$view = DesignTraceStaff::fetchCustomerView($this->db, $socid, (int) $designid);
+		if (!$view) {
+			throw new RestException(404, 'This customer has no access to the design');
+		}
+		return $view;
+	}
+
+	/**
+	 * Grants of a customer (whole designs or single components), with their pins, newest first
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$design_id	Only this design
+	 * @return	array				id, design_id, active, whole_design, date_expiry, date_revoked, note, pins (component id => revision id)
+	 * @phan-return array<int,array<string,mixed>>
+	 * @phpstan-return array<int,array<string,mixed>>
+	 *
+	 * @url	GET staff/customers/{socid}/grants
+	 *
+	 * @throws RestException 403 Needs the right to read designs
+	 */
+	public function listStaffGrants($socid, $design_id = 0)
+	{
+		$this->checkStaff('design', 'read');
+		$socid = $this->checkStaffCustomer($socid);
+		$rows = array();
+		foreach (DesignTraceGrant::fetchForCustomer($this->db, $socid, (int) $design_id) as $grant) {
+			if (!Design::userCanSee(DolibarrApiAccess::$user, $this->loadDesign((int) $grant->fk_design))) {
+				continue;
+			}
+			$rows[] = array('id' => (int) $grant->rowid, 'design_id' => (int) $grant->fk_design, 'active' => (bool) $grant->active, 'whole_design' => ((int) $grant->whole_design === 1),
+				'date_expiry' => $grant->date_expiry ?: null, 'date_revoked' => $grant->date_revoked ?: null, 'note' => (string) $grant->note, 'pins' => $grant->pins);
+		}
+		return $rows;
+	}
+
+	/**
+	 * Give a customer access to a design or to single components, without a quote or order. Each
+	 * component is pinned to a released revision (default: its current one); the pin never moves
+	 * when a newer one is released. The revisions count as delivered at once.
+	 *
+	 * @param	int		$socid			Customer (third party) id
+	 * @param	int		$design_id		Design id {@from body}
+	 * @param	array	$component_ids	Components (empty = the whole design) {@from body}
+	 * @param	array	$pins			Revision to pin per component, {"componentid": revisionid} {@from body}
+	 * @param	string	$expiry			Expiry (date or timestamp), empty = never {@from body}
+	 * @param	string	$note			Note {@from body}
+	 * @return	array				id of the grant
+	 * @phan-return array<string,int>
+	 * @phpstan-return array<string,int>
+	 *
+	 * @url	POST staff/customers/{socid}/grants
+	 *
+	 * @throws RestException 403 Needs the right to change designs
+	 * @throws RestException 409 Nothing released to grant, or a pin that is not a released revision of its component
+	 */
+	public function createStaffGrant($socid, $design_id, $component_ids = array(), $pins = array(), $expiry = '', $note = '')
+	{
+		$this->checkStaff('design', 'write');
+		$socid = $this->checkStaffCustomer($socid);
+		$this->getStaffDesign($design_id);
+		$id = DesignTraceGrant::create($this->db, DolibarrApiAccess::$user, $socid, (int) $design_id, array_map('intval', (array) $component_ids), array_map('intval', (array) $pins), $this->parseDate($expiry), (string) $note);
+		if ($id < 0) {
+			throw new RestException(409, $id === -2 ? 'Nothing released to grant' : ($id === -3 ? 'A pin must be a released revision of its component' : ($id === -4 ? 'Only an active design can be granted to an existing customer' : 'Error creating the grant')));
+		}
+		return array('id' => $id);
+	}
+
+	/**
+	 * Change the expiry of a grant (empty = never expires)
+	 *
+	 * @param	int		$grantid	Grant id
+	 * @param	string	$expiry		New expiry (date or timestamp), empty = never {@from body}
+	 * @return	array				ok
+	 * @phan-return array<string,bool>
+	 * @phpstan-return array<string,bool>
+	 *
+	 * @url	POST staff/grants/{grantid}/expiry
+	 *
+	 * @throws RestException 403 Needs the right to change designs
+	 * @throws RestException 404 Grant not found
+	 */
+	public function setStaffGrantExpiry($grantid, $expiry = '')
+	{
+		$this->checkStaff('design', 'write');
+		$this->getStaffGrant($grantid);
+		DesignTraceGrant::setExpiry($this->db, (int) $grantid, $this->parseDate($expiry));
+		return array('ok' => true);
+	}
+
+	/**
+	 * Revoke a grant. The record, the download log and the licence acceptance stay.
+	 *
+	 * @param	int		$grantid	Grant id
+	 * @return	array				revoked (false if it already was)
+	 * @phan-return array<string,bool>
+	 * @phpstan-return array<string,bool>
+	 *
+	 * @url	POST staff/grants/{grantid}/revoke
+	 *
+	 * @throws RestException 403 Needs the right to change designs
+	 * @throws RestException 404 Grant not found
+	 */
+	public function revokeStaffGrant($grantid)
+	{
+		$this->checkStaff('design', 'write');
+		$this->getStaffGrant($grantid);
+		return array('revoked' => DesignTraceGrant::revoke($this->db, DolibarrApiAccess::$user, (int) $grantid) > 0);
+	}
+
+	/**
+	 * Move the pin of a component of a grant to another released revision, by hand. It counts as delivered.
+	 *
+	 * @param	int		$grantid		Grant id
+	 * @param	int		$componentid	Component id (pinned by the grant)
+	 * @param	int		$revision_id	New revision {@from body}
+	 * @return	array				ok
+	 * @phan-return array<string,bool>
+	 * @phpstan-return array<string,bool>
+	 *
+	 * @url	POST staff/grants/{grantid}/pins/{componentid}
+	 *
+	 * @throws RestException 403 Needs the right to change designs
+	 * @throws RestException 404 Grant not found
+	 * @throws RestException 409 Not a released revision of that component
+	 */
+	public function moveStaffGrantPin($grantid, $componentid, $revision_id)
+	{
+		$this->checkStaff('design', 'write');
+		$this->getStaffGrant($grantid);
+		if (DesignTraceGrant::movePin($this->db, (int) $grantid, (int) $componentid, (int) $revision_id) < 0) {
+			throw new RestException(409, 'The grant must be active, cover the component, and the pin must be a released revision of it');
+		}
+		return array('ok' => true);
+	}
+
+	/**
+	 * Change what customers may see of a file: hidden, now, or on_completion. Production files can
+	 * only be hidden. Allowed on released revisions too.
+	 *
+	 * @param	int		$fileid			File id
+	 * @param	string	$visibility		hidden, now or on_completion {@from body}
+	 * @return	array				visibility
+	 * @phan-return array<string,string>
+	 * @phpstan-return array<string,string>
+	 *
+	 * @url	POST staff/files/{fileid}/visibility
+	 *
+	 * @throws RestException 400 Bad visibility
+	 * @throws RestException 403 Needs the right to manage client visibility
+	 * @throws RestException 404 File not found
+	 * @throws RestException 409 A production file is never shown
+	 */
+	public function setStaffFileVisibility($fileid, $visibility)
+	{
+		$this->checkStaff('componentrevision', 'managevisibility');
+		$values = array('hidden' => RevisionFile::VISIBILITY_HIDDEN, 'now' => RevisionFile::VISIBILITY_NOW, 'on_completion' => RevisionFile::VISIBILITY_ON_COMPLETION);
+		$visibility = strtolower(trim((string) $visibility));
+		if (!isset($values[$visibility])) {
+			throw new RestException(400, 'Bad visibility, use hidden, now or on_completion');
+		}
+		$file = new RevisionFile($this->db);
+		if ($file->fetch((int) $fileid) <= 0) {
+			throw new RestException(404, 'File not found');
+		}
+		$this->getStaffRevision((int) $file->fk_revision);
+		if ($values[$visibility] !== RevisionFile::VISIBILITY_HIDDEN && !DesignTraceClientAccess::isRoleShareable((int) $file->role)) {
+			throw new RestException(409, 'A production file is never shown to customers');
+		}
+		$file->visibility = $values[$visibility];
+		if ($file->update(DolibarrApiAccess::$user) <= 0) {
+			throw new RestException(503, $file->error ?: 'Error saving the visibility');
+		}
+		return array('visibility' => $visibility);
+	}
+
+	/**
+	 * Link a design to a quote or order of its customer (the design-level link)
+	 *
+	 * @param	int		$designid	Design id
+	 * @param	string	$element	quote or order {@from body}
+	 * @param	int		$docid		Quote or order id {@from body}
+	 * @return	array				ok
+	 * @phan-return array<string,bool>
+	 * @phpstan-return array<string,bool>
+	 *
+	 * @url	POST staff/designs/{designid}/links
+	 *
+	 * @throws RestException 400 Bad document type
+	 * @throws RestException 403 Needs the right to change designs
+	 * @throws RestException 409 Document not found or of another customer
+	 */
+	public function linkStaffDesign($designid, $element, $docid)
+	{
+		$this->checkStaff('design', 'write');
+		$design = $this->getStaffDesign($designid);
+		$type = DesignTraceClientAccess::normaliseElement($element);
+		if (!in_array($type, array('propal', 'commande'), true)) {
+			throw new RestException(400, 'Bad document type, use quote or order');
+		}
+		$error = '';
+		if (DesignTraceStaff::linkDesign($this->db, $design, $type, (int) $docid, $error) < 0) {
+			throw new RestException(409, $error);
+		}
+		return array('ok' => true);
+	}
+
+	/**
+	 * Link a revision to a quote, order, invoice, BOM, ticket or project (same rules as the revision card)
+	 *
+	 * @param	int		$revid		Revision id
+	 * @param	string	$element	quote, order, invoice, bom, ticket or project {@from body}
+	 * @param	int		$docid		Document id {@from body}
+	 * @return	array				ok
+	 * @phan-return array<string,bool>
+	 * @phpstan-return array<string,bool>
+	 *
+	 * @url	POST staff/revisions/{revid}/links
+	 *
+	 * @throws RestException 400 Bad document type
+	 * @throws RestException 403 Needs the right to change revisions
+	 * @throws RestException 409 Refused by the linking rules
+	 */
+	public function linkStaffRevision($revid, $element, $docid)
+	{
+		$this->checkStaff('componentrevision', 'write');
+		$revision = $this->getStaffRevision((int) $revid);
+		$type = $this->normaliseLinkElement($element);
+		if (DesignTraceDocLinks::link(DolibarrApiAccess::$user, $revision, $type, (int) $docid) < 0) {
+			throw new RestException(409, $revision->error ?: 'Link refused');
+		}
+		return array('ok' => true);
+	}
+
+	/**
+	 * Unlink a revision from a document. A delivered order keeps its revisions.
+	 *
+	 * @param	int		$revid		Revision id
+	 * @param	string	$element	quote, order, invoice, bom, ticket or project
+	 * @param	int		$docid		Document id
+	 * @return	array				unlinked (false if there was no such link)
+	 * @phan-return array<string,bool>
+	 * @phpstan-return array<string,bool>
+	 *
+	 * @url	DELETE staff/revisions/{revid}/links/{element}/{docid}
+	 *
+	 * @throws RestException 400 Bad document type
+	 * @throws RestException 403 Needs the right to change revisions
+	 * @throws RestException 409 Refused (delivered order, unknown document)
+	 */
+	public function unlinkStaffRevision($revid, $element, $docid)
+	{
+		$this->checkStaff('componentrevision', 'write');
+		$revision = $this->getStaffRevision((int) $revid);
+		$error = '';
+		$res = DesignTraceStaff::unlinkRevision($this->db, $revision, $this->normaliseLinkElement($element), (int) $docid, $error);
+		if ($res < 0) {
+			throw new RestException(409, $error ?: 'Unlink refused');
+		}
+		return array('unlinked' => $res > 0);
+	}
+
+	/**
+	 * Switch a revision's link to a quote, order or ticket on or off for the customer
+	 *
+	 * @param	int		$revid		Revision id
+	 * @param	string	$element	quote, order, ticket or project
+	 * @param	int		$docid		Document id
+	 * @param	int		$visible	1 = shown to the customer, 0 = hidden {@from body}
+	 * @return	array				visible
+	 * @phan-return array<string,bool>
+	 * @phpstan-return array<string,bool>
+	 *
+	 * @url	POST staff/revisions/{revid}/links/{element}/{docid}/client-visible
+	 *
+	 * @throws RestException 400 Bad document type
+	 * @throws RestException 403 Needs the right to manage client visibility
+	 * @throws RestException 404 The revision is not linked to that document
+	 */
+	public function setStaffLinkVisible($revid, $element, $docid, $visible)
+	{
+		$this->checkStaff('componentrevision', 'managevisibility');
+		$revision = $this->getStaffRevision((int) $revid);
+		$type = DesignTraceClientAccess::normaliseElement($element);
+		$found = false;
+		foreach (DesignTraceClientAccess::fetchDocumentsOfRevision($this->db, $revision) as $row) {
+			$found = $found || ($row->element === $type && (int) $row->doc_id === (int) $docid);
+		}
+		if (!$found) {
+			throw new RestException(404, 'The revision is not linked to that document');
+		}
+		DesignTraceClientAccess::setLinkVisibility($this->db, DolibarrApiAccess::$user, (int) $revid, $type, (int) $docid, (int) $visible);
+		return array('visible' => (bool) $visible);
+	}
+
+	/**
+	 * Edit a revision that is not released yet: customer release note (`customer_note`) and
+	 * `needs_approval` (0 or 1). Released revisions are read-only.
+	 *
+	 * @param	int		$revid			Revision id
+	 * @param	array	$request_data	customer_note and/or needs_approval
+	 * @phan-param ?array<string,mixed> $request_data
+	 * @phpstan-param ?array<string,mixed> $request_data
+	 * @return	array				id, customer_note, needs_approval
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	PUT staff/revisions/{revid}
+	 *
+	 * @throws RestException 403 Needs the right to change revisions
+	 * @throws RestException 404 Revision not found
+	 * @throws RestException 409 Released revisions are read-only
+	 */
+	public function updateStaffRevision($revid, $request_data = null)
+	{
+		$this->checkStaff('componentrevision', 'write');
+		$revision = $this->getStaffRevision((int) $revid);
+		$request_data = is_array($request_data) ? $request_data : array();
+		if (array_key_exists('customer_note', $request_data)) {
+			$revision->customer_note = (string) $request_data['customer_note'];
+		}
+		if (array_key_exists('needs_approval', $request_data)) {
+			$revision->needs_approval = empty($request_data['needs_approval']) ? 0 : 1;
+		}
+		if ($revision->update(DolibarrApiAccess::$user) <= 0) {
+			throw new RestException(409, $revision->error ?: 'Not saved');
+		}
+		return array('id' => (int) $revision->id, 'customer_note' => (string) $revision->customer_note, 'needs_approval' => (int) $revision->needs_approval);
+	}
+
+	/**
+	 * Release a revision (needs the right to release). Refused while it waits for the customer's
+	 * approval, for a child that is not released, and under the module's other release rules.
+	 *
+	 * @param	int		$revid		Revision id
+	 * @return	array				id, status
+	 * @phan-return array<string,int>
+	 * @phpstan-return array<string,int>
+	 *
+	 * @url	POST staff/revisions/{revid}/release
+	 *
+	 * @throws RestException 403 Needs the right to release revisions
+	 * @throws RestException 404 Revision not found
+	 * @throws RestException 409 Refused, with the reason
+	 */
+	public function releaseStaffRevision($revid)
+	{
+		$this->checkStaff('componentrevision', 'release');
+		$revision = $this->getStaffRevision((int) $revid);
+		$res = $revision->release(DolibarrApiAccess::$user);
+		if ($res <= 0) {
+			throw new RestException(409, $revision->error ?: 'Nothing to release');
+		}
+		return array('id' => (int) $revision->id, 'status' => (int) $revision->status);
+	}
+
+	/**
+	 * Approve an ECO (needs the right to approve change orders). Refused while its linked quote is not accepted.
+	 *
+	 * @param	int		$ecoid		ECO id
+	 * @return	array				status
+	 * @phan-return array<string,int>
+	 * @phpstan-return array<string,int>
+	 *
+	 * @url	POST staff/ecos/{ecoid}/approve
+	 *
+	 * @throws RestException 403 Needs the right to approve change orders
+	 * @throws RestException 404 ECO not found
+	 * @throws RestException 409 Refused, with the reason
+	 */
+	public function approveStaffEco($ecoid)
+	{
+		$this->checkStaff('changeorder', 'approve');
+		return $this->staffEcoAction($ecoid, 'approve');
+	}
+
+	/**
+	 * Mark an approved ECO implemented
+	 *
+	 * @param	int		$ecoid		ECO id
+	 * @return	array				status
+	 * @phan-return array<string,int>
+	 * @phpstan-return array<string,int>
+	 *
+	 * @url	POST staff/ecos/{ecoid}/implement
+	 *
+	 * @throws RestException 403 Needs the right to change change orders
+	 * @throws RestException 404 ECO not found
+	 * @throws RestException 409 Not approved
+	 */
+	public function implementStaffEco($ecoid)
+	{
+		$this->checkStaff('changeorder', 'write');
+		return $this->staffEcoAction($ecoid, 'setImplemented');
+	}
+
+	/**
+	 * Close an implemented ECO
+	 *
+	 * @param	int		$ecoid		ECO id
+	 * @return	array				status
+	 * @phan-return array<string,int>
+	 * @phpstan-return array<string,int>
+	 *
+	 * @url	POST staff/ecos/{ecoid}/close
+	 *
+	 * @throws RestException 403 Needs the right to change change orders
+	 * @throws RestException 404 ECO not found
+	 * @throws RestException 409 Not implemented
+	 */
+	public function closeStaffEco($ecoid)
+	{
+		$this->checkStaff('changeorder', 'write');
+		return $this->staffEcoAction($ecoid, 'close');
+	}
+
+	/**
+	 * Share an ECO with its customer (summary and request text only, never internal notes), or stop.
+	 * ECOs the customer raised are always shared.
+	 *
+	 * @param	int		$ecoid		ECO id
+	 * @param	int		$shareable	1 = shared, 0 = not {@from body}
+	 * @return	array				shareable
+	 * @phan-return array<string,bool>
+	 * @phpstan-return array<string,bool>
+	 *
+	 * @url	POST staff/ecos/{ecoid}/shareable
+	 *
+	 * @throws RestException 403 Needs the right to change change orders
+	 * @throws RestException 404 ECO not found
+	 * @throws RestException 409 A request raised by the customer stays shared
+	 */
+	public function setStaffEcoShareable($ecoid, $shareable)
+	{
+		$this->checkStaff('changeorder', 'write');
+		$eco = $this->getStaffEco($ecoid);
+		$info = $eco->getRequestInfo();
+		if (!$shareable && (int) $info->request_type > 0) {
+			throw new RestException(409, 'A request raised by the customer stays shared');
+		}
+		$eco->setShareable((bool) $shareable);
+		return array('shareable' => (bool) $shareable);
+	}
+
+	/**
+	 * Link a quote of the ECO's customer (0 removes the link). The ECO then waits on it: it cannot be
+	 * approved before the quote is accepted.
+	 *
+	 * @param	int		$ecoid		ECO id
+	 * @param	int		$quote_id	Quote id, 0 = none {@from body}
+	 * @return	array				quote_id, settled
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	POST staff/ecos/{ecoid}/quote
+	 *
+	 * @throws RestException 403 Needs the right to change change orders
+	 * @throws RestException 404 ECO not found
+	 * @throws RestException 409 Quote of another customer
+	 */
+	public function linkStaffEcoQuote($ecoid, $quote_id)
+	{
+		$this->checkStaff('changeorder', 'write');
+		$eco = $this->getStaffEco($ecoid);
+		if ($eco->linkQuote((int) $quote_id) < 0) {
+			throw new RestException(409, $eco->error);
+		}
+		return array('quote_id' => (int) $quote_id, 'settled' => $eco->isQuoteSettled());
+	}
+
+	/**
+	 * Force re-acceptance of the licence of a design, for one customer or for all of them. The
+	 * acceptance records, their PDFs and the download log stay; the next download needs a new acceptance.
+	 *
+	 * @param	int		$design_id	Design id {@from body}
+	 * @param	int		$socid		Customer id, 0 = every customer {@from body}
+	 * @return	array				ended (number of acceptances ended)
+	 * @phan-return array<string,int>
+	 * @phpstan-return array<string,int>
+	 *
+	 * @url	POST staff/licences/force-reacceptance
+	 *
+	 * @throws RestException 403 Needs the right to change licences
+	 * @throws RestException 404 Design not found
+	 */
+	public function forceStaffReacceptance($design_id, $socid = 0)
+	{
+		$this->checkStaff('licence', 'write');
+		$this->getStaffDesign($design_id);
+		$n = DesignTraceLicensing::forceReacceptance($this->db, (int) $design_id, (int) $socid);
+		if ($n < 0) {
+			throw new RestException(503, 'Error ending the acceptances');
+		}
+		return array('ended' => $n);
+	}
+
+	/**
+	 * Metrics: customer approval turnaround (review start to first approval), ECO cycle time (raised to
+	 * closed), designs delivered and revisions released per month, CAD hours per design. Defaults to
+	 * the last 12 months. Turnaround and cycle time only count items recorded since the module began
+	 * stamping them.
+	 *
+	 * @param	string	$from	Start (date or timestamp)
+	 * @param	string	$to		End (date or timestamp)
+	 * @return	array			approval_turnaround, eco_cycle_time, designs_delivered_per_month, revisions_released_per_month, cad_hours_per_design
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET staff/metrics
+	 *
+	 * @throws RestException 403 Needs the right to read designs and revisions
+	 */
+	public function getStaffMetrics($from = '', $to = '')
+	{
+		$this->checkStaff('design', 'read');
+		$this->checkStaff('componentrevision', 'read');
+		$to = $this->parseDate($to) ?: dol_now();
+		$from = $this->parseDate($from) ?: dol_time_plus_duree($to, -12, 'm');
+		return DesignTraceStaff::fetchMetrics($this->db, DolibarrApiAccess::$user, (int) $from, (int) $to);
+	}
+
+	/**
+	 * The module is on, the caller is staff (not an external user) and has the right
+	 *
+	 * @param	string	$object		Right object, e.g. design
+	 * @param	string	$perm		Permission, e.g. read
+	 * @return	void
+	 */
+	private function checkStaff($object, $perm)
+	{
+		$user = DolibarrApiAccess::$user;
+		if (!isModEnabled('designtrace') || !empty($user->socid) || !$user->hasRight('designtrace', $object, $perm)) {
+			throw new RestException(403, 'Needs the DesignTrace right "'.$object.' '.$perm.'" (staff users only)');
+		}
+	}
+
+	/**
+	 * @param	int		$socid	Customer id
+	 * @return	int
+	 */
+	private function checkStaffCustomer($socid)
+	{
+		$socid = (int) $socid;
+		$resql = $this->db->query("SELECT rowid FROM ".$this->db->prefix()."societe WHERE rowid = ".$socid." AND entity IN (".getEntity('societe').")");
+		if ($socid <= 0 || !$resql || !$this->db->num_rows($resql)) {
+			throw new RestException(404, 'Customer not found');
+		}
+		return $socid;
+	}
+
+	/**
+	 * @param	int		$designid	Design id
+	 * @return	Design|null
+	 */
+	private function loadDesign($designid)
+	{
+		$design = new Design($this->db);
+		return ($design->fetch((int) $designid) > 0) ? $design : null;
+	}
+
+	/**
+	 * A design the staff user may see ("not found" for confidential ones they cannot)
+	 *
+	 * @param	int		$designid	Design id
+	 * @return	Design
+	 */
+	private function getStaffDesign($designid)
+	{
+		$design = $this->loadDesign($designid);
+		if (!$design || !Design::userCanSee(DolibarrApiAccess::$user, $design)) {
+			throw new RestException(404, 'Design not found');
+		}
+		return $design;
+	}
+
+	/**
+	 * @param	int		$revid	Revision id
+	 * @return	ComponentRevision
+	 */
+	private function getStaffRevision($revid)
+	{
+		$revision = new ComponentRevision($this->db);
+		if ($revision->fetch((int) $revid) <= 0) {
+			throw new RestException(404, 'Revision not found');
+		}
+		$component = new Component($this->db);
+		if ($component->fetch((int) $revision->fk_component) <= 0) {
+			throw new RestException(404, 'Revision not found');
+		}
+		$this->getStaffDesign((int) $component->fk_design);
+		return $revision;
+	}
+
+	/**
+	 * @param	int		$grantid	Grant id
+	 * @return	stdClass
+	 */
+	private function getStaffGrant($grantid)
+	{
+		$grant = DesignTraceGrant::fetchOne($this->db, (int) $grantid);
+		if (!$grant) {
+			throw new RestException(404, 'Grant not found');
+		}
+		$this->getStaffDesign((int) $grant->fk_design);
+		return $grant;
+	}
+
+	/**
+	 * @param	int		$ecoid	ECO id
+	 * @return	ChangeOrder
+	 */
+	private function getStaffEco($ecoid)
+	{
+		$eco = new ChangeOrder($this->db);
+		if ($eco->fetch((int) $ecoid) <= 0 || DesignTraceStaff::isEcoHidden($this->db, $eco, Design::getHiddenDesignIds($this->db, DolibarrApiAccess::$user))) {
+			throw new RestException(404, 'Change order not found');
+		}
+		return $eco;
+	}
+
+	/**
+	 * Run a workflow step of an ECO
+	 *
+	 * @param	int		$ecoid	ECO id
+	 * @param	string	$method	approve, setImplemented or close
+	 * @return	array{status:int}
+	 */
+	private function staffEcoAction($ecoid, $method)
+	{
+		$eco = $this->getStaffEco($ecoid);
+		$res = $eco->$method(DolibarrApiAccess::$user);
+		if ($res <= 0) {
+			throw new RestException(409, $eco->error ?: 'Not possible in the ECO\'s current status');
+		}
+		return array('status' => (int) $eco->status);
+	}
+
+	/**
+	 * Document type of a revision link in the API (quote, order, invoice, bom, ticket, project)
+	 *
+	 * @param	string	$element	As sent
+	 * @return	string				Key of DesignTraceDocLinks::getRules()
+	 */
+	private function normaliseLinkElement($element)
+	{
+		$map = array('quote' => 'propal', 'propal' => 'propal', 'order' => 'commande', 'commande' => 'commande', 'invoice' => 'facture', 'facture' => 'facture', 'bom' => 'bom', 'ticket' => 'ticket', 'project' => 'project');
+		$type = $map[strtolower(trim((string) $element))] ?? '';
+		if ($type === '') {
+			throw new RestException(400, 'Bad document type, use quote, order, invoice, bom, ticket or project');
+		}
+		return $type;
+	}
+
+	/**
+	 * Date or timestamp from a caller
+	 *
+	 * @param	mixed	$value	Timestamp, date string, or empty
+	 * @return	int|null		Timestamp, null if empty
+	 */
+	private function parseDate($value)
+	{
+		$value = trim((string) $value);
+		if ($value === '' || strtolower($value) === 'never') {
+			return null;
+		}
+		$ts = (ctype_digit($value) ? (int) $value : strtotime($value));
+		if (!$ts) {
+			throw new RestException(400, 'Bad date: '.$value);
+		}
+		return $ts;
+	}
+
+	/**
+	 * Check the customer has an active way to reach a design
+	 *
+	 * @param	int		$socid		Customer id
+	 * @param	int		$designid	Design id
+	 * @return	void
+	 */
+	private function checkDesignAccess($socid, $designid)
+	{
+		$access = DesignTraceLibrary::fetchAccess($this->db, $socid);
+		if (!isset($access[(int) $designid])) {
+			throw new RestException(404, 'Design not found for this customer');
+		}
+		if (!empty($access[(int) $designid]['ended'])) {
+			throw new RestException(403, 'Access to this design has ended');
+		}
 	}
 
 	/**

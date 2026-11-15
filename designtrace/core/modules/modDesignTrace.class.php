@@ -882,6 +882,11 @@ class modDesignTrace extends DolibarrModules
 			return -1; // Do not activate module if error 'not allowed' returned when loading module SQL queries (the _load_table run sql with run_sql with the error allowed parameter set to 'default')
 		}
 
+		// Who may accept licences and approve revisions for a customer with several users (one switch for both)
+		include_once DOL_DOCUMENT_ROOT.'/core/class/extrafields.class.php';
+		$extrafields = new ExtraFields($this->db);
+		$extrafields->addExtraField('designtrace_approvers', 'DesignTraceApprovers', 'select', 100, '', 'thirdparty', 0, 0, '0', array('options' => array('0' => 'DesignTraceApproversAny', '1' => 'DesignTraceApproversAdmins')), 1, '', '-1', 'DesignTraceApproversHelp', '', '', 'designtrace@designtrace', 'isModEnabled("designtrace")');
+
 		// Create extrafields during init
 		//include_once DOL_DOCUMENT_ROOT.'/core/class/extrafields.class.php';
 		//$extrafields = new ExtraFields($this->db);
@@ -926,6 +931,13 @@ class modDesignTrace extends DolibarrModules
 					"INSERT INTO ".$this->db->prefix()."document_model (nom, type, entity) VALUES('generic_".$this->db->escape(strtolower($myTmpObjectKey))."_odt', '".$this->db->escape(strtolower($myTmpObjectKey))."', ".((int) $conf->entity).")"
 				));
 			}
+		}
+
+		// Ticket types of customer change requests (reported from a design revision)
+		foreach (array('DESIGN_PROBLEM' => array(50, 'Design problem'), 'DESIGN_CHANGE' => array(51, 'Design change')) as $code => $def) {
+			$sql[] = "INSERT INTO ".$this->db->prefix()."c_ticket_type (entity, code, pos, label, active, use_default, description)"
+				." SELECT ".((int) $conf->entity).", '".$code."', '".((int) $def[0])."', '".$this->db->escape($def[1])."', 1, 0, NULL FROM (SELECT 1) as dummy"
+				." WHERE NOT EXISTS (SELECT 1 FROM ".$this->db->prefix()."c_ticket_type WHERE code = '".$code."' AND entity = ".((int) $conf->entity).")";
 		}
 
 		$result = $this->_init($sql, $options);

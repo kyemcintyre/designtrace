@@ -88,6 +88,10 @@ class ChangeOrder extends CommonObject
 	/**
 	 * Reasons for a change
 	 */
+	const REQUEST_NONE = 0;			// Raised by staff
+	const REQUEST_PROBLEM = 1;		// Customer reported a defect
+	const REQUEST_CHANGE = 2;		// Customer asked for a change
+
 	const REASON_CUSTOMER = 1;
 	const REASON_DEFECT = 2;
 	const REASON_IMPROVEMENT = 3;
@@ -255,6 +259,10 @@ class ChangeOrder extends CommonObject
 			}
 		}
 
+		if ($result > 0 && $this->addTimelineEntry('opened', (string) $user->login, '') < 0) {
+			$result = -1;
+		}
+
 		if ($result > 0) {
 			$this->db->commit();
 		} else {
@@ -263,6 +271,172 @@ class ChangeOrder extends CommonObject
 		}
 
 		return $result;
+	}
+
+	/**
+	 * What the ECO knows about a customer request and its sharing (columns outside the Module Builder fields)
+	 *
+	 * @return	stdClass|null	shareable, request_type, requested_by, fk_revision_source, fk_ticket, fk_order_source, fk_propal, round
+	 */
+	public function getRequestInfo()
+	{
+		$resql = $this->db->query("SELECT shareable, request_type, requested_by, fk_revision_source, fk_ticket, fk_order_source, fk_propal, round FROM ".$this->db->prefix().$this->table_element." WHERE rowid = ".((int) $this->id));
+		$obj = $resql ? $this->db->fetch_object($resql) : null;
+		return $obj ?: null;
+	}
+
+	/**
+	 * Mark the ECO as raised by a customer: shared with that customer automatically
+	 *
+	 * @param	int		$type		self::REQUEST_PROBLEM or self::REQUEST_CHANGE
+	 * @param	string	$actor		Who asked (the customer's user)
+	 * @param	int		$revid		Revision the request is about (0 = none)
+	 * @param	int		$ticketid	Ticket of the request (0 = none)
+	 * @param	int		$orderid	Order that delivered the revision (0 = none)
+	 * @return	int					>0 if OK, <0 if KO
+	 */
+	public function markCustomerRequest($type, $actor, $revid = 0, $ticketid = 0, $orderid = 0)
+	{
+		$sql = "UPDATE ".$this->db->prefix().$this->table_element." SET shareable = 1, request_type = ".((int) $type).", requested_by = '".$this->db->escape(dol_trunc($actor, 128, 'right', 'UTF-8', 1))."'";
+		$sql .= ", fk_revision_source = ".((int) $revid > 0 ? (int) $revid : 'NULL').", fk_ticket = ".((int) $ticketid > 0 ? (int) $ticketid : 'NULL').", fk_order_source = ".((int) $orderid > 0 ? (int) $orderid : 'NULL');
+		$sql .= " WHERE rowid = ".((int) $this->id);
+		if (!$this->db->query($sql)) {
+			return $this->setErrorAndFail($this->db->lasterror());
+		}
+		// The opening entry of the timeline is the customer's, not the service user's
+		$this->db->query("UPDATE ".$this->db->prefix()."designtrace_changeorder_event SET actor = '".$this->db->escape(dol_trunc($actor, 128, 'right', 'UTF-8', 1))."' WHERE fk_eco = ".((int) $this->id)." AND type = 'opened'");
+		return 1;
+	}
+
+	/**
+	 * Share the ECO with its customer (summary and request text; never internal notes), or stop
+	 *
+	 * @param	bool	$shareable	Shared
+	 * @return	int					>0 if OK, <0 if KO
+	 */
+	public function setShareable($shareable)
+	{
+		return $this->db->query("UPDATE ".$this->db->prefix().$this->table_element." SET shareable = ".($shareable ? 1 : 0)." WHERE rowid = ".((int) $this->id)) ? 1 : $this->setErrorAndFail($this->db->lasterror());
+	}
+
+	/**
+	 * Link a quote of the ECO's customer: the ECO waits on it (it cannot be approved before the quote
+	 * is accepted). 0 removes the link.
+	 *
+	 * @param	int		$propalid	Quote id, 0 = none
+	 * @return	int					>0 if OK, <0 if KO
+	 */
+	public function linkQuote($propalid)
+	{
+		global $langs;
+
+		$langs->load('designtrace@designtrace');
+		if ((int) $propalid > 0) {
+			$resql = $this->db->query("SELECT fk_soc FROM ".$this->db->prefix()."propal WHERE rowid = ".((int) $propalid));
+			$obj = $resql ? $this->db->fetch_object($resql) : null;
+			if (!$obj || ((int) $this->fk_soc > 0 && (int) $obj->fk_soc !== (int) $this->fk_soc)) {
+				return $this->setErrorAndFail($langs->trans('ErrorEcoQuoteOtherCustomer'));
+			}
+		}
+		return $this->db->query("UPDATE ".$this->db->prefix().$this->table_element." SET fk_propal = ".((int) $propalid > 0 ? (int) $propalid : 'NULL')." WHERE rowid = ".((int) $this->id)) ? 1 : $this->setErrorAndFail($this->db->lasterror());
+	}
+
+	/**
+	 * Whether the linked quote is accepted (signed or invoiced); true when there is no linked quote
+	 *
+	 * @return	bool
+	 */
+	public function isQuoteSettled()
+	{
+		$info = $this->getRequestInfo();
+		if (!$info || (int) $info->fk_propal <= 0) {
+			return true;
+		}
+		$resql = $this->db->query("SELECT fk_statut FROM ".$this->db->prefix()."propal WHERE rowid = ".((int) $info->fk_propal));
+		$obj = $resql ? $this->db->fetch_object($resql) : null;
+		return $obj && in_array((int) $obj->fk_statut, array(2, 4), true);	// Signed, billed
+	}
+
+	/**
+	 * Current round of the ECO: 1 when raised, +1 each time the customer asks for changes again
+	 *
+	 * @return	int
+	 */
+	public function getRound()
+	{
+		$resql = $this->db->query("SELECT round FROM ".$this->db->prefix().$this->table_element." WHERE rowid = ".((int) $this->id));
+		$obj = $resql ? $this->db->fetch_object($resql) : null;
+		return $obj ? (int) $obj->round : 1;
+	}
+
+	/**
+	 * Add an entry to the timeline, for the current round
+	 *
+	 * @param	string	$type		opened, changes_requested...
+	 * @param	string	$actor		Who
+	 * @param	string	$comment	Why
+	 * @return	int					>0 if OK, <0 if KO
+	 */
+	public function addTimelineEntry($type, $actor, $comment = '')
+	{
+		global $conf;
+
+		$sql = "INSERT INTO ".$this->db->prefix()."designtrace_changeorder_event (entity, fk_eco, round, type, actor, comment, date_event)";
+		$sql .= " VALUES (".((int) $conf->entity).", ".((int) $this->id).", ".((int) $this->getRound()).", '".$this->db->escape($type)."'";
+		$sql .= ", '".$this->db->escape(dol_trunc($actor, 128, 'right', 'UTF-8', 1))."', ".($comment !== '' ? "'".$this->db->escape($comment)."'" : 'NULL').", '".$this->db->idate(dol_now())."')";
+		return $this->db->query($sql) ? 1 : $this->setErrorAndFail($this->db->lasterror());
+	}
+
+	/**
+	 * Timeline, oldest first
+	 *
+	 * @return	stdClass[]	Rows: round, type, actor, comment, date_event (timestamp)
+	 */
+	public function fetchTimeline()
+	{
+		$rows = array();
+		$resql = $this->db->query("SELECT round, type, actor, comment, date_event FROM ".$this->db->prefix()."designtrace_changeorder_event WHERE fk_eco = ".((int) $this->id)." ORDER BY date_event ASC, rowid ASC");
+		while ($resql && ($obj = $this->db->fetch_object($resql))) {
+			$obj->date_event = $this->db->jdate($obj->date_event);
+			$rows[] = $obj;
+		}
+		return $rows;
+	}
+
+	/**
+	 * The customer asked for changes again: the same ECO starts a new round, back at Draft when it
+	 * can go there (closed and implemented ECOs step back first; an approved one with released
+	 * revisions stays approved), with a timeline entry for the round.
+	 *
+	 * @param	User	$user		User
+	 * @param	string	$actor		Who asked
+	 * @param	string	$comment	What they asked
+	 * @return	int					The new round, <0 if KO
+	 */
+	public function reopenForNewRound($user, $actor, $comment)
+	{
+		$this->db->begin();
+		while (in_array((int) $this->status, array(self::STATUS_CLOSED, self::STATUS_IMPLEMENTED), true)) {
+			if ($this->reopen($user) <= 0) {
+				$this->db->rollback();
+				return -1;
+			}
+		}
+		if (in_array((int) $this->status, array(self::STATUS_APPROVED, self::STATUS_CANCELED), true)) {
+			$this->setDraft($user);	// Refused while released revisions exist: stays Approved, the round still counts
+			$this->error = '';
+			$this->errors = array();
+		}
+		if (!$this->db->query("UPDATE ".$this->db->prefix().$this->table_element." SET round = round + 1 WHERE rowid = ".((int) $this->id))) {
+			$this->db->rollback();
+			return $this->setErrorAndFail($this->db->lasterror());
+		}
+		if ($this->addTimelineEntry('changes_requested', $actor, $comment) < 0) {
+			$this->db->rollback();
+			return -1;
+		}
+		$this->db->commit();
+		return $this->getRound();
 	}
 
 	/**
@@ -611,6 +785,9 @@ class ChangeOrder extends CommonObject
 		if ($this->countAffectedComponents() <= 0) {
 			return $this->setErrorAndFail($langs->trans('ErrorEcoNoAffectedComponents', $this->ref));
 		}
+		if (!$this->isQuoteSettled()) {
+			return $this->setErrorAndFail($langs->trans('ErrorEcoWaitsForQuote', $this->ref));
+		}
 		$this->db->begin();
 		$now = dol_now();
 		$sql = "UPDATE ".$this->db->prefix().$this->table_element." SET fk_user_approve = ".((int) $user->id).", date_approve = '".$this->db->idate($now)."'";
@@ -695,7 +872,11 @@ class ChangeOrder extends CommonObject
 		if ((int) $this->status !== self::STATUS_IMPLEMENTED) {
 			return 0;
 		}
-		return $this->setStatusCommon($user, self::STATUS_CLOSED, $notrigger, 'DESIGNTRACE_CHANGEORDER_CLOSE');
+		$result = $this->setStatusCommon($user, self::STATUS_CLOSED, $notrigger, 'DESIGNTRACE_CHANGEORDER_CLOSE');
+		if ($result > 0) {
+			$this->db->query("UPDATE ".$this->db->prefix().$this->table_element." SET date_closed = '".$this->db->idate(dol_now())."' WHERE rowid = ".((int) $this->id));
+		}
+		return $result;
 	}
 
 	/**
