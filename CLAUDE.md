@@ -313,7 +313,7 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
   "advanced" mask rules ignore type); release gated on customer approval of a proof; a 3D viewer
   in Dolibarr's Web portal; designs tied to tasks (time uses the design's default task).
 
-## Customer design library (issue #1, phase 1 of 4 built)
+## Customer design library (issue #1, phases 1-2 of 4 built)
 
 REST-first, same conventions as above (`{socid}` from the caller, optional actor/client IP/user agent,
 no automated emails). Reference for the Go side: `designtrace/API.md`.
@@ -347,9 +347,27 @@ no automated emails). Reference for the Go side: `designtrace/API.md`.
 - Revision `customer_note`: the customer release note (not cloned).
 - API tests call the API class directly (`ApiLibraryTest`) with a stand-in `RestException` and
   `DolibarrApiAccess`: `api_access.class.php` registers Restler's autoloader, which breaks PHPUnit.
-- Still to build from issue #1: approvals (needs-approval flag, release block, per ECO or design),
-  ECO request flow and customer ECO views, attention counts, history endpoint, accept/approve role
-  setting, staff endpoints and metrics (phases 2-4).
+- **Approvals** (phase 2, `class/approvals.class.php`): revision `needs_approval` (default on for proof
+  drawings, set in `create()`, any revision can be flagged); `release()` refuses while flagged and
+  `customer_approval` is not 1. One approval covers all flagged **In review** revisions of the same ECO,
+  or of the design when they have no ECO (`fetchScopeRevisions()`, only designs the customer reaches).
+  `approve()` / `requestChanges()` write `llx_designtrace_approval` rows (element `eco`/`design`),
+  stamp the revisions by SQL and add events. Requesting changes names revisions; with an ECO it calls
+  `ChangeOrder::reopenForNewRound()` (steps closed/implemented back, Draft when possible, `round` + 1,
+  entry in `llx_designtrace_changeorder_event`), else it creates a draft ECO (reason customer) and sets
+  `fk_eco` on those revisions. The per-revision proof flow (`DesignTraceProofApproval::decide()`, ticket/ECO
+  setting) still exists for proofs shown through a document.
+- **Who may accept/approve**: thirdparty extrafield `designtrace_approvers` (created in `modDesignTrace::init()`,
+  0 any user / 1 admins only); `DesignTraceApprovals::checkRole()`; the API takes `actor_role` and answers
+  403 `role_not_allowed: ...` (the `approve`/`requestChanges` methods return -2 for it).
+- `DesignTraceLibrary::fetchAttention()` (counts) and `fetchHistory()` (releases, approvals, acceptances,
+  consent, downloads with actors; consent has no customer column, so it is shown per design reached).
+  Design-level consent endpoints use `DesignTracePortfolio::setConsent()` with no document.
+- Still to build from issue #1: ECO request flow (problem/change tickets, shareable ECOs, customer ECO
+  views, withdraw, reference files, quote link, ticket types, "ask for access again"), staff endpoints and
+  metrics (phases 3-4). Not done in phase 2: showing the approval block and release reason on the revision
+  card (the field is on the card and the release error names the reason), staff "force re-acceptance"
+  and role-setting UI beyond the thirdparty extrafield.
 
 ## Module Builder pitfalls (24.0.2)
 

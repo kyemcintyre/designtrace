@@ -104,6 +104,33 @@ calls answer `403` ("Licence not accepted for this design") until then.
 | `POST customers/{socid}/designs/{designid}/licence/accept` | Accept without a document. Body `version_id`, `actor`, `client_ip`, `user_agent`. `409` if the licence changed. Call it first when a quote is accepted. |
 | `GET customers/{socid}/designs/{designid}/licence/pdf` | **The customer's copy** (PDF), whichever way it was accepted. |
 
+### Approvals
+
+Any revision can be flagged **needs customer approval** (proof drawings are by default); staff cannot
+release it until the customer approves. One approval covers every flagged revision waiting in the same
+ECO, or in the same design when there is no ECO.
+
+| Method and path | What |
+|---|---|
+| `GET customers/{socid}/approvals` | Entries waiting for the customer: `scope` (`eco` or `design`), `id`, `ref`, `label`, `round` (ECOs), `awaiting`, `changes_requested`, `revisions` (with `release_note`). |
+| `POST customers/{socid}/approvals/{eco\|design}/{id}/approve` | Body `comment`, `actor`, `actor_role`, `client_ip`, `user_agent`. Approves all revisions of the entry. `409` if nothing waits. |
+| `POST customers/{socid}/approvals/{eco\|design}/{id}/request-changes` | Body `comment` (required), `revision_ids` (the revisions the changes are for; empty = all), `actor`, `actor_role`, `client_ip`, `user_agent`. Reopens the same ECO as a new round (a timeline entry per round), or opens a draft ECO (reason customer) when there is none. Returns `eco_id`, `round`, `revision_ids`. |
+
+**Who may accept and approve**: for a customer with several users, a setting on the third party (DesignTrace:
+"who accepts licences and approves") says any user or the customer's admins only. Pass the acting user's
+`actor_role` (`admin` or `user`) with licence acceptance, proof decisions and approvals; when the setting
+reserves them to admins you get `403` with a message starting `role_not_allowed` (distinct from other
+`403`s). Every decision is logged with its `actor`, so the history of a customer covers every user.
+
+### What waits, and history
+
+| Method and path | What |
+|---|---|
+| `GET customers/{socid}/attention` | Counts: `licences` (designs to accept), `approvals`, `consent` (designs not asked yet; never confidential ones), `newer_revisions`, `total`, and the design ids behind them. |
+| `GET customers/{socid}/history[?design_id&limit]` | Releases, approvals and change requests, licence acceptances, consent and downloads, newest first, each with its `actor`. Also for designs whose access ended. |
+| `GET customers/{socid}/designs/{designid}/consent` | Portfolio consent of a design (`none`, `granted`, `refused`, `confidential`). |
+| `POST customers/{socid}/designs/{designid}/consent` | Body `consent` (`granted`/`refused`), `actor`, `client_ip`. `409` for a confidential design. |
+
 ### Proofs
 
 | Method and path | What |

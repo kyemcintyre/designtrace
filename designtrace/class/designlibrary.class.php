@@ -262,6 +262,15 @@ class DesignTraceLibrary
 			}
 		}
 
+		dol_include_once('/designtrace/class/approvals.class.php');
+		foreach (DesignTraceApprovals::fetchPending($db, $socid) as $entry) {
+			if ($entry['awaiting'] > 0) {
+				foreach ($entry['design_ids'] as $designid) {
+					$proofdesigns[(int) $designid] = true;
+				}
+			}
+		}
+
 		$sql = "SELECT d.rowid, d.ref, d.label, d.status, d.confidential, d.fk_project, d.portfolio_consent, d.ownership, p.ref as project_ref";
 		$sql .= " FROM ".$db->prefix()."designtrace_design as d LEFT JOIN ".$db->prefix()."projet as p ON p.rowid = d.fk_project";
 		$sql .= " WHERE d.rowid IN (".$db->sanitize(implode(',', array_map('intval', array_keys($access)))).")";
@@ -650,5 +659,132 @@ class DesignTraceLibrary
 			return $b['date'] <=> $a['date'];
 		});
 		return $events;
+	}
+
+	/**
+	 * What waits for the customer: licences to accept, approvals, consent questions, newer revisions
+	 *
+	 * @param	DoliDB	$db		Database handler
+	 * @param	int		$socid	Customer id
+	 * @return	array{licences:int,approvals:int,consent:int,newer_revisions:int,total:int,designs:array<string,int[]>}
+	 *			Counts (licences, consent: designs; approvals: ECOs or designs awaiting a decision, and proofs shown through
+	 *			documents that are not flagged; newer_revisions: components) and the design ids behind licences, approvals, consent
+	 */
+	public static function fetchAttention($db, $socid)
+	{
+		dol_include_once('/designtrace/class/approvals.class.php');
+		$items = array();
+		for ($page = 0; ; $page++) {
+			$library = self::fetchLibrary($db, $socid, array(), $page, 200);
+			$items = array_merge($items, $library['items']);
+			if (count($items) >= $library['total'] || empty($library['items'])) {
+				break;
+			}
+		}
+		$designs = array('licences' => array(), 'approvals' => array(), 'consent' => array());
+		foreach ($items as $item) {
+			foreach (array('licences' => 'licence', 'consent' => 'consent') as $key => $flag) {
+				if ($item['flags'][$flag]) {
+					$designs[$key][] = $item['id'];
+				}
+			}
+		}
+		$approvals = 0;
+		foreach (DesignTraceApprovals::fetchPending($db, $socid) as $entry) {
+			if ($entry['awaiting'] > 0) {
+				$approvals++;
+				$designs['approvals'] = array_merge($designs['approvals'], $entry['design_ids']);
+			}
+		}
+		// Proofs shown through a document that are not flagged still wait for a decision (the per-revision flow)
+		foreach (DesignTraceProofApproval::fetchProofs($db, $socid) as $proof) {
+			if (empty($proof['can_decide']) || (int) $proof['decision'] !== DesignTraceProofApproval::DECISION_NONE) {
+				continue;
+			}
+			$resql = $db->query("SELECT r.needs_approval, c.fk_design FROM ".$db->prefix()."designtrace_componentrevision as r INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component WHERE r.rowid = ".((int) $proof['rev_id']));
+			$obj = $resql ? $db->fetch_object($resql) : null;
+			if ($obj && empty($obj->needs_approval)) {
+				$approvals++;
+				$designs['approvals'][] = (int) $obj->fk_design;
+			}
+		}
+		$newer = count(self::fetchNewerRevisions($db, $socid));
+		foreach ($designs as $key => $ids) {
+			$designs[$key] = array_values(array_unique(array_map('intval', $ids)));
+		}
+		$counts = array('licences' => count($designs['licences']), 'approvals' => $approvals, 'consent' => count($designs['consent']), 'newer_revisions' => $newer);
+		return $counts + array('total' => array_sum($counts), 'designs' => $designs);
+	}
+
+	/**
+	 * History of a customer: releases, approvals, licence acceptances, consent and downloads, newest
+	 * first, each naming the actor. For a customer with several users it covers every one of them.
+	 *
+	 * @param	DoliDB	$db			Database handler
+	 * @param	int		$socid		Customer id
+	 * @param	int		$designid	Only this design (0 = all the customer reaches or reached)
+	 * @param	int		$limit		Max entries (1-500)
+	 * @return	array<int,array<string,mixed>>	date, type (release, approval, changes_requested, licence_accepted, consent, download),
+	 *											design_id, design_ref, text, actor
+	 */
+	public static function fetchHistory($db, $socid, $designid = 0, $limit = 100)
+	{
+		$limit = max(1, min(500, (int) $limit));
+		$access = self::fetchAccess($db, $socid);
+		if ($designid > 0) {
+			$access = isset($access[(int) $designid]) ? array((int) $designid => $access[(int) $designid]) : array();
+		}
+		if (empty($access)) {
+			return array();
+		}
+		$in = $db->sanitize(implode(',', array_map('intval', array_keys($access))));
+		$refs = array();
+		$resql = $db->query("SELECT rowid, ref FROM ".$db->prefix()."designtrace_design WHERE rowid IN (".$in.")");
+		while ($resql && ($obj = $db->fetch_object($resql))) {
+			$refs[(int) $obj->rowid] = $obj->ref;
+		}
+		$events = array();
+		$add = function ($date, $type, $designid, $text, $actor) use (&$events, $refs) {
+			$events[] = array('date' => (int) $date, 'type' => $type, 'design_id' => (int) $designid, 'design_ref' => $refs[(int) $designid] ?? '', 'text' => (string) $text, 'actor' => (string) $actor);
+		};
+
+		// Releases of components the customer holds (by their revisions), with the releasing user
+		$states = self::fetchComponentStates($db, $socid, $access);
+		if (!empty($states)) {
+			$resql = $db->query("SELECT r.ref, r.date_release, c.fk_design, u.login FROM ".$db->prefix()."designtrace_componentrevision as r INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component LEFT JOIN ".$db->prefix()."user as u ON u.rowid = r.fk_user_release WHERE r.fk_component IN (".$db->sanitize(implode(',', array_map('intval', array_keys($states)))).") AND r.status IN (".((int) ComponentRevision::STATUS_RELEASED).", ".((int) ComponentRevision::STATUS_OBSOLETE).") AND r.date_release IS NOT NULL");
+			while ($resql && ($obj = $db->fetch_object($resql))) {
+				$add($db->jdate($obj->date_release), 'release', $obj->fk_design, $obj->ref, $obj->login);
+			}
+		}
+		$sql = "SELECT a.decision, a.comment, a.actor, a.date_decision, c.fk_design, r.ref FROM ".$db->prefix()."designtrace_approval as a";
+		$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.rowid = a.fk_revision INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
+		$sql .= " WHERE a.fk_soc = ".((int) $socid)." AND c.fk_design IN (".$in.")";
+		$resql = $db->query($sql);
+		while ($resql && ($obj = $db->fetch_object($resql))) {
+			$add($db->jdate($obj->date_decision), ((int) $obj->decision === DesignTraceProofApproval::DECISION_APPROVED ? 'approval' : 'changes_requested'), $obj->fk_design, $obj->ref.($obj->comment ? ': '.$obj->comment : ''), $obj->actor);
+		}
+		$sql = "SELECT a.fk_design, a.actor, a.date_accept, v.ref FROM ".$db->prefix()."designtrace_licenceaccept as a LEFT JOIN ".$db->prefix()."designtrace_licenceversion as v ON v.rowid = a.fk_licenceversion";
+		$sql .= " WHERE a.fk_soc = ".((int) $socid)." AND a.fk_design IN (".$in.")";
+		$resql = $db->query($sql);
+		while ($resql && ($obj = $db->fetch_object($resql))) {
+			$add($db->jdate($obj->date_accept), 'licence_accepted', $obj->fk_design, $obj->ref, $obj->actor);
+		}
+		// Consent is recorded per design (not per customer): shown for the designs the customer reaches
+		$sql = "SELECT fk_design, consent, actor, date_consent FROM ".$db->prefix()."designtrace_consent WHERE fk_design IN (".$in.")";
+		$resql = $db->query($sql);
+		while ($resql && ($obj = $db->fetch_object($resql))) {
+			$add($db->jdate($obj->date_consent), 'consent', $obj->fk_design, ((int) $obj->consent === DesignTracePortfolio::CONSENT_GRANTED ? 'granted' : 'refused'), $obj->actor);
+		}
+		$sql = "SELECT dl.filename, dl.actor, dl.date_download, c.fk_design FROM ".$db->prefix()."designtrace_download as dl";
+		$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.rowid = dl.fk_revision INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
+		$sql .= " WHERE dl.fk_soc = ".((int) $socid)." AND c.fk_design IN (".$in.")";
+		$resql = $db->query($sql);
+		while ($resql && ($obj = $db->fetch_object($resql))) {
+			$add($db->jdate($obj->date_download), 'download', $obj->fk_design, $obj->filename, $obj->actor);
+		}
+		usort($events, function ($a, $b) {
+			return $b['date'] <=> $a['date'];
+		});
+		return array_slice($events, 0, $limit);
 	}
 }

@@ -44,6 +44,7 @@ dol_include_once('/designtrace/class/proofapproval.class.php');
 dol_include_once('/designtrace/class/reorder.class.php');
 dol_include_once('/designtrace/class/customerportal.class.php');
 dol_include_once('/designtrace/class/designlibrary.class.php');
+dol_include_once('/designtrace/class/approvals.class.php');
 
 /**
  * API class for DesignTrace customer files (named DesignTrace so the endpoints are /designtrace/...)
@@ -399,6 +400,7 @@ class DesignTrace extends DolibarrApi
 	 * @param	string	$actor		Who accepts, for the log (e.g. the portal login)
 	 * @param	string	$client_ip	Customer's IP address as seen by the calling backend, recorded only {@from body}
 	 * @param	string	$user_agent	Customer's browser as seen by the calling backend, recorded only {@from body}
+	 * @param	string	$actor_role	Acting user's role in the customer's account: admin or user (see the setting who may accept and approve) {@from body}
 	 * @return	array				id of the acceptance, date
 	 * @phan-return array<string,int>
 	 * @phpstan-return array<string,int>
@@ -406,14 +408,15 @@ class DesignTrace extends DolibarrApi
 	 * @url	POST customers/{socid}/documents/{element}/{docid}/licences/accept
 	 *
 	 * @throws RestException 400 Bad document type
-	 * @throws RestException 403 Not allowed
+	 * @throws RestException 403 Not allowed, or role_not_allowed (the customer's setting reserves this to its admins)
 	 * @throws RestException 404 Document not found
 	 * @throws RestException 409 Licence changed or nothing to accept
 	 */
-	public function acceptLicence($socid, $element, $docid, $design_id, $version_id, $actor = '', $client_ip = '', $user_agent = '')
+	public function acceptLicence($socid, $element, $docid, $design_id, $version_id, $actor = '', $client_ip = '', $user_agent = '', $actor_role = '')
 	{
 		$socid = $this->checkCustomer($socid);
 		$doc = $this->checkLicenceDocument($socid, $element, $docid);
+		$this->checkApprover($socid, $actor_role);
 		$actor = trim((string) $actor);
 		if ($actor === '') {
 			$actor = 'api:'.DolibarrApiAccess::$user->login;
@@ -467,6 +470,7 @@ class DesignTrace extends DolibarrApi
 	 * @param	string	$actor		Who decided, for the log {@from body}
 	 * @param	string	$client_ip	Customer's IP address as seen by the calling backend, recorded only {@from body}
 	 * @param	string	$user_agent	Customer's browser as seen by the calling backend, recorded only {@from body}
+	 * @param	string	$actor_role	Acting user's role: admin or user {@from body}
 	 * @return	array				id of the decision, ticket_id, eco_id (0 if none)
 	 * @phan-return array<string,int>
 	 * @phpstan-return array<string,int>
@@ -477,9 +481,10 @@ class DesignTrace extends DolibarrApi
 	 * @throws RestException 403 Not allowed
 	 * @throws RestException 409 Not available or already approved
 	 */
-	public function decideProof($socid, $element, $docid, $revid, $decision, $comment = '', $actor = '', $client_ip = '', $user_agent = '')
+	public function decideProof($socid, $element, $docid, $revid, $decision, $comment = '', $actor = '', $client_ip = '', $user_agent = '', $actor_role = '')
 	{
 		$socid = $this->checkCustomer($socid);
+		$this->checkApprover($socid, $actor_role);
 		$type = DesignTraceClientAccess::normaliseElement($element);
 		if ($type === '') {
 			throw new RestException(400, 'Bad document type, use quote, order, ticket, project or grant');
@@ -1083,6 +1088,7 @@ class DesignTrace extends DolibarrApi
 	 * @param	string	$actor		Who accepts, for the log (e.g. the portal login)
 	 * @param	string	$client_ip	Customer's IP address as seen by the calling backend, recorded only {@from body}
 	 * @param	string	$user_agent	Customer's browser as seen by the calling backend, recorded only {@from body}
+	 * @param	string	$actor_role	Acting user's role in the customer's account: admin or user (see the setting who may accept and approve) {@from body}
 	 * @return	array				id of the acceptance, date
 	 * @phan-return array<string,int>
 	 * @phpstan-return array<string,int>
@@ -1093,10 +1099,11 @@ class DesignTrace extends DolibarrApi
 	 * @throws RestException 404 Design not found for this customer
 	 * @throws RestException 409 Licence changed or nothing to accept
 	 */
-	public function acceptDesignLicence($socid, $designid, $version_id, $actor = '', $client_ip = '', $user_agent = '')
+	public function acceptDesignLicence($socid, $designid, $version_id, $actor = '', $client_ip = '', $user_agent = '', $actor_role = '')
 	{
 		$socid = $this->checkCustomer($socid);
 		$this->checkDesignAccess($socid, $designid);
+		$this->checkApprover($socid, $actor_role);
 		$actor = trim((string) $actor);
 		if ($actor === '') {
 			$actor = 'api:'.DolibarrApiAccess::$user->login;
@@ -1134,6 +1141,253 @@ class DesignTrace extends DolibarrApi
 		DesignTraceClientAccess::sendFile($path, $acc->filename, false, array(
 			'X-Content-SHA256' => (string) hash_file('sha256', dol_osencode($path)),
 		));
+	}
+
+	/**
+	 * Approvals waiting for the customer: flagged revisions In review, one entry per ECO (or per
+	 * design when they have no ECO). One approval covers all revisions of an entry. `awaiting`
+	 * counts those not decided yet; `changes_requested` those the customer asked changes for
+	 * (waiting for the workshop; they can still be approved later).
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @return	array				scope (eco or design), id, ref, label, round (ECOs), design_ids, awaiting, changes_requested, revisions
+	 * @phan-return array<int,array<string,mixed>>
+	 * @phpstan-return array<int,array<string,mixed>>
+	 *
+	 * @url	GET customers/{socid}/approvals
+	 *
+	 * @throws RestException 403 Not allowed
+	 */
+	public function listApprovals($socid)
+	{
+		$socid = $this->checkCustomer($socid);
+		return DesignTraceApprovals::fetchPending($this->db, $socid);
+	}
+
+	/**
+	 * Approve: one approval covers every flagged revision waiting in the ECO (scope eco) or in the
+	 * design when it has no ECO (scope design). The actor and IP are recorded. Honours the
+	 * customer's setting on who may approve: pass the acting user's role, refused with
+	 * `role_not_allowed` (403) when the setting reserves it to the customer's admins.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	string	$scope		eco or design
+	 * @param	int		$scopeid	ECO id or design id (from GET approvals)
+	 * @param	string	$comment	Optional comment {@from body}
+	 * @param	string	$actor		Who approves, for the log {@from body}
+	 * @param	string	$actor_role	Acting user's role: admin or user {@from body}
+	 * @param	string	$client_ip	Customer's IP address as seen by the calling backend, recorded only {@from body}
+	 * @param	string	$user_agent	Customer's browser as seen by the calling backend, recorded only {@from body}
+	 * @return	array				revision_ids approved
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	POST customers/{socid}/approvals/{scope}/{scopeid}/approve
+	 *
+	 * @throws RestException 400 Bad scope
+	 * @throws RestException 403 Not allowed, or role_not_allowed
+	 * @throws RestException 409 Nothing to approve
+	 */
+	public function approveScope($socid, $scope, $scopeid, $comment = '', $actor = '', $actor_role = '', $client_ip = '', $user_agent = '')
+	{
+		$socid = $this->checkCustomer($socid);
+		$scope = $this->checkScope($scope);
+		$error = '';
+		$res = DesignTraceApprovals::approve($this->db, DolibarrApiAccess::$user, $socid, $scope, (int) $scopeid, (string) $actor_role, (string) $comment, DesignTraceClientAccess::CHANNEL_API, $this->getActor($actor), $error, (string) $client_ip, (string) $user_agent);
+		$this->checkApprovalResult($res, $error);
+		return array('revision_ids' => $res);
+	}
+
+	/**
+	 * Request changes on named revisions of an approval entry (all of them when revision_ids is
+	 * empty). A comment is required. With an ECO the same ECO is reopened as a new round (another
+	 * timeline entry); without one a draft ECO (reason customer) is opened.
+	 *
+	 * @param	int		$socid			Customer (third party) id
+	 * @param	string	$scope			eco or design
+	 * @param	int		$scopeid		ECO id or design id (from GET approvals)
+	 * @param	string	$comment		What to change {@from body}
+	 * @param	array	$revision_ids	Revisions the changes are for {@from body}
+	 * @param	string	$actor			Who asks, for the log {@from body}
+	 * @param	string	$actor_role		Acting user's role: admin or user {@from body}
+	 * @param	string	$client_ip		Customer's IP address as seen by the calling backend, recorded only {@from body}
+	 * @param	string	$user_agent		Customer's browser as seen by the calling backend, recorded only {@from body}
+	 * @return	array					eco_id, round, revision_ids
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	POST customers/{socid}/approvals/{scope}/{scopeid}/request-changes
+	 *
+	 * @throws RestException 400 Bad scope
+	 * @throws RestException 403 Not allowed, or role_not_allowed
+	 * @throws RestException 409 Nothing to decide, comment missing or revisions not in this entry
+	 */
+	public function requestScopeChanges($socid, $scope, $scopeid, $comment, $revision_ids = array(), $actor = '', $actor_role = '', $client_ip = '', $user_agent = '')
+	{
+		$socid = $this->checkCustomer($socid);
+		$scope = $this->checkScope($scope);
+		$error = '';
+		$res = DesignTraceApprovals::requestChanges($this->db, DolibarrApiAccess::$user, $socid, $scope, (int) $scopeid, is_array($revision_ids) ? $revision_ids : preg_split('/[\s,]+/', (string) $revision_ids, -1, PREG_SPLIT_NO_EMPTY), (string) $comment, (string) $actor_role, DesignTraceClientAccess::CHANNEL_API, $this->getActor($actor), $error, (string) $client_ip, (string) $user_agent);
+		$this->checkApprovalResult($res, $error);
+		return array('eco_id' => $res['eco'], 'round' => $res['round'], 'revision_ids' => $res['revisions']);
+	}
+
+	/**
+	 * What waits for the customer: licences to accept, approvals, consent questions, newer revisions
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @return	array				licences, approvals, consent, newer_revisions, total, designs (design ids behind licences, approvals, consent)
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET customers/{socid}/attention
+	 *
+	 * @throws RestException 403 Not allowed
+	 */
+	public function getAttention($socid)
+	{
+		$socid = $this->checkCustomer($socid);
+		return DesignTraceLibrary::fetchAttention($this->db, $socid);
+	}
+
+	/**
+	 * History of the customer: releases, approvals and change requests, licence acceptances,
+	 * portfolio consent and downloads, newest first, each naming the actor (every user of the
+	 * customer's account, not only the caller's). Also for designs whose access ended.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$design_id	Only this design
+	 * @param	int		$limit		Max entries (1-500)
+	 * @return	array				date, type, design_id, design_ref, text, actor
+	 * @phan-return array<int,array<string,mixed>>
+	 * @phpstan-return array<int,array<string,mixed>>
+	 *
+	 * @url	GET customers/{socid}/history
+	 *
+	 * @throws RestException 403 Not allowed
+	 */
+	public function getHistory($socid, $design_id = 0, $limit = 100)
+	{
+		$socid = $this->checkCustomer($socid);
+		return DesignTraceLibrary::fetchHistory($this->db, $socid, (int) $design_id, (int) $limit);
+	}
+
+	/**
+	 * Portfolio consent of a design the customer reaches, whatever the basis. A confidential design
+	 * is never asked (the answer is `confidential`, and it cannot be set).
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$designid	Design id
+	 * @return	array				design_id, consent (none, granted, refused), confidential, date_consent
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET customers/{socid}/designs/{designid}/consent
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Design not found for this customer
+	 */
+	public function getDesignConsent($socid, $designid)
+	{
+		$socid = $this->checkCustomer($socid);
+		$this->checkDesignAccess($socid, $designid);
+		return $this->formatDesignConsent((int) $designid);
+	}
+
+	/**
+	 * Record the customer's portfolio consent for a design, without a quote or order
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$designid	Design id
+	 * @param	string	$consent	granted or refused {@from body}
+	 * @param	string	$actor		Who answered, for the log {@from body}
+	 * @param	string	$client_ip	Customer's IP address as seen by the calling backend, recorded only {@from body}
+	 * @return	array				design_id, consent, changed (false when it was already the answer)
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	POST customers/{socid}/designs/{designid}/consent
+	 *
+	 * @throws RestException 400 Bad consent
+	 * @throws RestException 403 Not allowed or access ended
+	 * @throws RestException 404 Design not found for this customer
+	 * @throws RestException 409 Confidential designs are not asked
+	 */
+	public function setDesignConsent($socid, $designid, $consent, $actor = '', $client_ip = '')
+	{
+		$socid = $this->checkCustomer($socid);
+		$this->checkDesignAccess($socid, $designid);
+		$values = array('granted' => DesignTracePortfolio::CONSENT_GRANTED, 'refused' => DesignTracePortfolio::CONSENT_REFUSED);
+		$consent = strtolower(trim((string) $consent));
+		if (!isset($values[$consent])) {
+			throw new RestException(400, 'Bad consent, use granted or refused');
+		}
+		$current = $this->formatDesignConsent((int) $designid);
+		if ($current['confidential']) {
+			throw new RestException(409, 'A confidential design is never asked for portfolio consent');
+		}
+		$res = DesignTracePortfolio::setConsent($this->db, (int) $designid, $values[$consent], DesignTracePortfolio::CHANNEL_API, $this->getActor($actor), '', 0, 0, '', (string) $client_ip);
+		if ($res < 0) {
+			throw new RestException(503, 'Error saving consent');
+		}
+		return array('design_id' => (int) $designid, 'consent' => $consent, 'changed' => ($res > 0));
+	}
+
+	/**
+	 * @param	int		$designid	Design id
+	 * @return	array<string,mixed>
+	 */
+	private function formatDesignConsent($designid)
+	{
+		$names = array(DesignTracePortfolio::CONSENT_NONE => 'none', DesignTracePortfolio::CONSENT_GRANTED => 'granted', DesignTracePortfolio::CONSENT_REFUSED => 'refused');
+		$resql = $this->db->query("SELECT confidential FROM ".$this->db->prefix()."designtrace_design WHERE rowid = ".((int) $designid));
+		$obj = $resql ? $this->db->fetch_object($resql) : null;
+		$history = DesignTracePortfolio::fetchHistory($this->db, $designid);
+		return array('design_id' => $designid, 'consent' => $names[(int) DesignTracePortfolio::getConsent($this->db, $designid)] ?? 'none',
+			'confidential' => ($obj && !empty($obj->confidential)), 'date_consent' => ($history ? $history[0]->date_consent : null));
+	}
+
+	/**
+	 * Refuse, with a distinct error, when the customer reserves licence acceptance and approval to its admins
+	 *
+	 * @param	int		$socid	Customer id
+	 * @param	string	$role	Acting user's role (admin or user)
+	 * @return	void
+	 */
+	private function checkApprover($socid, $role)
+	{
+		$error = '';
+		if (!DesignTraceApprovals::checkRole($this->db, $socid, $role, $error)) {
+			throw new RestException(403, 'role_not_allowed: '.$error);
+		}
+	}
+
+	/**
+	 * @param	string	$scope	eco or design
+	 * @return	string
+	 */
+	private function checkScope($scope)
+	{
+		$scope = strtolower(trim((string) $scope));
+		if (!in_array($scope, array(DesignTraceApprovals::SCOPE_ECO, DesignTraceApprovals::SCOPE_DESIGN), true)) {
+			throw new RestException(400, 'Bad scope, use eco or design');
+		}
+		return $scope;
+	}
+
+	/**
+	 * @param	mixed	$res	Result of an approval call
+	 * @param	string	$error	Its error
+	 * @return	void
+	 */
+	private function checkApprovalResult($res, $error)
+	{
+		if ($res === -2) {
+			throw new RestException(403, 'role_not_allowed: '.$error);
+		}
+		if (!is_array($res)) {
+			throw new RestException(409, $error);
+		}
 	}
 
 	/**

@@ -133,4 +133,92 @@ class ApiLibraryTest extends DesignTraceTestCase
 			$this->api->getDesignLicence($customer->id, $design->id);
 		});
 	}
+
+	public function testApprovalsAttentionHistoryAndConsentEndpoints()
+	{
+		$customer = $this->newCustomer();
+		$licence = $this->newLicence('ZZATT', false);
+		$design = $this->newDesign(array('fk_soc' => $customer->id, 'fk_licence' => $licence->id), true);
+		$quote = $this->newQuote($customer->id);
+		$revs = array();
+		foreach (array('a', 'b') as $n) {
+			$rev = $this->newRevision($this->newComponent($design, Component::TYPE_PART, 'ZZ '.$n));
+			$this->db->query("UPDATE ".MAIN_DB_PREFIX."designtrace_componentrevision SET needs_approval = 1 WHERE rowid = ".((int) $rev->id));
+			$rev->fetch($rev->id);
+			$rev->validate($this->user);
+			$rev->fetch($rev->id);
+			$this->linkDoc($rev, 'propal', $quote->id);
+			$revs[$n] = $rev;
+		}
+
+		$att = $this->api->getAttention($customer->id);
+		$this->assertSame(1, $att['licences']);
+		$this->assertSame(1, $att['approvals'], 'One entry for the design');
+		$this->assertSame(1, $att['consent']);
+		$this->assertSame(0, $att['newer_revisions']);
+		$this->assertSame(3, $att['total']);
+		$this->assertSame(array($design->id), $att['designs']['approvals']);
+
+		$pending = $this->api->listApprovals($customer->id);
+		$this->assertCount(1, $pending);
+		$this->assertSame('design', $pending[0]['scope']);
+		$this->assertTrue($this->api->getLibrary($customer->id)['items'][0]['flags']['approval']);
+
+		$this->expectCode(400, function () use ($customer, $design) {
+			$this->api->approveScope($customer->id, 'bogus', $design->id);
+		});
+		$this->expectCode(409, function () use ($customer, $design) {
+			$this->api->requestScopeChanges($customer->id, 'design', $design->id, '  ');
+		});
+		$res = $this->api->requestScopeChanges($customer->id, 'design', $design->id, 'Make it thicker', array($revs['a']->id), 'portal:ann', 'user', '198.51.100.3');
+		$this->assertSame(1, $res['round']);
+		$this->assertSame(array($revs['a']->id), $res['revision_ids']);
+		$this->assertGreaterThan(0, $res['eco_id']);
+
+		// Only admins approve for this customer
+		$this->db->query("INSERT INTO ".MAIN_DB_PREFIX."societe_extrafields (fk_object, designtrace_approvers) VALUES (".((int) $customer->id).", 1) ON DUPLICATE KEY UPDATE designtrace_approvers = 1");
+		$entries = $this->api->listApprovals($customer->id);
+		$scopes = array_column($entries, null, 'scope');
+		$this->assertArrayHasKey('eco', $scopes);
+		foreach (array(
+			function () use ($customer, $design) {
+				$this->api->approveScope($customer->id, 'design', $design->id, '', 'portal:bob', 'user');
+			},
+			function () use ($customer, $design) {
+				$this->api->acceptDesignLicence($customer->id, $design->id, 1, 'portal:bob', '', '', 'user');
+			},
+		) as $call) {
+			try {
+				$call();
+				$this->fail('Expected refusal');
+			} catch (\Luracast\Restler\RestException $e) {
+				$this->assertSame(403, $e->getCode());
+				$this->assertStringStartsWith('role_not_allowed', $e->getMessage());
+			}
+		}
+		$ok = $this->api->approveScope($customer->id, 'design', $design->id, 'Fine', 'portal:ann', 'admin');
+		$this->assertSame(array($revs['b']->id), $ok['revision_ids']);
+
+		$types = array_column($this->api->getHistory($customer->id), 'type');
+		$this->assertContains('approval', $types);
+		$this->assertContains('changes_requested', $types);
+		$actors = array_column($this->api->getHistory($customer->id, $design->id), 'actor');
+		$this->assertContains('portal:ann', $actors, 'Entries name the actor');
+
+		// Design-level consent; a confidential design is never asked
+		$this->assertSame('none', $this->api->getDesignConsent($customer->id, $design->id)['consent']);
+		$set = $this->api->setDesignConsent($customer->id, $design->id, 'granted', 'portal:ann');
+		$this->assertTrue($set['changed']);
+		$this->assertFalse($this->api->setDesignConsent($customer->id, $design->id, 'granted')['changed']);
+		$this->expectCode(400, function () use ($customer, $design) {
+			$this->api->setDesignConsent($customer->id, $design->id, 'maybe');
+		});
+		$design->confidential = 1;
+		$design->update($this->user);
+		$this->assertTrue($this->api->getDesignConsent($customer->id, $design->id)['confidential']);
+		$this->expectCode(409, function () use ($customer, $design) {
+			$this->api->setDesignConsent($customer->id, $design->id, 'refused');
+		});
+		$this->assertSame(0, $this->api->getAttention($customer->id)['consent'], 'No consent question for a confidential design');
+	}
 }
