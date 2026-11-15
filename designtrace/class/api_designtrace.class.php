@@ -43,6 +43,7 @@ dol_include_once('/designtrace/class/portfolio.class.php');
 dol_include_once('/designtrace/class/proofapproval.class.php');
 dol_include_once('/designtrace/class/reorder.class.php');
 dol_include_once('/designtrace/class/customerportal.class.php');
+dol_include_once('/designtrace/class/designlibrary.class.php');
 
 /**
  * API class for DesignTrace customer files (named DesignTrace so the endpoints are /designtrace/...)
@@ -816,11 +817,12 @@ class DesignTrace extends DolibarrApi
 	/**
 	 * Licences for the API
 	 *
-	 * @param	CommonObject						$doc		Quote or order
+	 * @param	CommonObject|null					$doc		Quote or order, null = licence of the design itself
 	 * @param	array<int,array<string,mixed>>		$licences	Entries of fetchDocumentLicences() with a licence and version
+	 * @param	string								$customername	Customer name when there is no document
 	 * @return	array<int,array<string,mixed>>
 	 */
-	private function formatLicences($doc, $licences)
+	private function formatLicences($doc, $licences, $customername = '')
 	{
 		$result = array();
 		foreach ($licences as $designid => $info) {
@@ -840,7 +842,7 @@ class DesignTrace extends DolibarrApi
 				'version_id' => (int) $version->id,
 				'version' => (int) $version->version,
 				'version_ref' => $version->ref,
-				'wording_html' => $version->renderWording(DesignTraceLicensing::getWordingValues($doc, $info['design'], $date)),
+				'wording_html' => $version->renderWording(DesignTraceLicensing::getWordingValues($doc, $info['design'], $date, $customername)),
 				'permissions' => $permissions,
 				'accepted' => ($acc ? array('date' => (int) $acc->date_accept, 'actor' => $acc->actor, 'channel' => $acc->channel, 'pdf' => !empty($acc->filename)) : null),
 			);
@@ -896,6 +898,260 @@ class DesignTrace extends DolibarrApi
 			);
 		}
 		return $result;
+	}
+
+	/**
+	 * The customer's design library: every design they reach, whatever the basis
+	 *
+	 * A customer reaches a design through a quote, order, ticket or project link, or a design-level
+	 * grant. One entry per design: ref, label, archived, confidential (and its label: it does not
+	 * restrict the customer), access_ended (a revoked or expired grant with no other basis: name and
+	 * history only), bases (what gives access), component counts, flags (licence to accept, proof
+	 * awaiting approval, consent not asked, newer revision) and needs_action.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	string	$q			Search in design name, DSN and component numbers/names
+	 * @param	string	$type		Only designs with a component of this type: part, assembly or drawing
+	 * @param	int		$project	Only designs of this project id
+	 * @param	string	$element	Only designs reached through this kind of document: quote, order, ticket, project or grant
+	 * @param	int		$docid		With element: only this document
+	 * @param	int		$action		1 = only designs needing the customer's action
+	 * @param	int		$page		Page, from 0
+	 * @param	int		$limit		Page size (1-200)
+	 * @return	array				total, page, limit, items
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET customers/{socid}/library
+	 *
+	 * @throws RestException 400 Bad filter
+	 * @throws RestException 403 Not allowed
+	 */
+	public function getLibrary($socid, $q = '', $type = '', $project = 0, $element = '', $docid = 0, $action = 0, $page = 0, $limit = 25)
+	{
+		$socid = $this->checkCustomer($socid);
+		if ($type !== '' && !in_array($type, array('part', 'assembly', 'drawing'), true)) {
+			throw new RestException(400, 'Bad type, use part, assembly or drawing');
+		}
+		$filters = array('q' => $q, 'type' => $type, 'project' => (int) $project, 'docid' => (int) $docid, 'action' => (int) $action);
+		if ($element !== '') {
+			$filters['element'] = DesignTraceClientAccess::normaliseElement($element);
+			if ($filters['element'] === '') {
+				throw new RestException(400, 'Bad document type, use quote, order, ticket, project or grant');
+			}
+		}
+		return DesignTraceLibrary::fetchLibrary($this->db, $socid, $filters, (int) $page, (int) $limit);
+	}
+
+	/**
+	 * Detail of a design: tree of components (assemblies, parts, drawings) with their current and
+	 * delivered revisions, release notes and files (size, SHA-256), external dependencies the
+	 * customer also has access to, and the history. Revision ids come from here for the file calls.
+	 * With access ended only the name and history are returned (tree is empty).
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$designid	Design id
+	 * @return	array				The design entry (as in the library list) plus tree, roots, history
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET customers/{socid}/designs/{designid}
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 The customer never had access to this design
+	 */
+	public function getDesign($socid, $designid)
+	{
+		$socid = $this->checkCustomer($socid);
+		$design = DesignTraceLibrary::fetchDesign($this->db, $socid, (int) $designid);
+		if (!$design) {
+			throw new RestException(404, 'Design not found for this customer');
+		}
+		return $design;
+	}
+
+	/**
+	 * Detail of a revision the customer holds (or the current one of a component they reach):
+	 * release note, status, files with size and SHA-256 (files only for a revision they hold)
+	 *
+	 * @param	int		$socid			Customer (third party) id
+	 * @param	int		$revisionid		Revision id
+	 * @return	array					Revision
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET customers/{socid}/revisions/{revisionid}
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Revision not reachable by this customer
+	 */
+	public function getRevision($socid, $revisionid)
+	{
+		$socid = $this->checkCustomer($socid);
+		$revision = DesignTraceLibrary::fetchRevision($this->db, $socid, (int) $revisionid);
+		if (!$revision) {
+			throw new RestException(404, 'Revision not found for this customer');
+		}
+		return $revision;
+	}
+
+	/**
+	 * Differences between the delivered and the current revision of a component: release notes and
+	 * files (added, removed, changed by SHA-256, unchanged). Hidden and production files never appear.
+	 *
+	 * @param	int		$socid			Customer (third party) id
+	 * @param	int		$componentid	Component id
+	 * @param	int		$from			Older revision id (default: the delivered one, else the one held)
+	 * @param	int		$to				Newer revision id (default: the current one)
+	 * @return	array					from, to, files
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET customers/{socid}/components/{componentid}/compare
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Nothing to compare for this customer
+	 */
+	public function compareRevisions($socid, $componentid, $from = 0, $to = 0)
+	{
+		$socid = $this->checkCustomer($socid);
+		$result = DesignTraceLibrary::compareRevisions($this->db, $socid, (int) $componentid, (int) $from, (int) $to);
+		if (!$result) {
+			throw new RestException(404, 'Nothing to compare for this customer');
+		}
+		return $result;
+	}
+
+	/**
+	 * Components with a newer released revision than the one the customer holds, also for grants
+	 * pinned to an older revision (the pin only moves by hand). Includes the customer release note.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @return	array				One entry per component
+	 * @phan-return array<int,array<string,mixed>>
+	 * @phpstan-return array<int,array<string,mixed>>
+	 *
+	 * @url	GET customers/{socid}/newer-revisions
+	 *
+	 * @throws RestException 403 Not allowed
+	 */
+	public function getNewerRevisions($socid)
+	{
+		$socid = $this->checkCustomer($socid);
+		return DesignTraceLibrary::fetchNewerRevisions($this->db, $socid);
+	}
+
+	/**
+	 * The licence that applies to a design for this customer (the design's template; a document's
+	 * override counts when the customer accepts through that quote or order), the version that
+	 * counts, its wording and permissions, and the acceptance if any. One acceptance per design and
+	 * customer covers every document and grant.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$designid	Design id
+	 * @return	array				Licence entry (empty if the design has no licence)
+	 * @phan-return array<int,array<string,mixed>>
+	 * @phpstan-return array<int,array<string,mixed>>
+	 *
+	 * @url	GET customers/{socid}/designs/{designid}/licence
+	 *
+	 * @throws RestException 403 Not allowed or access ended
+	 * @throws RestException 404 Design not found for this customer
+	 */
+	public function getDesignLicence($socid, $designid)
+	{
+		$socid = $this->checkCustomer($socid);
+		$this->checkDesignAccess($socid, $designid);
+		$info = DesignTraceLicensing::fetchDesignLicence($this->db, $socid, (int) $designid, DesignTraceLicensing::getForcedLicence($this->db, $socid, (int) $designid));
+		if (!$info || !$info['licence'] || !$info['version']) {
+			return array();
+		}
+		$soc = new Societe($this->db);
+		$soc->fetch($socid);
+		return $this->formatLicences(null, array((int) $designid => $info), (string) $soc->name);
+	}
+
+	/**
+	 * Record that the customer accepts the licence of a design, without a quote or order (also
+	 * what a quote acceptance calls first). Covers every document and grant of the customer for the
+	 * design. Pass the version_id shown: if the licence changed since the call is refused (409).
+	 * A PDF copy is written; fetch it with GET .../licence/pdf.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$designid	Design id
+	 * @param	int		$version_id	Licence version id shown to the customer
+	 * @param	string	$actor		Who accepts, for the log (e.g. the portal login)
+	 * @param	string	$client_ip	Customer's IP address as seen by the calling backend, recorded only {@from body}
+	 * @param	string	$user_agent	Customer's browser as seen by the calling backend, recorded only {@from body}
+	 * @return	array				id of the acceptance, date
+	 * @phan-return array<string,int>
+	 * @phpstan-return array<string,int>
+	 *
+	 * @url	POST customers/{socid}/designs/{designid}/licence/accept
+	 *
+	 * @throws RestException 403 Not allowed or access ended
+	 * @throws RestException 404 Design not found for this customer
+	 * @throws RestException 409 Licence changed or nothing to accept
+	 */
+	public function acceptDesignLicence($socid, $designid, $version_id, $actor = '', $client_ip = '', $user_agent = '')
+	{
+		$socid = $this->checkCustomer($socid);
+		$this->checkDesignAccess($socid, $designid);
+		$actor = trim((string) $actor);
+		if ($actor === '') {
+			$actor = 'api:'.DolibarrApiAccess::$user->login;
+		}
+		$error = '';
+		$id = DesignTraceLicensing::acceptDesign($this->db, $socid, (int) $designid, (int) $version_id, DesignTraceClientAccess::CHANNEL_API, $actor, $error, (string) $client_ip, (string) $user_agent);
+		if ($id <= 0) {
+			throw new RestException(409, $error);
+		}
+		return array('id' => (int) $id, 'date' => dol_now());
+	}
+
+	/**
+	 * The customer's copy of the accepted licence of a design: the raw PDF is the response (errors
+	 * are JSON), with X-Content-SHA256. Works for acceptances given through a document too.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$designid	Design id
+	 * @return	void				The raw PDF (never returns)
+	 *
+	 * @url	GET customers/{socid}/designs/{designid}/licence/pdf
+	 *
+	 * @throws RestException 403 Not allowed or access ended
+	 * @throws RestException 404 Design not found, or no accepted licence
+	 */
+	public function getDesignLicencePdf($socid, $designid)
+	{
+		$socid = $this->checkCustomer($socid);
+		$this->checkDesignAccess($socid, $designid);
+		$acc = DesignTraceLicensing::getAcceptance($this->db, $socid, (int) $designid);
+		$path = $acc ? DesignTraceLicensing::getAcceptancePdfPath($this->db, $acc) : '';
+		if ($path === '') {
+			throw new RestException(404, 'No accepted licence for this design');
+		}
+		DesignTraceClientAccess::sendFile($path, $acc->filename, false, array(
+			'X-Content-SHA256' => (string) hash_file('sha256', dol_osencode($path)),
+		));
+	}
+
+	/**
+	 * Check the customer has an active way to reach a design
+	 *
+	 * @param	int		$socid		Customer id
+	 * @param	int		$designid	Design id
+	 * @return	void
+	 */
+	private function checkDesignAccess($socid, $designid)
+	{
+		$access = DesignTraceLibrary::fetchAccess($this->db, $socid);
+		if (!isset($access[(int) $designid])) {
+			throw new RestException(404, 'Design not found for this customer');
+		}
+		if (!empty($access[(int) $designid]['ended'])) {
+			throw new RestException(403, 'Access to this design has ended');
+		}
 	}
 
 	/**

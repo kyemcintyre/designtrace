@@ -313,6 +313,44 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
   "advanced" mask rules ignore type); release gated on customer approval of a proof; a 3D viewer
   in Dolibarr's Web portal; designs tied to tasks (time uses the design's default task).
 
+## Customer design library (issue #1, phase 1 of 4 built)
+
+REST-first, same conventions as above (`{socid}` from the caller, optional actor/client IP/user agent,
+no automated emails). Reference for the Go side: `designtrace/API.md`.
+
+- **Access bases** (`DesignTraceLibrary::fetchAccess()`): quote/order/ticket links, **project** link
+  (`project` channel of `DesignTraceClientAccess::getChannels()`, linked from the revision card like
+  the other documents) and **grants** (`class/grant.class.php`, `llx_designtrace_grant` +
+  `_grant_pin`): whole design or components, one pinned released revision per component (moved only
+  by `movePin()`), optional expiry, `revoke()` (ended grants stay). Grant files come through
+  `fetchVisibleFiles()` with element `grant` (doc id = grant id). "Visible on completion" files of
+  grants wait for a completed linked order or project of the customer (`isDesignCompleted()`).
+  Both access and ended state are in the one resolver; **access ended** = only ended grants.
+- **Delivered**: a revision is delivered when a linked order of the customer is closed (computed live
+  in `getDeliveredRevisionIds()`) or a grant covers it (`llx_designtrace_delivered`, written by the
+  grant class). No trigger writes it on order completion.
+- **Licence anchored to design + customer** (`DesignTraceLicensing`): `getAcceptance($db, $socid,
+  $designid)` ignores which document it was given through; `fetchDocumentLicences()` and
+  `fetchDesignLicence()` (project/grant, no document) share `buildInfo()`. An acceptance counts only for
+  the template that applies (an order override is a different template, so it needs its own).
+  `forceReacceptance()` sets `date_revoked` (rows kept), `acceptDesign()` accepts without a document
+  (PDF in the design's documents folder), `getAcceptancePdfPath()` finds the PDF whoever made it.
+  **No download before acceptance** (`getDownloadableFile(..., &$blocked)` sets `'licence'`, the API
+  answers 403); listings still show the files. Source files reach customers through quotes, orders,
+  projects and grants when the design's licence allows them and it is not workshop-owned.
+  The unique index of `llx_designtrace_licenceaccept` now starts with `fk_soc`; existing databases
+  pick up the new column/index from the `.key.sql` ALTERs on module re-activation.
+- **Library** (`class/designlibrary.class.php`): list with filters and flags, design tree, revision,
+  compare, newer revisions; confidential is a label only, archived designs stay, external components
+  only with access. Endpoints in `api_designtrace.class.php` (`library`, `designs/{id}`,
+  `revisions/{id}`, `components/{id}/compare`, `newer-revisions`, `designs/{id}/licence[/accept|/pdf]`).
+- Revision `customer_note`: the customer release note (not cloned).
+- API tests call the API class directly (`ApiLibraryTest`) with a stand-in `RestException` and
+  `DolibarrApiAccess`: `api_access.class.php` registers Restler's autoloader, which breaks PHPUnit.
+- Still to build from issue #1: approvals (needs-approval flag, release block, per ECO or design),
+  ECO request flow and customer ECO views, attention counts, history endpoint, accept/approve role
+  setting, staff endpoints and metrics (phases 2-4).
+
 ## Module Builder pitfalls (24.0.2)
 
 New objects can be generated without the GUI by POSTing Module Builder's `initobject` form

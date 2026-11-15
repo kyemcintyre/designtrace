@@ -28,7 +28,8 @@ Always JSON, before any file data: `{"error": {"code": 404, "message": "..."}}`.
 `409` the action is not possible now (licence changed, proof already approved, order not
 delivered...), `503` system error.
 
-Document types in URLs and parameters: `quote`, `order`, `ticket`.
+Document types in URLs and parameters: `quote`, `order`, `ticket`, `project`; `grant` for design-level grants
+(file entries through a grant have `document_type` `grant` and `document_ref` `GRANT-<id>`).
 
 ## Endpoints
 
@@ -43,6 +44,31 @@ Each document: `type`, `id`, `ref`, `status`, `date`, `files`, `licences`, `proo
 `todo` (`licences`, `proofs`, `consent`: what waits for the customer) and, for orders,
 `delivered` and `reorder` (`possible`, `pending_quote_id`). The lists below return the same
 entries for one document.
+
+### Design library
+
+A customer reaches a design through a quote, order, ticket or project link, or a design-level grant
+(a whole design or single components, each pinned to one released revision; the pin moves only when
+staff move it; it can expire or be revoked, and ended grants stay on record). The library lists all
+of them whatever the basis.
+
+| Method and path | What |
+|---|---|
+| `GET customers/{socid}/library[?q&type&project&element&docid&action=1&page&limit]` | Paged list. `q` searches design name, DSN and part numbers/names; `type` is `part`, `assembly` or `drawing`; `element`/`docid` keep designs reached through that document; `action=1` only designs that need the customer. Returns `total`, `page`, `limit`, `items`. |
+| `GET customers/{socid}/designs/{designid}` | The design: summary, `tree` (components with `children`, `revisions`, files with `size` and `sha256`), `roots`, `history`. |
+| `GET customers/{socid}/revisions/{revisionid}` | One revision: `release_note`, status, `is_current`, `is_delivered`, files (only for a revision the customer holds). |
+| `GET customers/{socid}/components/{componentid}/compare[?from&to]` | Delivered (else held) against current: both release notes and files `added` / `removed` / `changed` / `unchanged` (by SHA-256). Hidden and production files never appear. |
+| `GET customers/{socid}/newer-revisions` | Components with a newer released revision than the one the customer holds, also for pinned grants, with the release note. |
+
+Library items: `id`, `ref`, `label`, `archived`, `confidential` and `confidential_label` (a label only:
+it does not restrict the customer, but keeps the design out of consent questions and the gallery),
+`access_ended`, `project_id`, `project_ref`, `bases` (`type`, `id`, `ref`, `active`), `components`
+(counts per type), `flags` (`licence`, `approval`, `consent`, `newer_revision`) and `needs_action`.
+**Access ended**: a revoked or expired grant with no other basis returns the design with `access_ended`
+true, the name and the `history` (grants given and ended, downloads), and an empty `tree`.
+Archived designs stay reachable. Components of another design are returned only when the customer
+also has access to them (`external` true). A revision counts as **delivered** when a linked order
+completes, or as soon as a grant is given for it.
 
 ### Files
 
@@ -66,6 +92,17 @@ allows them; "Visible on completion" files once the order is delivered. Every do
 | `GET customers/{socid}/documents/{quote\|order}/{docid}/licences` | Licence of each design: wording (HTML, filled in), permissions, `accepted` (with `pdf`). |
 | `POST customers/{socid}/documents/{quote\|order}/{docid}/licences/accept` | Body `design_id`, `version_id` (the one you showed), `actor`, `client_ip`, `user_agent`. `409` if the licence changed since. Accepting again returns the same id. |
 | `GET customers/{socid}/documents/{quote\|order}/{docid}/licences/{designid}/pdf` | **The customer's copy** (PDF written at acceptance). |
+
+A licence acceptance is anchored to design + customer and covers every quote, order, project and
+grant for that design; a new licence version leaves it in force (an order-level override, which is a
+different template, needs its own). **The licence must be accepted before any download**: file
+calls answer `403` ("Licence not accepted for this design") until then.
+
+| Method and path | What |
+|---|---|
+| `GET customers/{socid}/designs/{designid}/licence` | The licence that applies to the design, as above (empty if none). |
+| `POST customers/{socid}/designs/{designid}/licence/accept` | Accept without a document. Body `version_id`, `actor`, `client_ip`, `user_agent`. `409` if the licence changed. Call it first when a quote is accepted. |
+| `GET customers/{socid}/designs/{designid}/licence/pdf` | **The customer's copy** (PDF), whichever way it was accepted. |
 
 ### Proofs
 
