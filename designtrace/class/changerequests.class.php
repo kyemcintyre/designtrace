@@ -247,7 +247,7 @@ class DesignTraceChangeRequests
 			'type' => $names[(int) $info->request_type] ?? '',
 			'requested_by' => (string) $info->requested_by,
 			'round' => (int) $info->round,
-			'date_creation' => (int) $db->jdate($eco->date_creation),
+			'date_creation' => (int) $eco->date_creation,
 			'ticket_id' => $ticket ? $ticket['id'] : 0,
 			'ticket_ref' => $ticket ? $ticket['ref'] : '',
 		);

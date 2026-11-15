@@ -81,7 +81,7 @@ class DesignTraceStaff
 			$ecos[] = array('id' => (int) $eco->id, 'ref' => $eco->ref, 'summary' => (string) $eco->label, 'status' => (int) $eco->status, 'next_action' => $next[(int) $eco->status],
 				'customer_request' => ((int) $info->request_type > 0), 'type' => array(0 => '', 1 => 'problem', 2 => 'change')[(int) $info->request_type], 'socid' => (int) $eco->fk_soc,
 				'requested_by' => (string) $info->requested_by, 'round' => (int) $info->round, 'shareable' => ((int) $info->shareable === 1), 'ticket_id' => (int) $info->fk_ticket,
-				'quote_id' => (int) $info->fk_propal, 'waiting_for_quote' => !$eco->isQuoteSettled(), 'date_creation' => (int) $db->jdate($eco->date_creation));
+				'quote_id' => (int) $info->fk_propal, 'waiting_for_quote' => !$eco->isQuoteSettled(), 'date_creation' => (int) $eco->date_creation);
 		}
 		usort($ecos, function ($a, $b) {
 			return ($b['customer_request'] <=> $a['customer_request']) ?: ($a['date_creation'] <=> $b['date_creation']);

@@ -85,6 +85,7 @@ class ChangeRequestsTest extends DesignTraceTestCase
 		$eco->note_private = 'INTERNAL: supplier is to blame';
 		$eco->update($this->user);
 		$list = $R::fetchList($this->db, $customer->id);
+		$this->assertGreaterThan(time() - 3600, $list[0]["date_creation"], "Creation date is a real timestamp");
 		$this->assertCount(1, $list);
 		$this->assertSame('problem', $list[0]['type']);
 		$this->assertSame('open', $list[0]['status']);
