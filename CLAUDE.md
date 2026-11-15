@@ -386,9 +386,12 @@ no automated emails). Reference for the Go side: `designtrace/API.md`.
   (stamped in `validate()`) and ECO `date_closed` (stamped in `close()`) feed the turnaround and cycle-time
   metrics; older items have none and are not counted. Release note and `needs_approval` can only be edited
   before release.
-- Not built from issue #1: UI on the Dolibarr cards for what the endpoints set (ECO shareable / linked quote /
-  request info, grants list on the design card, approval block on the revision card) and a way for the
-  customer's reference files to show on the ticket; the staff API is the way to manage them for now.
+- **Card UI** (staff): design card has the grants block (`lib/designtrace_grants.lib.php`: list, expiry, revoke, grant
+  the whole design); ECO card has the customer-request block (`designtracePrintEcoCustomerRequest()`: origin, round,
+  ticket, revision, shareable toggle, linked quote and whether it is settled, timeline); the revision card's Release
+  button is disabled with the reason while `needs_approval` is on and the customer has not approved. Release note and
+  needs-approval are ordinary card fields. A customer's reference file is saved on the ECO and copied to the ticket's
+  Documents tab. Per-component pins are managed through the staff API only.
 
 ## Module Builder pitfalls (24.0.2)
 

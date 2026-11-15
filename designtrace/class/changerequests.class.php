@@ -525,6 +525,18 @@ class DesignTraceChangeRequests
 			$error = $langs->trans(is_numeric($res) ? 'ErrorFileNotUploaded' : (string) preg_replace('/:.*$/', '', (string) $res));
 			return '';
 		}
+		// Copy on the ticket's Documents tab too, so support sees it where the conversation is
+		if (!empty($info->fk_ticket) && isModEnabled('ticket')) {
+			require_once DOL_DOCUMENT_ROOT.'/ticket/class/ticket.class.php';
+			$ticket = new Ticket($db);
+			if ($ticket->fetch((int) $info->fk_ticket) > 0) {
+				global $conf;
+				$ticketdir = $conf->ticket->dir_output.'/'.dol_sanitizeFileName($ticket->ref);
+				if (dol_mkdir($ticketdir) >= 0) {
+					dol_copy($dir.'/'.$stored, $ticketdir.'/'.$stored, '0', 1);
+				}
+			}
+		}
 		$eco->addTimelineEntry('reference_file', $actor, $stored);
 		return $stored;
 	}

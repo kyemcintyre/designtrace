@@ -574,6 +574,11 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 						$blocking = array($reason);
 					}
 				}
+				// Flagged for the customer: release waits for their approval
+				if ($reason === '' && !empty($object->needs_approval) && (int) $object->customer_approval !== 1) {
+					$reason = $langs->trans('ErrorRevisionNeedsCustomerApproval', $object->ref);
+					$blocking = array($reason);
+				}
 				print dolGetButtonAction($reason, $langs->trans('RevisionRelease'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=release&token='.newToken(), '', $permissiontorelease && empty($blocking));
 			}
 
