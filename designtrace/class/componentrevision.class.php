@@ -148,6 +148,7 @@ class ComponentRevision extends CommonObject
 		"change_reason" => array("type" => "integer", "label" => "ChangeReason", "enabled" => "1", 'position' => 58, 'notnull' => 0, "visible" => "1", "arrayofkeyval" => array("1" => "ChangeReasonInitial", "2" => "ChangeReasonCustomer", "3" => "ChangeReasonFix", "4" => "ChangeReasonImprovement", "5" => "ChangeReasonProcess", "6" => "ChangeReasonOther"), "validate" => "1", "help" => "ChangeReasonHelp"),
 		"fk_eco" => array("type" => "integer:ChangeOrder:designtrace/class/changeorder.class.php:0:((status:in:0,1,2))", "label" => "ChangeOrder", "picto" => "fa-exchange-alt", "enabled" => "1", 'position' => 59, 'notnull' => -1, "visible" => "1", "index" => "1", "css" => "maxwidth500 widthcentpercentminusxx", "csslist" => "tdoverflowmax150", "help" => "RevisionEcoHelp",),
 		"customer_note" => array("type" => "text", "label" => "CustomerReleaseNote", "enabled" => "1", 'position' => 63, 'notnull' => 0, "visible" => "3", "help" => "CustomerReleaseNoteHelp", "validate" => "1",),
+		"needs_approval" => array("type" => "integer", "label" => "NeedsCustomerApproval", "enabled" => "1", 'position' => 59, 'notnull' => 1, "visible" => "1", "default" => "0", "arrayofkeyval" => array("0" => "No", "1" => "Yes"), "help" => "NeedsCustomerApprovalHelp", "validate" => "1",),
 		"customer_approval" => array("type" => "integer", "label" => "CustomerApproval", "enabled" => "1", 'position' => 60, 'notnull' => 1, "visible" => "-5", "noteditable" => "1", "default" => "0", "index" => "1", "arrayofkeyval" => array("0" => "CustomerApprovalNone", "1" => "CustomerApprovalApproved", "2" => "CustomerApprovalChanges"), "help" => "CustomerApprovalHelp",),
 		"date_customer_approval" => array("type" => "datetime", "label" => "DateCustomerApproval", "enabled" => "1", 'position' => 61, 'notnull' => 0, "visible" => "-5", "noteditable" => "1",),
 		"customer_approval_by" => array("type" => "varchar(128)", "label" => "CustomerApprovalBy", "enabled" => "1", 'position' => 62, 'notnull' => 0, "visible" => "-5", "noteditable" => "1",),
@@ -188,6 +189,11 @@ class ComponentRevision extends CommonObject
 	 * @var string Release note shown to customers (separate from the internal notes)
 	 */
 	public $customer_note;
+
+	/**
+	 * @var int 1 = the customer must approve before release (proof drawings default to 1)
+	 */
+	public $needs_approval;
 
 	public $customer_approval;
 	/**
@@ -301,6 +307,10 @@ class ComponentRevision extends CommonObject
 			return -1;
 		}
 
+		if ($this->needs_approval === null || $this->needs_approval === '') {
+			// Proof drawings go to the customer by default
+			$this->needs_approval = ((int) $component->type === Component::TYPE_DRAWING && (int) $component->drawing_type === Component::DRAWING_PROOF) ? 1 : 0;
+		}
 		$this->ref = $component->ref.'-'.$this->rev;
 		$this->status = self::STATUS_DRAFT;
 		$this->date_release = null;
@@ -756,6 +766,11 @@ class ComponentRevision extends CommonObject
 		if ($blocking) {
 			$langs->load('designtrace@designtrace');
 			return $this->setErrorAndFail($langs->trans('ErrorRevisionChildrenNotReleased', $this->ref, implode(', ', $blocking)));
+		}
+		if (!empty($this->needs_approval) && (int) $this->customer_approval !== 1) {
+			// Flagged for the customer: release waits for their approval (per ECO or design, see DesignTraceApprovals)
+			$langs->load('designtrace@designtrace');
+			return $this->setErrorAndFail($langs->trans('ErrorRevisionNeedsCustomerApproval', $this->ref));
 		}
 		if (getDolGlobalInt('DESIGNTRACE_RELEASE_REQUIRES_ECO') && $this->getPreviousRevision()) {
 			// A change to a released design needs an approved ECO; the first revision does not

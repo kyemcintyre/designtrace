@@ -26,6 +26,7 @@ CREATE TABLE llx_designtrace_changeorder(
 	fk_project integer,
 	fk_user_requester integer,
 	description text,
+	round integer DEFAULT 1 NOT NULL,
 	fk_user_approve integer,
 	date_approve datetime,
 	note_public text,

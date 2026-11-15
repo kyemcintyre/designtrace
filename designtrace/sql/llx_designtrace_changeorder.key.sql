@@ -23,3 +23,5 @@ ALTER TABLE llx_designtrace_changeorder ADD INDEX idx_designtrace_changeorder_fk
 ALTER TABLE llx_designtrace_changeorder ADD INDEX idx_designtrace_changeorder_fk_project (fk_project);
 ALTER TABLE llx_designtrace_changeorder ADD INDEX idx_designtrace_changeorder_fk_user_requester (fk_user_requester);
 ALTER TABLE llx_designtrace_changeorder ADD INDEX idx_designtrace_changeorder_status (status);
+
+ALTER TABLE llx_designtrace_changeorder ADD COLUMN round integer DEFAULT 1 NOT NULL;

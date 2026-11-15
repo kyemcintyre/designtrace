@@ -882,6 +882,11 @@ class modDesignTrace extends DolibarrModules
 			return -1; // Do not activate module if error 'not allowed' returned when loading module SQL queries (the _load_table run sql with run_sql with the error allowed parameter set to 'default')
 		}
 
+		// Who may accept licences and approve revisions for a customer with several users (one switch for both)
+		include_once DOL_DOCUMENT_ROOT.'/core/class/extrafields.class.php';
+		$extrafields = new ExtraFields($this->db);
+		$extrafields->addExtraField('designtrace_approvers', 'DesignTraceApprovers', 'select', 100, '', 'thirdparty', 0, 0, '0', array('options' => array('0' => 'DesignTraceApproversAny', '1' => 'DesignTraceApproversAdmins')), 1, '', '-1', 'DesignTraceApproversHelp', '', '', 'designtrace@designtrace', 'isModEnabled("designtrace")');
+
 		// Create extrafields during init
 		//include_once DOL_DOCUMENT_ROOT.'/core/class/extrafields.class.php';
 		//$extrafields = new ExtraFields($this->db);

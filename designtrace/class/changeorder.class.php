@@ -255,6 +255,10 @@ class ChangeOrder extends CommonObject
 			}
 		}
 
+		if ($result > 0 && $this->addTimelineEntry('opened', (string) $user->login, '') < 0) {
+			$result = -1;
+		}
+
 		if ($result > 0) {
 			$this->db->commit();
 		} else {
@@ -263,6 +267,88 @@ class ChangeOrder extends CommonObject
 		}
 
 		return $result;
+	}
+
+	/**
+	 * Current round of the ECO: 1 when raised, +1 each time the customer asks for changes again
+	 *
+	 * @return	int
+	 */
+	public function getRound()
+	{
+		$resql = $this->db->query("SELECT round FROM ".$this->db->prefix().$this->table_element." WHERE rowid = ".((int) $this->id));
+		$obj = $resql ? $this->db->fetch_object($resql) : null;
+		return $obj ? (int) $obj->round : 1;
+	}
+
+	/**
+	 * Add an entry to the timeline, for the current round
+	 *
+	 * @param	string	$type		opened, changes_requested...
+	 * @param	string	$actor		Who
+	 * @param	string	$comment	Why
+	 * @return	int					>0 if OK, <0 if KO
+	 */
+	public function addTimelineEntry($type, $actor, $comment = '')
+	{
+		global $conf;
+
+		$sql = "INSERT INTO ".$this->db->prefix()."designtrace_changeorder_event (entity, fk_eco, round, type, actor, comment, date_event)";
+		$sql .= " VALUES (".((int) $conf->entity).", ".((int) $this->id).", ".((int) $this->getRound()).", '".$this->db->escape($type)."'";
+		$sql .= ", '".$this->db->escape(dol_trunc($actor, 128, 'right', 'UTF-8', 1))."', ".($comment !== '' ? "'".$this->db->escape($comment)."'" : 'NULL').", '".$this->db->idate(dol_now())."')";
+		return $this->db->query($sql) ? 1 : $this->setErrorAndFail($this->db->lasterror());
+	}
+
+	/**
+	 * Timeline, oldest first
+	 *
+	 * @return	stdClass[]	Rows: round, type, actor, comment, date_event (timestamp)
+	 */
+	public function fetchTimeline()
+	{
+		$rows = array();
+		$resql = $this->db->query("SELECT round, type, actor, comment, date_event FROM ".$this->db->prefix()."designtrace_changeorder_event WHERE fk_eco = ".((int) $this->id)." ORDER BY date_event ASC, rowid ASC");
+		while ($resql && ($obj = $this->db->fetch_object($resql))) {
+			$obj->date_event = $this->db->jdate($obj->date_event);
+			$rows[] = $obj;
+		}
+		return $rows;
+	}
+
+	/**
+	 * The customer asked for changes again: the same ECO starts a new round, back at Draft when it
+	 * can go there (closed and implemented ECOs step back first; an approved one with released
+	 * revisions stays approved), with a timeline entry for the round.
+	 *
+	 * @param	User	$user		User
+	 * @param	string	$actor		Who asked
+	 * @param	string	$comment	What they asked
+	 * @return	int					The new round, <0 if KO
+	 */
+	public function reopenForNewRound($user, $actor, $comment)
+	{
+		$this->db->begin();
+		while (in_array((int) $this->status, array(self::STATUS_CLOSED, self::STATUS_IMPLEMENTED), true)) {
+			if ($this->reopen($user) <= 0) {
+				$this->db->rollback();
+				return -1;
+			}
+		}
+		if (in_array((int) $this->status, array(self::STATUS_APPROVED, self::STATUS_CANCELED), true)) {
+			$this->setDraft($user);	// Refused while released revisions exist: stays Approved, the round still counts
+			$this->error = '';
+			$this->errors = array();
+		}
+		if (!$this->db->query("UPDATE ".$this->db->prefix().$this->table_element." SET round = round + 1 WHERE rowid = ".((int) $this->id))) {
+			$this->db->rollback();
+			return $this->setErrorAndFail($this->db->lasterror());
+		}
+		if ($this->addTimelineEntry('changes_requested', $actor, $comment) < 0) {
+			$this->db->rollback();
+			return -1;
+		}
+		$this->db->commit();
+		return $this->getRound();
 	}
 
 	/**

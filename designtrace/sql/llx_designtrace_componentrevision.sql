@@ -23,6 +23,7 @@ CREATE TABLE llx_designtrace_componentrevision(
 	rev varchar(16) NOT NULL, 
 	change_reason integer, 
 	fk_eco integer, 
+	needs_approval smallint DEFAULT 0 NOT NULL, 
 	customer_approval smallint DEFAULT 0 NOT NULL, 
 	date_customer_approval datetime, 
 	customer_approval_by varchar(128), 

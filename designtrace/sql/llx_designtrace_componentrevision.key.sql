@@ -31,3 +31,4 @@ ALTER TABLE llx_designtrace_componentrevision ADD CONSTRAINT llx_designtrace_com
 ALTER TABLE llx_designtrace_componentrevision ADD INDEX idx_designtrace_componentrevision_customer_approval (customer_approval);
 
 ALTER TABLE llx_designtrace_componentrevision ADD COLUMN customer_note text;
+ALTER TABLE llx_designtrace_componentrevision ADD COLUMN needs_approval smallint DEFAULT 0 NOT NULL;
