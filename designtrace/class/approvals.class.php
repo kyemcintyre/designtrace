@@ -307,6 +307,7 @@ class DesignTraceApprovals
 			}
 			$ecoid = (int) $eco->id;
 			$round = 1;
+			$eco->markCustomerRequest(ChangeOrder::REQUEST_CHANGE, $actor, (int) $first['id']);
 			foreach ($revisions as $rev) {
 				if ($eco->addAffectedComponent($user, $rev['component_id'], $langs->transnoentities('ProofChangesEcoNote', $rev['ref']), 1) < 0) {
 					$error = $eco->error ?: implode(', ', $eco->errors);

@@ -25,3 +25,10 @@ ALTER TABLE llx_designtrace_changeorder ADD INDEX idx_designtrace_changeorder_fk
 ALTER TABLE llx_designtrace_changeorder ADD INDEX idx_designtrace_changeorder_status (status);
 
 ALTER TABLE llx_designtrace_changeorder ADD COLUMN round integer DEFAULT 1 NOT NULL;
+ALTER TABLE llx_designtrace_changeorder ADD COLUMN shareable smallint DEFAULT 0 NOT NULL;
+ALTER TABLE llx_designtrace_changeorder ADD COLUMN request_type smallint DEFAULT 0 NOT NULL;
+ALTER TABLE llx_designtrace_changeorder ADD COLUMN requested_by varchar(128);
+ALTER TABLE llx_designtrace_changeorder ADD COLUMN fk_revision_source integer;
+ALTER TABLE llx_designtrace_changeorder ADD COLUMN fk_ticket integer;
+ALTER TABLE llx_designtrace_changeorder ADD COLUMN fk_order_source integer;
+ALTER TABLE llx_designtrace_changeorder ADD COLUMN fk_propal integer;

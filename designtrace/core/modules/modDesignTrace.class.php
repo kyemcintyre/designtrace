@@ -933,6 +933,13 @@ class modDesignTrace extends DolibarrModules
 			}
 		}
 
+		// Ticket types of customer change requests (reported from a design revision)
+		foreach (array('DESIGN_PROBLEM' => array(50, 'Design problem'), 'DESIGN_CHANGE' => array(51, 'Design change')) as $code => $def) {
+			$sql[] = "INSERT INTO ".$this->db->prefix()."c_ticket_type (entity, code, pos, label, active, use_default, description)"
+				." SELECT ".((int) $conf->entity).", '".$code."', '".((int) $def[0])."', '".$this->db->escape($def[1])."', 1, 0, NULL FROM (SELECT 1) as dummy"
+				." WHERE NOT EXISTS (SELECT 1 FROM ".$this->db->prefix()."c_ticket_type WHERE code = '".$code."' AND entity = ".((int) $conf->entity).")";
+		}
+
 		$result = $this->_init($sql, $options);
 		if ($result > 0) {
 			$this->migrateRightsFromOldModuleId();
