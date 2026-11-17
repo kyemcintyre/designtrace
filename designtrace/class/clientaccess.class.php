@@ -44,6 +44,7 @@ class DesignTraceClientAccess
 	const CHANNEL_API = 'api';
 	const CHANNEL_VIEWER = 'viewer';	// Opened in the My workshop 3D viewer (a view link of the API)
 	const CHANNEL_API_DIRECT = 'apidirect';	// Streamed by the API to a backend that proxies files (.../content)
+	const CHANNEL_ADMIN_PREVIEW = 'adminpreview';	// Staff acting as the customer in the portal: never shown to the customer
 
 	/**
 	 * Default lifetime of a signed download link, in seconds
@@ -82,6 +83,7 @@ class DesignTraceClientAccess
 			self::CHANNEL_API => $langs->trans('DownloadChannelApi'),
 			self::CHANNEL_VIEWER => $langs->trans('DownloadChannelViewer'),
 			self::CHANNEL_API_DIRECT => $langs->trans('DownloadChannelApiDirect'),
+			self::CHANNEL_ADMIN_PREVIEW => $langs->trans('DownloadChannelAdminPreview'),
 		);
 	}
 
@@ -284,9 +286,10 @@ class DesignTraceClientAccess
 	 * @param	string	$element	Preferred document type it is downloaded through ('' = any)
 	 * @param	int		$docid		Preferred document id (0 = any)
 	 * @param	string	$blocked	Set to 'licence' when the file is visible but the licence is not accepted yet
+	 * @param	bool	$previewing	Staff previewing what the customer sees: the licence need not be accepted (everything else still applies)
 	 * @return	stdClass|null		Row as in fetchVisibleFiles(), null if not allowed
 	 */
-	public static function getDownloadableFile($db, $socid, $fileid, $element = '', $docid = 0, &$blocked = '')
+	public static function getDownloadableFile($db, $socid, $fileid, $element = '', $docid = 0, &$blocked = '', $previewing = false)
 	{
 		$blocked = '';
 		if ((int) $fileid <= 0) {
@@ -294,6 +297,9 @@ class DesignTraceClientAccess
 		}
 		$rows = self::fetchVisibleFiles($db, $socid, $element, $docid, $fileid);
 		if (is_array($rows) && !empty($rows)) {
+			if ($previewing) {
+				return $rows[0];
+			}
 			// The licence must be accepted before any download (the order-level override counts)
 			dol_include_once('/designtrace/class/licensing.class.php');
 			foreach ($rows as $row) {

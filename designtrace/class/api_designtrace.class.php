@@ -310,16 +310,17 @@ class DesignTrace extends DolibarrApi
 	 * @param	string	$client_ip	Customer's IP address, for the log only
 	 * @param	string	$user_agent	Customer's browser, for the log only (truncated to 255 characters)
 	 * @param	int		$inline		1 = Content-Disposition inline (3D formats only, viewer_3d in the file lists)
+	 * @param	int		$admin_preview	1 = staff acting as this customer in the portal: the licence need not be accepted (the file must still be visible to the customer). Needs the right to read designs; logged on its own channel, never shown to the customer
 	 * @return	void				The raw file (never returns: the file is streamed and the request ends)
 	 *
 	 * @url	GET customers/{socid}/files/{fileid}/content
 	 *
 	 * @throws RestException 400 Bad document type, or inline on a file that is not 3D
-	 * @throws RestException 403 Not allowed
+	 * @throws RestException 403 Not allowed (a preview needs the right to read designs)
 	 * @throws RestException 404 File not visible to this customer, or missing on disk
 	 * @throws RestException 503 System error (download not logged, file not sent)
 	 */
-	public function getFileContent($socid, $fileid, $element = '', $docid = 0, $actor = '', $client_ip = '', $user_agent = '', $inline = 0)
+	public function getFileContent($socid, $fileid, $element = '', $docid = 0, $actor = '', $client_ip = '', $user_agent = '', $inline = 0, $admin_preview = 0)
 	{
 		$socid = $this->checkCustomer($socid);
 		$type = '';
@@ -329,7 +330,11 @@ class DesignTrace extends DolibarrApi
 				throw new RestException(400, 'Bad document type, use quote, order, ticket, project or grant');
 			}
 		}
-		$row = DesignTraceClientAccess::getDownloadableFile($this->db, $socid, (int) $fileid, $type, (int) $docid, $blocked);
+		$previewing = !empty($admin_preview);
+		if ($previewing && !DolibarrApiAccess::$user->hasRight('designtrace', 'design', 'read')) {
+			throw new RestException(403, 'Needs the DesignTrace right to read designs to preview customer files');
+		}
+		$row = DesignTraceClientAccess::getDownloadableFile($this->db, $socid, (int) $fileid, $type, (int) $docid, $blocked, $previewing);
 		if (!$row && $blocked === 'licence') {
 			throw new RestException(403, 'Licence not accepted for this design');
 		}
@@ -347,7 +352,7 @@ class DesignTrace extends DolibarrApi
 		if ($actor === '') {
 			$actor = 'api:'.DolibarrApiAccess::$user->login;
 		}
-		if (DesignTraceClientAccess::logDownload($this->db, $row, $socid, DesignTraceClientAccess::CHANNEL_API_DIRECT, $actor, (trim((string) $client_ip) !== '' ? (string) $client_ip : null), ((string) $user_agent !== '' ? (string) $user_agent : null)) < 0) {
+		if (DesignTraceClientAccess::logDownload($this->db, $row, $socid, ($previewing ? DesignTraceClientAccess::CHANNEL_ADMIN_PREVIEW : DesignTraceClientAccess::CHANNEL_API_DIRECT), $actor, (trim((string) $client_ip) !== '' ? (string) $client_ip : null), ((string) $user_agent !== '' ? (string) $user_agent : null)) < 0) {
 			throw new RestException(503, 'Error logging the download');
 		}
 		// Restler would encode a return value: send the file ourselves and end the request
@@ -742,6 +747,7 @@ class DesignTrace extends DolibarrApi
 		$sql = "SELECT dl.rowid, dl.fk_revisionfile, dl.fk_revision, dl.filename, dl.sha256, dl.element, dl.fk_element, dl.channel, dl.actor, dl.date_download";
 		$sql .= " FROM ".$this->db->prefix()."designtrace_download as dl";
 		$sql .= " WHERE dl.fk_soc = ".((int) $socid)." AND dl.entity IN (".getEntity('designtrace_download').")";
+		$sql .= " AND dl.channel <> '".$this->db->escape(DesignTraceClientAccess::CHANNEL_ADMIN_PREVIEW)."'";	// Staff previews are not the customer's downloads
 		$sql .= " ORDER BY dl.date_download DESC, dl.rowid DESC";
 		$sql .= $this->db->plimit(max(1, min(1000, (int) $limit)));
 		$resql = $this->db->query($sql);

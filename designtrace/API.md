@@ -76,9 +76,9 @@ completes, or as soon as a grant is given for it.
 |---|---|
 | `GET customers/{socid}/files[?element]` | Files the customer can download, one entry per file and document. |
 | `GET customers/{socid}/documents/{element}/{docid}/files` | Files through one document. |
-| `GET customers/{socid}/files/{fileid}/content[?element&docid&actor&client_ip&user_agent&inline=1]` | **The file itself**, streamed to your backend (use this when Dolibarr is not public). Headers `X-Content-SHA256`, `X-DesignTrace-File-Id`, `X-DesignTrace-Revision`. `inline=1` only for 3D files (`viewer_3d`), e.g. for a 3D viewer. |
+| `GET customers/{socid}/files/{fileid}/content[?element&docid&actor&client_ip&user_agent&inline=1&admin_preview=1]` | **The file itself**, streamed to your backend (use this when Dolibarr is not public). Headers `X-Content-SHA256`, `X-DesignTrace-File-Id`, `X-DesignTrace-Revision`. `inline=1` only for 3D files (`viewer_3d`), e.g. for a 3D viewer. `admin_preview=1` is for staff acting as the customer in the portal: the licence need not be accepted (the file must still be visible to the customer), the API user needs the right to read designs (`403` without it), and the download is logged on its own channel (`adminpreview`) that the customer's download log and history never show. Never pass it for the customer's own requests. |
 | `GET customers/{socid}/files/{fileid}/link[?element&docid&actor&purpose=view]` | A short-lived signed link instead, for when the customer's browser can reach Dolibarr. |
-| `GET customers/{socid}/downloads[?limit]` | The customer's download log. |
+| `GET customers/{socid}/downloads[?limit]` | The customer's download log (staff previews are left out). |
 
 File entries: `file_id`, `filename`, `format`, `filesize`, `sha256`, `viewer_3d`, `revision_*`,
 `component_*`, `is_proof`, `document_type`, `document_id`, `document_ref`. Customers only ever see
@@ -96,7 +96,7 @@ allows them; "Visible on completion" files once the order is delivered. Every do
 A licence acceptance is anchored to design + customer and covers every quote, order, project and
 grant for that design; a new licence version leaves it in force (an order-level override, which is a
 different template, needs its own). **The licence must be accepted before any download**: file
-calls answer `403` ("Licence not accepted for this design") until then.
+calls answer `403` ("Licence not accepted for this design") until then (the one exception is `admin_preview=1` on `.../content`, for staff).
 
 | Method and path | What |
 |---|---|
