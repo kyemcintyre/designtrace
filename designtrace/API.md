@@ -55,7 +55,7 @@ of them whatever the basis.
 | Method and path | What |
 |---|---|
 | `GET customers/{socid}/library[?q&type&project&element&docid&action=1&page&limit]` | Paged list. `q` searches design name, DSN and part numbers/names; `type` is `part`, `assembly` or `drawing`; `element`/`docid` keep designs reached through that document; `action=1` only designs that need the customer. Returns `total`, `page`, `limit`, `items`. |
-| `GET customers/{socid}/designs/{designid}` | The design: summary, `tree` (components with `children`, `revisions`, files with `size` and `sha256`), `roots`, `history`. |
+| `GET customers/{socid}/designs/{designid}` | The design: summary, `tree` (components with `children`, `revisions`, files with `size` and `sha256`), `roots`, `history`. A component's `revisions` are every revision the customer holds (earlier deliveries included) plus the current one, oldest first; `is_delivered` is true on each one delivered to them, and `delivered_revision` is the latest of those. |
 | `GET customers/{socid}/revisions/{revisionid}` | One revision: `release_note`, status, `is_current`, `is_delivered`, files (only for a revision the customer holds). |
 | `GET customers/{socid}/components/{componentid}/compare[?from&to]` | Delivered (else held) against current: both release notes and files `added` / `removed` / `changed` / `unchanged` (by SHA-256). Hidden and production files never appear. |
 | `GET customers/{socid}/newer-revisions` | Components with a newer released revision than the one the customer holds, also for pinned grants, with the release note. |

@@ -139,8 +139,9 @@ class DesignTraceLibrary
 	 * @param	DoliDB	$db			Database handler
 	 * @param	int		$socid		Customer id
 	 * @param	array<int,array<string,mixed>>	$access	From fetchAccess()
-	 * @return	array<int,array<string,mixed>>	By component id: design_id, held (revision ids), delivered_id (latest delivered, 0 none),
-	 *											held_id (latest revision held), current_id (latest released, 0 none), newer (bool)
+	 * @return	array<int,array<string,mixed>>	By component id: design_id, held (revision ids), delivered (revision ids held and
+	 *											delivered), delivered_id (latest delivered, 0 none), held_id (latest revision held),
+	 *											current_id (latest released, 0 none), newer (bool)
 	 */
 	public static function fetchComponentStates($db, $socid, $access)
 	{
@@ -155,14 +156,13 @@ class DesignTraceLibrary
 		}
 		$current = ComponentLink::getCurrentRevisionIds($db, array_keys($comps));
 		foreach ($comps as $compid => &$state) {
-			$held = $state['held'];
+			$held = array_map('intval', $state['held']);
+			$state['held'] = $held;
 			$state['held_id'] = max($held);
-			$state['delivered_id'] = 0;
-			foreach ($held as $revid) {
-				if (isset($delivered[$revid])) {
-					$state['delivered_id'] = max($state['delivered_id'], $revid);
-				}
-			}
+			$state['delivered'] = array_values(array_filter($held, function ($revid) use ($delivered) {
+				return isset($delivered[$revid]);
+			}));
+			$state['delivered_id'] = $state['delivered'] ? max($state['delivered']) : 0;
 			$state['current_id'] = isset($current[$compid]) ? (int) $current[$compid] : 0;
 			$state['newer'] = ($state['current_id'] > $state['held_id']);
 		}
@@ -454,8 +454,11 @@ class DesignTraceLibrary
 		$typenames = array(0 => 'part', 1 => 'assembly', 2 => 'drawing');
 		foreach ($all as $compid => $c) {
 			$state = $states[$compid];
+			// Every revision the customer holds (earlier deliveries too), plus the current one, oldest first
+			$revids = array_unique(array_filter(array_merge($state['held'], array($state['current_id']))));
+			sort($revids);
 			$revisions = array();
-			foreach (array_unique(array_filter(array($state['held_id'], $state['delivered_id'], $state['current_id']))) as $revid) {
+			foreach ($revids as $revid) {
 				$revisions[$revid] = self::describeRevision($db, $revid, $files[$revid] ?? array(), $state);
 			}
 			$nodes[$compid] = array(
@@ -524,7 +527,7 @@ class DesignTraceLibrary
 			'date_release' => $obj ? $db->jdate($obj->date_release) : null,
 			'release_note' => $obj ? (string) $obj->customer_note : '',
 			'is_current' => ((int) $revid === (int) $state['current_id']),
-			'is_delivered' => ((int) $revid === (int) $state['delivered_id']),
+			'is_delivered' => in_array((int) $revid, $state['delivered'], true),
 			'files' => array_values($files),
 		);
 	}

@@ -227,4 +227,49 @@ class DesignLibraryTest extends DesignTraceTestCase
 		$this->assertNull($L::compareRevisions($this->db, $this->newCustomer('ZZ Other')->id, $part->id));
 		unset($grantid);
 	}
+
+	public function testTreeListsEveryHeldRevision()
+	{
+		$L = DesignTraceLibrary::class;
+		$customer = $this->newCustomer();
+		$design = $this->newDesign(array('fk_soc' => $customer->id), true);
+		$part = $this->newComponent($design);
+		// A goes out on an order that is then delivered, B is only quoted, C is given through a grant
+		$a = $this->newRevision($part);
+		$this->addFile($a, 'a.pdf', '%PDF a', RevisionFile::ROLE_PRESENTATION, RevisionFile::VISIBILITY_NOW);
+		$this->release($a);
+		$order = $this->newOrder($customer->id, true);
+		$this->assertGreaterThan(0, $this->linkDoc($a, 'commande', $order->id), 'Link order '.$a->error);
+		$this->assertOk($order->cloture($this->user), $order, 'Close order');
+		$b = $this->newRevision($part);
+		$this->addFile($b, 'b.pdf', '%PDF b', RevisionFile::ROLE_PRESENTATION, RevisionFile::VISIBILITY_NOW);
+		$this->release($b);
+		$quote = $this->newQuote($customer->id);
+		$this->assertGreaterThan(0, $this->linkDoc($b, 'propal', $quote->id), 'Link quote '.$b->error);
+		$c = $this->newRevision($part);
+		$this->addFile($c, 'c.pdf', '%PDF c', RevisionFile::ROLE_PRESENTATION, RevisionFile::VISIBILITY_NOW);
+		$this->release($c);
+		$grantid = DesignTraceGrant::create($this->db, $this->user, $customer->id, $design->id, array($part->id));
+		$this->assertGreaterThan(0, $grantid);
+
+		$detail = $L::fetchDesign($this->db, $customer->id, $design->id);
+		$this->assertCount(1, $detail['tree']);
+		$node = $detail['tree'][0];
+		$this->assertSame($c->id, $node['held_revision']);
+		$this->assertSame($c->id, $node['delivered_revision'], 'The latest delivered one');
+		$byid = array();
+		foreach ($node['revisions'] as $rev) {
+			$byid[$rev['id']] = $rev;
+		}
+		$this->assertSame(array($a->id, $b->id, $c->id), array_keys($byid), 'Earlier revisions held are listed, oldest first');
+		$this->assertTrue($byid[$a->id]['is_delivered'], 'Delivered on the order');
+		$this->assertFalse($byid[$b->id]['is_delivered'], 'Only quoted');
+		$this->assertTrue($byid[$c->id]['is_delivered'], 'Given through the grant');
+		$this->assertTrue($byid[$c->id]['is_current']);
+		foreach (array($a, $b, $c) as $rev) {
+			$this->assertCount(1, $byid[$rev->id]['files'], $rev->ref.' files');
+		}
+		$this->assertTrue($L::fetchRevision($this->db, $customer->id, $a->id)['is_delivered']);
+		$this->assertFalse($L::fetchRevision($this->db, $customer->id, $b->id)['is_delivered']);
+	}
 }
