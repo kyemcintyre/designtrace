@@ -1774,13 +1774,8 @@ class DesignTrace extends DolibarrApi
 		}
 		// Only a file the listing would show: no path, no traversal
 		$dir = DesignTraceStaff::getDesignDocumentsDir($design);
-		$found = '';
-		foreach (DesignTraceStaff::fetchDesignDocuments($this->db, $design)['files'] as $f) {
-			if ($f['name'] === (string) $name) {
-				$found = $f['name'];
-			}
-		}
-		if ($dir === '' || $found === '' || !is_file(dol_osencode($dir.'/'.$found))) {
+		$found = ((string) $name === basename((string) $name) && substr((string) $name, -5) !== '.meta' ? (string) $name : '');
+		if ($dir === '' || $found === '' || $found === '.' || $found === '..' || !is_file(dol_osencode($dir.'/'.$found))) {
 			throw new RestException(404, 'File not found');
 		}
 		DesignTraceClientAccess::sendFile($dir.'/'.$found, $found, false, array('X-DesignTrace-Design' => (string) ((int) $design->id)));

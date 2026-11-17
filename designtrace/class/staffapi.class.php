@@ -421,7 +421,8 @@ class DesignTraceStaff
 			$ids[(int) $obj->rowid] = (int) $obj->rowid;
 		}
 		$childrows = array();
-		for ($queue = array_values($ids); !empty($queue);) {
+		// Capped: a design linked into a big shared library must not pull in the whole library
+		for ($queue = array_values($ids); !empty($queue) && count($ids) < 500;) {
 			// Every revision of the queued components, drafts and superseded ones too: a part linked only from a draft still shows
 			$cur = array();
 			$resql = $db->query("SELECT rowid FROM ".$db->prefix()."designtrace_componentrevision WHERE fk_component IN (".$db->sanitize(implode(',', array_map('intval', $queue))).")");
