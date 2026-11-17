@@ -422,15 +422,20 @@ class DesignTraceStaff
 		}
 		$childrows = array();
 		for ($queue = array_values($ids); !empty($queue);) {
-			$cur = ComponentLink::getCurrentRevisionIds($db, $queue);
+			// Every revision of the queued components, drafts and superseded ones too: a part linked only from a draft still shows
+			$cur = array();
+			$resql = $db->query("SELECT rowid FROM ".$db->prefix()."designtrace_componentrevision WHERE fk_component IN (".$db->sanitize(implode(',', array_map('intval', $queue))).")");
+			while ($resql && ($o = $db->fetch_object($resql))) {
+				$cur[] = (int) $o->rowid;
+			}
 			$queue = array();
 			if (empty($cur)) {
 				break;
 			}
-			$sql = "SELECT pr.fk_component as parent_comp, l.link_type, cr.fk_component as child_comp FROM ".$db->prefix()."designtrace_componentlink as l";
+			$sql = "SELECT DISTINCT pr.fk_component as parent_comp, l.link_type, cr.fk_component as child_comp FROM ".$db->prefix()."designtrace_componentlink as l";
 			$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as pr ON pr.rowid = l.fk_parent";
 			$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as cr ON cr.rowid = l.fk_child";
-			$sql .= " WHERE l.fk_parent IN (".$db->sanitize(implode(',', array_map('intval', array_values($cur)))).")";
+			$sql .= " WHERE l.fk_parent IN (".$db->sanitize(implode(',', $cur)).")";
 			$resql = $db->query($sql);
 			while ($resql && ($obj = $db->fetch_object($resql))) {
 				$childrows[] = $obj;
@@ -555,10 +560,18 @@ class DesignTraceStaff
 				$add($db->jdate($o->date_revoked), 'grant_revoked', 'GRANT-'.$o->rowid, '', $o->fk_soc);
 			}
 		}
+		// Newest first; events at the same second keep the order they were gathered in
+		foreach ($events as $i => $e) {
+			$events[$i]['_i'] = $i;
+		}
 		usort($events, function ($a, $b) {
-			return $b['date'] <=> $a['date'];
+			return ($b['date'] <=> $a['date']) ?: ($a['_i'] <=> $b['_i']);
 		});
-		return array_slice($events, 0, $limit);
+		$events = array_slice($events, 0, $limit);
+		foreach ($events as $i => $e) {
+			unset($events[$i]['_i']);
+		}
+		return $events;
 	}
 
 	/**
@@ -569,9 +582,10 @@ class DesignTraceStaff
 	 * @param	int		$componentid	Component id
 	 * @param	int		$fromid			Older revision (0 = the one before the newer one)
 	 * @param	int		$toid			Newer revision (0 = the current one, else the latest)
+	 * @param	int		$socid			Customer the delivered flags are for (0 = the design's own customer)
 	 * @return	array<string,mixed>|null	component_id, from, to, files; null if the component or a revision is not there, or there is nothing to compare
 	 */
-	public static function compareComponentRevisions($db, $componentid, $fromid = 0, $toid = 0)
+	public static function compareComponentRevisions($db, $componentid, $fromid = 0, $toid = 0, $socid = 0)
 	{
 		$componentid = (int) $componentid;
 		$revs = array();
@@ -625,10 +639,16 @@ class DesignTraceStaff
 		usort($files, function ($a, $b) {
 			return strcmp($a['name'], $b['name']);
 		});
-		$describe = function ($revid) use ($db, $revs, $current) {
+		if ((int) $socid <= 0) {
+			$resql = $db->query("SELECT d.fk_soc FROM ".$db->prefix()."designtrace_design as d INNER JOIN ".$db->prefix()."designtrace_component as c ON c.fk_design = d.rowid WHERE c.rowid = ".$componentid);
+			$o = $resql ? $db->fetch_object($resql) : null;
+			$socid = $o ? (int) $o->fk_soc : 0;
+		}
+		$delivered = ((int) $socid > 0 ? DesignTraceLibrary::getDeliveredRevisionIds($db, (int) $socid) : array());
+		$describe = function ($revid) use ($db, $revs, $current, $delivered) {
 			$o = $revs[$revid];
 			return array('id' => (int) $revid, 'rev' => (string) $o->rev, 'ref' => (string) $o->ref, 'status' => (int) $o->status, 'date_release' => $db->jdate($o->date_release),
-				'release_note' => (string) $o->customer_note, 'is_current' => ($current === (int) $revid), 'is_delivered' => false, 'files' => array());
+				'release_note' => (string) $o->customer_note, 'is_current' => ($current === (int) $revid), 'is_delivered' => isset($delivered[(int) $revid]), 'files' => array());
 		};
 		return array('component_id' => $componentid, 'from' => $describe($fromid), 'to' => $describe($toid), 'files' => $files);
 	}
@@ -654,5 +674,51 @@ class DesignTraceStaff
 		$obj->element = '';
 		$obj->doc_id = 0;
 		return $obj;
+	}
+
+	/**
+	 * The folder where the files attached to a design are kept (the "Linked files" tab of its card)
+	 *
+	 * @param	Design	$design		Design
+	 * @return	string				Directory path, '' if the module has no document folder
+	 */
+	public static function getDesignDocumentsDir($design)
+	{
+		global $conf;
+
+		$entity = (empty($design->entity) ? $conf->entity : $design->entity);
+		if (empty($design->ref) || empty($conf->designtrace->multidir_output[$entity])) {
+			return '';
+		}
+		return $conf->designtrace->multidir_output[$entity].'/design/'.dol_sanitizeFileName($design->ref);
+	}
+
+	/**
+	 * What is on the "Linked files" tab of a design in Dolibarr: the files attached to it and the links registered on it
+	 *
+	 * @param	DoliDB	$db			Database handler
+	 * @param	Design	$design		Design (the caller has checked the staff user may see it)
+	 * @return	array<string,mixed>	files (name, size, date), links (id, url, label, date)
+	 */
+	public static function fetchDesignDocuments($db, $design)
+	{
+		include_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
+		include_once DOL_DOCUMENT_ROOT.'/core/class/link.class.php';
+
+		$files = array();
+		$dir = self::getDesignDocumentsDir($design);
+		if ($dir !== '' && is_dir($dir)) {
+			foreach (dol_dir_list($dir, 'files', 0, '', '(\.meta|_preview.*\.png)$', 'name', SORT_ASC, 0) as $f) {
+				$files[] = array('name' => (string) $f['name'], 'size' => (int) $f['size'], 'date' => (int) $f['date']);
+			}
+		}
+		$links = array();
+		$list = array();
+		$link = new Link($db);
+		$link->fetchAll($list, 'design', (int) $design->id);
+		foreach ($list as $l) {
+			$links[] = array('id' => (int) $l->id, 'url' => (string) $l->url, 'label' => (string) $l->label, 'date' => (int) $db->jdate($l->datea));
+		}
+		return array('design_id' => (int) $design->id, 'files' => $files, 'links' => $links);
 	}
 }

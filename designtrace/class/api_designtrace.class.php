@@ -1732,11 +1732,67 @@ class DesignTrace extends DolibarrApi
 	}
 
 	/**
+	 * What is on the "Linked files" tab of a design in Dolibarr: the files attached to it and the links registered on it.
+	 * Staff only: customers never see these.
+	 *
+	 * @param	int		$designid	Design id
+	 * @return	array				design_id, files (name, size, date), links (id, url, label, date)
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET staff/designs/{designid}/documents
+	 *
+	 * @throws RestException 403 Needs the right to read designs
+	 * @throws RestException 404 Design not found
+	 */
+	public function getStaffDesignDocuments($designid)
+	{
+		$this->checkStaff('design', 'read');
+		$design = $this->getStaffDesign($designid);
+		return DesignTraceStaff::fetchDesignDocuments($this->db, $design);
+	}
+
+	/**
+	 * One file attached to a design (see staff/designs/{designid}/documents), streamed
+	 *
+	 * @param	int		$designid	Design id
+	 * @param	string	$name		File name as listed
+	 * @return	void				The raw file (the request ends)
+	 *
+	 * @url	GET staff/designs/{designid}/documents/content
+	 *
+	 * @throws RestException 400 Name missing
+	 * @throws RestException 403 Needs the right to read designs
+	 * @throws RestException 404 Design or file not found
+	 */
+	public function getStaffDesignDocumentContent($designid, $name = '')
+	{
+		$this->checkStaff('design', 'read');
+		$design = $this->getStaffDesign($designid);
+		if ((string) $name === '') {
+			throw new RestException(400, 'name is required');
+		}
+		// Only a file the listing would show: no path, no traversal
+		$dir = DesignTraceStaff::getDesignDocumentsDir($design);
+		$found = '';
+		foreach (DesignTraceStaff::fetchDesignDocuments($this->db, $design)['files'] as $f) {
+			if ($f['name'] === (string) $name) {
+				$found = $f['name'];
+			}
+		}
+		if ($dir === '' || $found === '' || !is_file(dol_osencode($dir.'/'.$found))) {
+			throw new RestException(404, 'File not found');
+		}
+		DesignTraceClientAccess::sendFile($dir.'/'.$found, $found, false, array('X-DesignTrace-Design' => (string) ((int) $design->id)));
+	}
+
+	/**
 	 * Compare two revisions of a component, with every file (hidden, source and production too)
 	 *
 	 * @param	int		$componentid	Component id
 	 * @param	int		$from			Older revision (default: the one before the newer one)
 	 * @param	int		$to				Newer revision (default: the current one, else the latest)
+	 * @param	int		$socid			Customer the delivered flags are for (default: the design's own customer)
 	 * @return	array				component_id, from, to, files (as GET customers/{socid}/components/{componentid}/compare)
 	 * @phan-return array<string,mixed>
 	 * @phpstan-return array<string,mixed>
@@ -1746,7 +1802,7 @@ class DesignTrace extends DolibarrApi
 	 * @throws RestException 403 Needs the right to read designs
 	 * @throws RestException 404 Component not found, or nothing to compare
 	 */
-	public function compareStaffRevisions($componentid, $from = 0, $to = 0)
+	public function compareStaffRevisions($componentid, $from = 0, $to = 0, $socid = 0)
 	{
 		$this->checkStaff('design', 'read');
 		$component = new Component($this->db);
@@ -1754,7 +1810,7 @@ class DesignTrace extends DolibarrApi
 			throw new RestException(404, 'Component not found');
 		}
 		$this->getStaffDesign((int) $component->fk_design);
-		$result = DesignTraceStaff::compareComponentRevisions($this->db, (int) $componentid, (int) $from, (int) $to);
+		$result = DesignTraceStaff::compareComponentRevisions($this->db, (int) $componentid, (int) $from, (int) $to, (int) $socid);
 		if (!$result) {
 			throw new RestException(404, 'Nothing to compare');
 		}
