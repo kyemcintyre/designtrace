@@ -272,4 +272,44 @@ class DesignLibraryTest extends DesignTraceTestCase
 		$this->assertTrue($L::fetchRevision($this->db, $customer->id, $a->id)['is_delivered']);
 		$this->assertFalse($L::fetchRevision($this->db, $customer->id, $b->id)['is_delivered']);
 	}
+
+	public function testGrantOpensEveryReleaseButALinkedDocumentOnlyItsRevision()
+	{
+		$L = DesignTraceLibrary::class;
+		$customer = $this->newCustomer();
+		$design = $this->newDesign(array('fk_soc' => $customer->id), true);
+		$part = $this->newComponent($design);
+		// A was released but never given, B went out on a delivered order, C is the current one, D is a draft
+		$a = $this->newRevision($part);
+		$this->addFile($a, 'a.pdf', '%PDF a', RevisionFile::ROLE_PRESENTATION, RevisionFile::VISIBILITY_NOW);
+		$this->release($a);
+		$b = $this->newRevision($part);
+		$this->release($b);
+		$order = $this->newOrder($customer->id, true);
+		$this->assertGreaterThan(0, $this->linkDoc($b, 'commande', $order->id), 'Link order '.$b->error);
+		$this->assertOk($order->cloture($this->user), $order, 'Close order');
+		$c = $this->newRevision($part);
+		$this->release($c);
+		$draft = $this->newRevision($part);
+		$ids = function () use ($L, $customer, $design) {
+			$out = array();
+			foreach ($L::fetchDesign($this->db, $customer->id, $design->id)['tree'][0]['revisions'] as $rev) {
+				$out[$rev['id']] = $rev;
+			}
+			return $out;
+		};
+
+		// The order alone: its revision and the current one
+		$this->assertSame(array($b->id, $c->id), array_keys($ids()), 'A linked document opens only its revision (and the current one is listed)');
+		$this->assertNull($L::fetchRevision($this->db, $customer->id, $a->id));
+
+		// A grant opens every release, never a draft; files still follow their own visibility
+		$this->assertGreaterThan(0, DesignTraceGrant::create($this->db, $this->user, $customer->id, $design->id, array($part->id)));
+		$byid = $ids();
+		$this->assertSame(array($a->id, $b->id, $c->id), array_keys($byid), 'Every release, no draft');
+		$this->assertTrue($byid[$b->id]['is_delivered']);
+		$this->assertNotNull($L::fetchRevision($this->db, $customer->id, $a->id));
+		$this->assertNull($L::fetchRevision($this->db, $customer->id, $draft->id));
+		$this->assertNotNull($L::compareRevisions($this->db, $customer->id, $part->id, $a->id, $b->id));
+	}
 }

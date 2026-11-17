@@ -50,8 +50,9 @@ class DesignTraceLibrary
 	 *
 	 * @param	DoliDB	$db		Database handler
 	 * @param	int		$socid	Customer id
-	 * @return	array<int,array{bases:array<int,array<string,mixed>>,revs:array<int,array<int,int>>,ended:bool}>
-	 *			By design id: bases (type, id, ref, active), revs (component id => revision ids), ended (only ended grants)
+	 * @return	array<int,array{bases:array<int,array<string,mixed>>,revs:array<int,array<int,int>>,granted:array<int,bool>,ended:bool}>
+	 *			By design id: bases (type, id, ref, active), revs (component id => revision ids), granted (component id => true, reached
+	 *			through an active grant), ended (only ended grants)
 	 */
 	public static function fetchAccess($db, $socid)
 	{
@@ -61,7 +62,7 @@ class DesignTraceLibrary
 		}
 		$add = function ($designid, $compid, $revid, $type, $id, $ref, $active) use (&$access) {
 			if (!isset($access[$designid])) {
-				$access[$designid] = array('bases' => array(), 'revs' => array(), 'ended' => false);
+				$access[$designid] = array('bases' => array(), 'revs' => array(), 'granted' => array(), 'ended' => false);
 			}
 			$access[$designid]['bases'][$type.'_'.$id] = array('type' => $type, 'id' => (int) $id, 'ref' => (string) $ref, 'active' => $active);
 			if ($active && $revid > 0) {
@@ -95,6 +96,9 @@ class DesignTraceLibrary
 				$add((int) $grant->fk_design, 0, 0, 'grant', (int) $grant->rowid, $ref, $grant->active);
 			}
 			foreach ($grant->pins as $compid => $revid) {
+				if ($grant->active) {
+					$access[(int) $grant->fk_design]['granted'][(int) $compid] = true;	// A grant opens every release of the component
+				}
 				$add((int) $grant->fk_design, (int) $compid, (int) $revid, 'grant', (int) $grant->rowid, $ref, $grant->active);
 			}
 			if (!isset($access[(int) $grant->fk_design]['bases']['grant_'.$grant->rowid])) {
@@ -155,7 +159,24 @@ class DesignTraceLibrary
 			}
 		}
 		$current = ComponentLink::getCurrentRevisionIds($db, array_keys($comps));
+		// A grant opens every release of its components (released or obsolete, never drafts or reviews),
+		// delivered or not; a linked document opens only the revision linked to it. What may be opened is
+		// still decided file by file
+		$granted = array();
+		foreach ($comps as $compid => $c) {
+			if (!empty($access[$c['design_id']]['granted'][$compid])) {
+				$granted[] = $compid;
+			}
+		}
+		$released = array();
+		if (!empty($granted)) {
+			$resql = $db->query("SELECT rowid, fk_component FROM ".$db->prefix()."designtrace_componentrevision WHERE fk_component IN (".$db->sanitize(implode(',', array_map('intval', $granted))).") AND status IN (".((int) ComponentRevision::STATUS_RELEASED).", ".((int) ComponentRevision::STATUS_OBSOLETE).") AND date_release IS NOT NULL");
+			while ($resql && ($obj = $db->fetch_object($resql))) {
+				$released[(int) $obj->fk_component][] = (int) $obj->rowid;
+			}
+		}
 		foreach ($comps as $compid => &$state) {
+			$state['released'] = $released[$compid] ?? array();
 			$held = array_map('intval', $state['held']);
 			$state['held'] = $held;
 			$state['held_id'] = max($held);
@@ -454,8 +475,8 @@ class DesignTraceLibrary
 		$typenames = array(0 => 'part', 1 => 'assembly', 2 => 'drawing');
 		foreach ($all as $compid => $c) {
 			$state = $states[$compid];
-			// Every revision the customer holds (earlier deliveries too), plus the current one, oldest first
-			$revids = array_unique(array_filter(array_merge($state['held'], array($state['current_id']))));
+			// Every revision the customer holds, every release of the component, and the current one, oldest first
+			$revids = array_unique(array_filter(array_merge($state['held'], $state['released'], array($state['current_id']))));
 			sort($revids);
 			$revisions = array();
 			foreach ($revids as $revid) {
@@ -551,7 +572,7 @@ class DesignTraceLibrary
 		}
 		$state = $states[(int) $obj->fk_component];
 		$isheld = in_array((int) $revid, $state['held'], true);
-		if (!$isheld && (int) $revid !== (int) $state['current_id']) {
+		if (!$isheld && (int) $revid !== (int) $state['current_id'] && !in_array((int) $revid, $state['released'], true)) {
 			return null;
 		}
 		$files = self::fetchFilesByRevision($db, $socid);
@@ -590,7 +611,7 @@ class DesignTraceLibrary
 		}
 		foreach (array($fromid, $toid) as $revid) {
 			$resql = $db->query("SELECT rowid FROM ".$db->prefix()."designtrace_componentrevision WHERE rowid = ".((int) $revid)." AND fk_component = ".((int) $componentid));
-			if (!$resql || !$db->num_rows($resql) || (!in_array($revid, $state['held'], true) && $revid !== (int) $state['current_id'])) {
+			if (!$resql || !$db->num_rows($resql) || (!in_array($revid, $state['held'], true) && $revid !== (int) $state['current_id'] && !in_array($revid, $state['released'], true))) {
 				return null;
 			}
 		}
