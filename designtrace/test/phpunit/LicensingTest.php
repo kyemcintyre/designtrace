@@ -104,7 +104,7 @@ class LicensingTest extends DesignTraceTestCase
 		$this->assertNotNull($preview, 'A staff preview does not wait for the licence');
 		$this->assertSame($src->id, (int) $preview->file_id);
 		$this->assertNull(DesignTraceClientAccess::getDownloadableFile($this->db, $customer->id, $src->id + 100000, '', 0, $blocked, true), 'Only files the customer can see');
-		$this->assertGreaterThan(0, DesignTraceClientAccess::logDownload($this->db, $preview, $customer->id, DesignTraceClientAccess::CHANNEL_ADMIN_PREVIEW, 'admin:kye@example.com'));
+		$this->assertGreaterThan(0, DesignTraceClientAccess::logDownload($this->db, $preview, $customer->id, DesignTraceClientAccess::CHANNEL_ADMIN_PREVIEW, 'admin:staff@example.com'));
 		$this->assertCount(1, DesignTraceClientAccess::fetchDownloads($this->db, $rev->id), 'Staff see the preview in the log');
 		$types = array_column(DesignTraceLibrary::fetchHistory($this->db, $customer->id, $design->id), 'type');
 		$this->assertNotContains('download', $types, 'A staff preview is not the customer\'s download');
