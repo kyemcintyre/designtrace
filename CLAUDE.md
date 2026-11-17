@@ -63,7 +63,7 @@ each step before the next, and wants **whole files** shown when a file changes, 
 - **Change order (ECO)** `ECO-0001`: reason, requester, approver, Draft → Approved →
   Implemented → Closed; can be raised from a ticket; optional setting to require one to release.
 - **Licence template**: versioned wording + enforced permissions (personal/commercial use,
-  resell prints, modify, source deliverable, exclusive, attribution, portfolio use).
+  resell/transfer design, modify, source deliverable, exclusive, attribution, portfolio use).
 
 **Dependency flagging is strict**: a new released revision of a child flags every parent whose
 latest revision links to an older one (Uses, Depicts and References alike) as **Needs update**,
