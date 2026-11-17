@@ -272,4 +272,37 @@ class DesignLibraryTest extends DesignTraceTestCase
 		$this->assertTrue($L::fetchRevision($this->db, $customer->id, $a->id)['is_delivered']);
 		$this->assertFalse($L::fetchRevision($this->db, $customer->id, $b->id)['is_delivered']);
 	}
+
+	public function testEveryReleaseIsListedEvenIfNeverGivenToTheCustomer()
+	{
+		$L = DesignTraceLibrary::class;
+		$customer = $this->newCustomer();
+		$design = $this->newDesign(array('fk_soc' => $customer->id), true);
+		$part = $this->newComponent($design);
+		// A was released but never put on one of the customer's documents, B went out on a delivered order, C is the current one
+		$a = $this->newRevision($part);
+		$this->addFile($a, 'a.pdf', '%PDF a', RevisionFile::ROLE_PRESENTATION, RevisionFile::VISIBILITY_NOW);
+		$this->release($a);
+		$b = $this->newRevision($part);
+		$this->release($b);
+		$order = $this->newOrder($customer->id, true);
+		$this->assertGreaterThan(0, $this->linkDoc($b, 'commande', $order->id), 'Link order '.$b->error);
+		$this->assertOk($order->cloture($this->user), $order, 'Close order');
+		$c = $this->newRevision($part);
+		$this->release($c);
+		$draft = $this->newRevision($part);
+
+		$node = $L::fetchDesign($this->db, $customer->id, $design->id)['tree'][0];
+		$byid = array();
+		foreach ($node['revisions'] as $rev) {
+			$byid[$rev['id']] = $rev;
+		}
+		$this->assertSame(array($a->id, $b->id, $c->id), array_keys($byid), 'Every release, no draft');
+		$this->assertFalse($byid[$a->id]['is_delivered']);
+		$this->assertTrue($byid[$b->id]['is_delivered']);
+		$this->assertSame(array(), $byid[$a->id]['files'], 'Files of a revision never given stay out of reach');
+		$this->assertNotNull($L::fetchRevision($this->db, $customer->id, $a->id));
+		$this->assertNull($L::fetchRevision($this->db, $customer->id, $draft->id));
+		$this->assertNotNull($L::compareRevisions($this->db, $customer->id, $part->id, $a->id, $b->id));
+	}
 }

@@ -155,7 +155,17 @@ class DesignTraceLibrary
 			}
 		}
 		$current = ComponentLink::getCurrentRevisionIds($db, array_keys($comps));
+		// Every release of a component the customer reaches is listed (released or obsolete, never drafts or
+		// reviews), delivered to them or not: what they may open is still decided file by file
+		$released = array();
+		if (!empty($comps)) {
+			$resql = $db->query("SELECT rowid, fk_component FROM ".$db->prefix()."designtrace_componentrevision WHERE fk_component IN (".$db->sanitize(implode(',', array_map('intval', array_keys($comps)))).") AND status IN (".((int) ComponentRevision::STATUS_RELEASED).", ".((int) ComponentRevision::STATUS_OBSOLETE).") AND date_release IS NOT NULL");
+			while ($resql && ($obj = $db->fetch_object($resql))) {
+				$released[(int) $obj->fk_component][] = (int) $obj->rowid;
+			}
+		}
 		foreach ($comps as $compid => &$state) {
+			$state['released'] = $released[$compid] ?? array();
 			$held = array_map('intval', $state['held']);
 			$state['held'] = $held;
 			$state['held_id'] = max($held);
@@ -454,8 +464,8 @@ class DesignTraceLibrary
 		$typenames = array(0 => 'part', 1 => 'assembly', 2 => 'drawing');
 		foreach ($all as $compid => $c) {
 			$state = $states[$compid];
-			// Every revision the customer holds (earlier deliveries too), plus the current one, oldest first
-			$revids = array_unique(array_filter(array_merge($state['held'], array($state['current_id']))));
+			// Every revision the customer holds, every release of the component, and the current one, oldest first
+			$revids = array_unique(array_filter(array_merge($state['held'], $state['released'], array($state['current_id']))));
 			sort($revids);
 			$revisions = array();
 			foreach ($revids as $revid) {
@@ -551,7 +561,7 @@ class DesignTraceLibrary
 		}
 		$state = $states[(int) $obj->fk_component];
 		$isheld = in_array((int) $revid, $state['held'], true);
-		if (!$isheld && (int) $revid !== (int) $state['current_id']) {
+		if (!$isheld && (int) $revid !== (int) $state['current_id'] && !in_array((int) $revid, $state['released'], true)) {
 			return null;
 		}
 		$files = self::fetchFilesByRevision($db, $socid);
@@ -590,7 +600,7 @@ class DesignTraceLibrary
 		}
 		foreach (array($fromid, $toid) as $revid) {
 			$resql = $db->query("SELECT rowid FROM ".$db->prefix()."designtrace_componentrevision WHERE rowid = ".((int) $revid)." AND fk_component = ".((int) $componentid));
-			if (!$resql || !$db->num_rows($resql) || (!in_array($revid, $state['held'], true) && $revid !== (int) $state['current_id'])) {
+			if (!$resql || !$db->num_rows($resql) || (!in_array($revid, $state['held'], true) && $revid !== (int) $state['current_id'] && !in_array($revid, $state['released'], true))) {
 				return null;
 			}
 		}
