@@ -1012,11 +1012,11 @@ class modDesignTrace extends DolibarrModules
 		dol_include_once('/designtrace/class/licence.class.php');
 		$langs->load('designtrace@designtrace');
 		$wording = '<p><strong>'.$langs->transnoentities('LicenceStarterWording').'</strong></p><p>{customer} - {design} - {revision} - {scope} - {date}</p>';
-		// personal, commercial, resell, modify, source, exclusive, attribution, portfolio
+		// personal, commercial, resell (resell/transfer the design itself), modify, source, exclusive, attribution, portfolio
 		$starters = array(
 			'FULL' => array('LicenceStarterFull', array(1, 1, 1, 1, 1, 1, 0, 0), ''),
 			'PERSONAL' => array('LicenceStarterPersonal', array(1, 0, 0, 0, 0, 0, 0, 1), ''),
-			'COMMERCIAL' => array('LicenceStarterCommercial', array(1, 1, 1, 0, 0, 0, 0, 1), ''),
+			'COMMERCIAL' => array('LicenceStarterCommercial', array(1, 1, 0, 0, 0, 0, 0, 1), ''),	// Non-exclusive: using it commercially, not passing the design on
 			'EXCLUSIVE' => array('LicenceStarterExclusive', array(1, 1, 1, 0, 0, 1, 0, 0), 'LicenceStarterExclusiveNote'),
 			'PRINTS' => array('LicenceStarterPrints', array(1, 0, 0, 0, 0, 0, 0, 1), ''),
 		);
