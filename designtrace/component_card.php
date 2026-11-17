@@ -99,6 +99,7 @@ dol_include_once('/designtrace/lib/designtrace.lib.php');
 dol_include_once('/designtrace/lib/designtrace_component.lib.php');
 dol_include_once('/designtrace/lib/designtrace_links.lib.php');
 dol_include_once('/designtrace/lib/designtrace_cadtime.lib.php');
+dol_include_once('/designtrace/lib/designtrace_grants.lib.php');
 
 // Load translation files required by the page
 $langs->loadLangs(array("designtrace@designtrace", "other"));
@@ -218,6 +219,8 @@ if (empty($reshook)) {
 
 	// Log CAD time (Dolibarr timesheet lines on the project)
 	designtraceDoCadTimeActions($object, $action);
+	// Grant this component to a customer (every release, files marked visible), revoke or change expiry
+	designtraceDoGrantActions($object, $action);
 
 	// Actions when printing a doc from card
 	include DOL_DOCUMENT_ROOT.'/core/actions_printing.inc.php';
@@ -648,6 +651,8 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 		print '</div><div class="fichehalfright">';
 
 		designtracePrintCadTime($object);
+
+		designtracePrintGrants($object);
 
 		// BEGIN MODULEBUILDER TAB AGENDA
 		$MAXEVENT = 10;
