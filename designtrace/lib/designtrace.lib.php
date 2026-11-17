@@ -269,3 +269,52 @@ function designtraceLogUnlock($db, $user, $object, $code, $label, $note)
 	}
 	return 1;
 }
+
+/**
+ * Breadcrumb for the banner of a part/assembly/drawing or a revision: the way back up to the
+ * owning design (and, for a revision, to its component). Each link only shows when the user
+ * may read that object; the current object is the banner's own ref, so it is not repeated.
+ *
+ * @param	DoliDB					$db			Database handler
+ * @param	User					$user		Current user
+ * @param	Component|ComponentRevision	$object		Component or component revision
+ * @return	string							HTML (empty when there is nothing above the object)
+ */
+function designtraceBreadcrumb($db, $user, $object)
+{
+	global $langs;
+
+	dol_include_once('/designtrace/class/design.class.php');
+	dol_include_once('/designtrace/class/component.class.php');
+
+	$component = null;
+	if ($object->element == 'componentrevision') {
+		if (!empty($object->fk_component)) {
+			$component = new Component($db);
+			if ($component->fetch((int) $object->fk_component) <= 0) {
+				$component = null;
+			}
+		}
+	} elseif ($object->element == 'component') {
+		$component = $object;
+	}
+	if (!is_object($component)) {
+		return '';
+	}
+
+	$crumbs = array();
+	if (!empty($component->fk_design) && $user->hasRight('designtrace', 'design', 'read')) {
+		$design = new Design($db);
+		if ($design->fetch((int) $component->fk_design) > 0) {
+			$crumbs[] = $design->getNomUrl(1).' <span class="opacitymedium">'.dol_escape_htmltag($design->label).'</span>';
+		}
+	}
+	if ($object->element == 'componentrevision' && $user->hasRight('designtrace', 'component', 'read')) {
+		$crumbs[] = $component->getNomUrl(1).' <span class="opacitymedium">'.dol_escape_htmltag($component->label).'</span>';
+	}
+	if (empty($crumbs)) {
+		return '';
+	}
+
+	return '<div class="refidno designtrace-breadcrumb">'.implode(' <span class="opacitymedium">&rsaquo;</span> ', $crumbs).'</div>';
+}

@@ -142,6 +142,13 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
     `componentrevision deletereleasedfile` right and a reason, and is logged as an event on the
     revision (`AC_DESIGNTRACE_FILE_DELETE`). The revision card no longer includes
     `actions_builddoc.inc.php` (its `remove_file` would bypass the lock).
+  - Renaming: `ComponentRevision::renameFile()` moves the file on disk, its `revisionfile` row and its `ecm_files`
+    entry together, with the upload naming rules, the extension kept and the SHA-256 unchanged; a clash with
+    another file of the revision is refused. Same right as deleting: `componentrevision deletereleasedfile` for a
+    released revision (with a reason, logged as `AC_DESIGNTRACE_FILE_RENAME`); an unlocked revision takes the write
+    right or that one. Old download log rows keep the name the file had then.
+  - Navigation: `designtraceBreadcrumb()` (lib/designtrace.lib.php) puts Design › Part links at the top of the banner
+    on the revision and component pages (card, note, agenda, files), each only when the user can read it.
   - Unlocking: staff (no `socid`) with the module-wide `unlock unlock` right can reopen a Released or
     Obsolete revision to Draft (`ComponentRevision::unlock()`) and reactivate an Archived design
     (`Design::unlock()`). A reason is required and logged as an event (`AC_DESIGNTRACE_REVISION_UNLOCK`,
