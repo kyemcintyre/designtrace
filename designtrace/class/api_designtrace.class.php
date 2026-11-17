@@ -1810,6 +1810,9 @@ class DesignTrace extends DolibarrApi
 			throw new RestException(404, 'Component not found');
 		}
 		$this->getStaffDesign((int) $component->fk_design);
+		if ((int) $socid > 0) {
+			$socid = $this->checkStaffCustomer($socid);
+		}
 		$result = DesignTraceStaff::compareComponentRevisions($this->db, (int) $componentid, (int) $from, (int) $to, (int) $socid);
 		if (!$result) {
 			throw new RestException(404, 'Nothing to compare');
