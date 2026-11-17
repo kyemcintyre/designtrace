@@ -50,8 +50,9 @@ class DesignTraceLibrary
 	 *
 	 * @param	DoliDB	$db		Database handler
 	 * @param	int		$socid	Customer id
-	 * @return	array<int,array{bases:array<int,array<string,mixed>>,revs:array<int,array<int,int>>,ended:bool}>
-	 *			By design id: bases (type, id, ref, active), revs (component id => revision ids), ended (only ended grants)
+	 * @return	array<int,array{bases:array<int,array<string,mixed>>,revs:array<int,array<int,int>>,granted:array<int,bool>,ended:bool}>
+	 *			By design id: bases (type, id, ref, active), revs (component id => revision ids), granted (component id => true, reached
+	 *			through an active grant), ended (only ended grants)
 	 */
 	public static function fetchAccess($db, $socid)
 	{
@@ -61,7 +62,7 @@ class DesignTraceLibrary
 		}
 		$add = function ($designid, $compid, $revid, $type, $id, $ref, $active) use (&$access) {
 			if (!isset($access[$designid])) {
-				$access[$designid] = array('bases' => array(), 'revs' => array(), 'ended' => false);
+				$access[$designid] = array('bases' => array(), 'revs' => array(), 'granted' => array(), 'ended' => false);
 			}
 			$access[$designid]['bases'][$type.'_'.$id] = array('type' => $type, 'id' => (int) $id, 'ref' => (string) $ref, 'active' => $active);
 			if ($active && $revid > 0) {
@@ -95,6 +96,9 @@ class DesignTraceLibrary
 				$add((int) $grant->fk_design, 0, 0, 'grant', (int) $grant->rowid, $ref, $grant->active);
 			}
 			foreach ($grant->pins as $compid => $revid) {
+				if ($grant->active) {
+					$access[(int) $grant->fk_design]['granted'][(int) $compid] = true;	// A grant opens every release of the component
+				}
 				$add((int) $grant->fk_design, (int) $compid, (int) $revid, 'grant', (int) $grant->rowid, $ref, $grant->active);
 			}
 			if (!isset($access[(int) $grant->fk_design]['bases']['grant_'.$grant->rowid])) {
@@ -155,11 +159,18 @@ class DesignTraceLibrary
 			}
 		}
 		$current = ComponentLink::getCurrentRevisionIds($db, array_keys($comps));
-		// Every release of a component the customer reaches is listed (released or obsolete, never drafts or
-		// reviews), delivered to them or not: what they may open is still decided file by file
+		// A grant opens every release of its components (released or obsolete, never drafts or reviews),
+		// delivered or not; a linked document opens only the revision linked to it. What may be opened is
+		// still decided file by file
+		$granted = array();
+		foreach ($comps as $compid => $c) {
+			if (!empty($access[$c['design_id']]['granted'][$compid])) {
+				$granted[] = $compid;
+			}
+		}
 		$released = array();
-		if (!empty($comps)) {
-			$resql = $db->query("SELECT rowid, fk_component FROM ".$db->prefix()."designtrace_componentrevision WHERE fk_component IN (".$db->sanitize(implode(',', array_map('intval', array_keys($comps)))).") AND status IN (".((int) ComponentRevision::STATUS_RELEASED).", ".((int) ComponentRevision::STATUS_OBSOLETE).") AND date_release IS NOT NULL");
+		if (!empty($granted)) {
+			$resql = $db->query("SELECT rowid, fk_component FROM ".$db->prefix()."designtrace_componentrevision WHERE fk_component IN (".$db->sanitize(implode(',', array_map('intval', $granted))).") AND status IN (".((int) ComponentRevision::STATUS_RELEASED).", ".((int) ComponentRevision::STATUS_OBSOLETE).") AND date_release IS NOT NULL");
 			while ($resql && ($obj = $db->fetch_object($resql))) {
 				$released[(int) $obj->fk_component][] = (int) $obj->rowid;
 			}
