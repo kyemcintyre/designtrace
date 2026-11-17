@@ -59,16 +59,23 @@ class GrantTest extends DesignTraceTestCase
 		$this->assertTrue(DesignTraceGrant::isDelivered($this->db, $customer->id, $a->id), 'Delivered as soon as granted');
 		$this->assertNotNull($CA::getDownloadableFile($this->db, $customer->id, $rows[0]->file_id));
 
-		// A newer release does not move the pin
+		// A newer release does not move the pin (nor count as delivered), but its files are open to the grant too,
+		// as every release of the component is; a draft's never are
 		$b = $this->newRevision($part);
 		$this->addFile($b, 'b.pdf', '%PDF b', RevisionFile::ROLE_PRESENTATION, RevisionFile::VISIBILITY_NOW);
 		$this->release($b);
-		$this->assertSame(array($part->ref.'-a.pdf'), $this->names($CA::fetchVisibleFiles($this->db, $customer->id)));
+		$c = $this->newRevision($part);
+		$this->addFile($c, 'c.pdf', '%PDF c', RevisionFile::ROLE_PRESENTATION, RevisionFile::VISIBILITY_NOW);
+		$this->assertSame(array($part->ref.'-a.pdf', $part->ref.'-b.pdf'), $this->names($CA::fetchVisibleFiles($this->db, $customer->id)));
 		$this->assertFalse(DesignTraceGrant::isDelivered($this->db, $customer->id, $b->id));
+		$bfile = array_values(array_filter($CA::fetchVisibleFiles($this->db, $customer->id), function ($r) use ($b) {
+			return (int) $r->rev_id === (int) $b->id;
+		}))[0];
+		$this->assertNotNull($CA::getDownloadableFile($this->db, $customer->id, $bfile->file_id), 'Downloadable as well as listed');
 
-		// Moved by hand
+		// Moved by hand: delivered follows the pin, the files stay
 		$this->assertSame(1, DesignTraceGrant::movePin($this->db, $grantid, $part->id, $b->id));
-		$this->assertSame(array($part->ref.'-b.pdf'), $this->names($CA::fetchVisibleFiles($this->db, $customer->id)));
+		$this->assertSame(array($part->ref.'-a.pdf', $part->ref.'-b.pdf'), $this->names($CA::fetchVisibleFiles($this->db, $customer->id)));
 		$this->assertTrue(DesignTraceGrant::isDelivered($this->db, $customer->id, $b->id));
 		$draft = $this->newRevision($this->newComponent($design));
 		$this->assertSame(-3, DesignTraceGrant::movePin($this->db, $grantid, $part->id, $draft->id), 'Only released revisions of the component');

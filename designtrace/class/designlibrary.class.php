@@ -168,13 +168,7 @@ class DesignTraceLibrary
 				$granted[] = $compid;
 			}
 		}
-		$released = array();
-		if (!empty($granted)) {
-			$resql = $db->query("SELECT rowid, fk_component FROM ".$db->prefix()."designtrace_componentrevision WHERE fk_component IN (".$db->sanitize(implode(',', array_map('intval', $granted))).") AND status IN (".((int) ComponentRevision::STATUS_RELEASED).", ".((int) ComponentRevision::STATUS_OBSOLETE).") AND date_release IS NOT NULL");
-			while ($resql && ($obj = $db->fetch_object($resql))) {
-				$released[(int) $obj->fk_component][] = (int) $obj->rowid;
-			}
-		}
+		$released = DesignTraceGrant::fetchOpenedRevisionIds($db, $granted);
 		foreach ($comps as $compid => &$state) {
 			$state['released'] = $released[$compid] ?? array();
 			$held = array_map('intval', $state['held']);

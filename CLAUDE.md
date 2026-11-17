@@ -334,7 +334,8 @@ no automated emails). Reference for the Go side: `designtrace/API.md`.
   the other documents) and **grants** (`class/grant.class.php`, `llx_designtrace_grant` +
   `_grant_pin`): whole design or components, one pinned released revision per component (moved only
   by `movePin()`), optional expiry, `revoke()` (ended grants stay). Grant files come through
-  `fetchVisibleFiles()` with element `grant` (doc id = grant id). "Visible on completion" files of
+  `fetchVisibleFiles()` with element `grant` (doc id = grant id): those of every released (or since obsoleted)
+  revision of each pinned component, not just the pinned one; the pin only decides what counts as delivered. "Visible on completion" files of
   grants wait for a completed linked order or project of the customer (`isDesignCompleted()`).
   Both access and ended state are in the one resolver; **access ended** = only ended grants.
 - **Delivered**: a revision is delivered when a linked order of the customer is closed (computed live

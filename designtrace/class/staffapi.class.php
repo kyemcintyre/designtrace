@@ -199,6 +199,11 @@ class DesignTraceStaff
 		foreach (($access[(int) $designid]['revs'] ?? array()) as $ids) {
 			$revids = array_merge($revids, $ids);
 		}
+		// A grant in force opens every release of its components, not only the pinned one: list those files too
+		foreach (DesignTraceGrant::fetchOpenedRevisionIds($db, array_keys($access[(int) $designid]['granted'] ?? array())) as $ids) {
+			$revids = array_merge($revids, $ids);
+		}
+		$revids = array_values(array_unique(array_map('intval', $revids)));
 		$view['files'] = array();
 		if (!empty($revids)) {
 			$sql = "SELECT f.rowid, f.filename, f.role, f.visibility, f.sha256, r.rowid as rev_id, r.ref as rev_ref FROM ".$db->prefix()."designtrace_revisionfile as f";

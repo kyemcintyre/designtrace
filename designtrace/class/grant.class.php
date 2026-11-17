@@ -36,6 +36,40 @@ dol_include_once('/designtrace/class/componentlink.class.php');
 class DesignTraceGrant
 {
 	/**
+	 * SQL condition for a revision a grant opens besides its pin: released, or released and since made obsolete
+	 * (never a draft or one in review)
+	 *
+	 * @param	string	$alias	Alias of the componentrevision table
+	 * @return	string
+	 */
+	public static function sqlOpensRevision($alias)
+	{
+		return "(".$alias.".status IN (".((int) ComponentRevision::STATUS_RELEASED).", ".((int) ComponentRevision::STATUS_OBSOLETE).") AND ".$alias.".date_release IS NOT NULL)";
+	}
+
+	/**
+	 * The revisions a grant opens on each of these components (see sqlOpensRevision())
+	 *
+	 * @param	DoliDB	$db				Database handler
+	 * @param	int[]	$componentids	Components
+	 * @return	array<int,int[]>		Component id => revision ids
+	 */
+	public static function fetchOpenedRevisionIds($db, $componentids)
+	{
+		$ids = array();
+		if (empty($componentids)) {
+			return $ids;
+		}
+		$sql = "SELECT r.rowid, r.fk_component FROM ".$db->prefix()."designtrace_componentrevision as r";
+		$sql .= " WHERE r.fk_component IN (".$db->sanitize(implode(',', array_map('intval', $componentids))).") AND ".self::sqlOpensRevision('r');
+		$resql = $db->query($sql);
+		while ($resql && ($obj = $db->fetch_object($resql))) {
+			$ids[(int) $obj->fk_component][] = (int) $obj->rowid;
+		}
+		return $ids;
+	}
+
+	/**
 	 * Give a customer access to components of a design
 	 *
 	 * @param	DoliDB		$db				Database handler
