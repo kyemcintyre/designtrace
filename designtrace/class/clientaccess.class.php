@@ -220,7 +220,8 @@ class DesignTraceClientAccess
 			$db->free($resql);
 		}
 
-		// Design-level grants: the pinned revisions of grants in force
+		// Design-level grants in force: every release of each component they pin (released or since made obsolete),
+		// as the customer's design library lists them, and the pinned revision itself
 		if (($element === '' || $element === 'grant') && is_array($rows)) {
 			dol_include_once('/designtrace/class/grant.class.php');
 			$sql = "SELECT f.rowid as file_id, f.filename, f.role, f.format, f.filesize, f.sha256, f.visibility,";
@@ -230,7 +231,9 @@ class DesignTraceClientAccess
 			$sql .= " FROM ".$db->prefix()."designtrace_grant as g";
 			$sql .= " INNER JOIN ".$db->prefix()."designtrace_design as d ON d.rowid = g.fk_design";
 			$sql .= " INNER JOIN ".$db->prefix()."designtrace_grant_pin as p ON p.fk_grant = g.rowid";
-			$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.rowid = p.fk_revision";
+			$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as pr ON pr.rowid = p.fk_revision";
+			$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.fk_component = pr.fk_component";
+			$sql .= " AND (r.rowid = pr.rowid OR (r.status IN (".((int) ComponentRevision::STATUS_RELEASED).", ".((int) ComponentRevision::STATUS_OBSOLETE).") AND r.date_release IS NOT NULL))";
 			$sql .= " INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
 			$sql .= " INNER JOIN ".$db->prefix()."designtrace_revisionfile as f ON f.fk_revision = r.rowid";
 			$sql .= " WHERE g.fk_soc = ".((int) $socid)." AND g.entity IN (".getEntity('designtrace_design').")";
