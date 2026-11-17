@@ -122,7 +122,9 @@ class DesignTraceProofApproval
 		}
 		$revisions = array();
 		foreach ($rows as $row) {
-			if (!self::isProof((int) $row->comp_type, (int) $row->drawing_type)) {
+			// A grant opens every release for download, but only its pinned revision is a proof to decide on:
+			// an older release it opens is superseded, not waiting on the customer
+			if (!self::isProof((int) $row->comp_type, (int) $row->drawing_type) || empty($row->pinned)) {
 				continue;
 			}
 			$key = $row->element.'_'.$row->doc_id.'_'.$row->rev_id;

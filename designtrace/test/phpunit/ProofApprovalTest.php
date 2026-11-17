@@ -83,6 +83,36 @@ class ProofApprovalTest extends DesignTraceTestCase
 		$this->assertSame(0, (int) $next->customer_approval, 'A new revision waits for the customer again');
 	}
 
+	public function testAGrantOffersOnlyItsPinnedProofForADecision()
+	{
+		$A = DesignTraceProofApproval::class;
+		$customer = $this->newCustomer();
+		$design = $this->newDesign(array('fk_soc' => $customer->id), true);
+		$drawing = $this->newComponent($design, Component::TYPE_DRAWING, 'Proof', Component::DRAWING_PROOF);
+		$revs = array();
+		foreach (array('a', 'b') as $name) {
+			$rev = $this->newRevision($drawing);
+			$this->addFile($rev, $name.'.pdf', '%PDF '.$name, RevisionFile::ROLE_PRESENTATION, RevisionFile::VISIBILITY_NOW);
+			// Released without the customer's approval (as an older proof may have been)
+			$this->db->query("UPDATE ".$this->db->prefix()."designtrace_componentrevision SET needs_approval = 0 WHERE rowid = ".((int) $rev->id));
+			$rev->fetch($rev->id);
+			$this->release($rev);
+			$revs[$name] = $rev;
+		}
+		$gid = DesignTraceGrant::create($this->db, $this->user, $customer->id, $design->id);
+		$this->assertGreaterThan(0, $gid);
+
+		// Both releases' files are open to the customer, but the superseded one is not waiting on them
+		$this->assertCount(2, DesignTraceClientAccess::fetchVisibleFiles($this->db, $customer->id, 'grant'));
+		$proofs = $A::fetchProofs($this->db, $customer->id);
+		$this->assertSame(array((int) $revs['b']->id), array_values(array_map(function ($p) {
+			return $p['rev_id'];
+		}, $proofs)));
+		$err = '';
+		$this->assertLessThan(0, $A::decide($this->db, $this->user, $customer->id, $revs['a']->id, 'grant', $gid, 1, '', 'api', 'x', $err), 'No decision on a superseded proof');
+		$this->assertTrue($A::fetchProofs($this->db, $customer->id, 'grant', $gid)['grant_'.$gid.'_'.$revs['b']->id]['can_decide'], 'The pinned one can be decided');
+	}
+
 	public function testRules()
 	{
 		$A = DesignTraceProofApproval::class;

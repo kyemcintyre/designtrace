@@ -211,6 +211,9 @@ class StaffApiTest extends DesignTraceTestCase
 		$b = $this->newRevision($part);
 		$this->release($b);
 		$this->assertTrue($this->api->moveStaffGrantPin($g['id'], $part->id, $b->id)['ok']);
+		// The pin moved on, but the grant still opens Rev A's file: the staff view shows it as the customer sees it
+		$view = $this->api->getStaffCustomerDesign($customer->id, $design->id);
+		$this->assertTrue(array_column($view['files'], null, 'filename')[$pdf->filename]['shown_to_customer']);
 		$this->expectCode(409, function () use ($g, $part) {
 			$this->api->moveStaffGrantPin($g['id'], $part->id, $this->newRevision($this->newComponent($this->newDesign(array(), true)))->id);
 		});

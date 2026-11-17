@@ -50,7 +50,9 @@ entries for one document.
 A customer reaches a design through a quote, order, ticket or project link, or a design-level grant
 (a whole design or single components, each pinned to one released revision; the pin moves only when
 staff move it; it can expire or be revoked, and ended grants stay on record). The library lists all
-of them whatever the basis.
+of them whatever the basis. A grant opens every release of the components it covers (released or since
+obsoleted), revisions and their client-visible files alike; the pin only decides which one is delivered.
+A quote, order, ticket or project link opens only the revision linked.
 
 | Method and path | What |
 |---|---|
