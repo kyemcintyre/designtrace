@@ -136,6 +136,9 @@ if (empty($object->id)) {
 }
 
 $locked = $object->isLocked();
+// Renaming follows deleting: a file of a released revision needs the "delete files of released
+// revisions" right (and a reason); an unlocked revision needs the write right or that same right
+$permissiontorename = ($locked ? $permissiontodeletelocked : ($permissiontoadd || $permissiontodeletelocked));
 $selfurl = dol_buildpath('/designtrace/componentrevision_document.php', 1).'?id='.((int) $object->id);
 
 $filerecord = null;
@@ -264,6 +267,23 @@ if (empty($reshook)) {
 		exit;
 	}
 
+	// Rename a file (disk, record and documents index together); a released revision needs a reason
+	if ($action == 'confirm_renamefile' && $confirm == 'yes' && is_object($filerecord)) {
+		$oldname = $filerecord->filename;
+		if (!$permissiontorename) {
+			setEventMessages($langs->trans('NotEnoughPermissions'), null, 'errors');
+		} else {
+			$result = $object->renameFile($user, $filerecord, GETPOST('newname', 'alphanohtml'), $locked, GETPOST('reason', 'alphanohtml'));
+			if ($result > 0) {
+				setEventMessages($langs->trans('RevisionFileRenamed', $oldname, $filerecord->filename), null, 'mesgs');
+			} elseif ($result < 0) {
+				setEventMessages($object->error, $object->errors, 'errors');
+			}
+		}
+		header('Location: '.$selfurl);
+		exit;
+	}
+
 	// Check the files on disk against their SHA-256
 	if ($action == 'verify') {
 		$verifyresult = $object->verifyFiles();
@@ -302,7 +322,8 @@ print dol_get_fiche_head($head, 'document', $langs->trans("ComponentRevision"), 
 
 $component = $object->fetchComponentChecked();
 $linkback = '<a href="'.dol_buildpath('/designtrace/componentrevision_list.php', 1).'?restore_lastsearch_values=1">'.$langs->trans("BackToList").'</a>';
-$morehtmlref = '<div class="refidno">'.(is_object($component) ? $component->getNomUrl(1).' <span class="opacitymedium">'.dol_escape_htmltag($component->label).'</span>' : '').'</div>';
+dol_include_once('/designtrace/lib/designtrace.lib.php');
+$morehtmlref = designtraceBreadcrumb($db, $user, $object);
 dol_banner_tab($object, 'ref', $linkback, 1, 'ref', 'ref', $morehtmlref);
 
 print dol_get_fiche_end();
@@ -318,6 +339,20 @@ if ($action == 'deletefile' && is_object($filerecord)) {
 	} else {
 		print $form->formconfirm($selfurl.'&fileid='.((int) $filerecord->id), $langs->trans('Delete'), $langs->trans('ConfirmDeleteRevisionFile', $filerecord->filename), 'confirm_deletefile', '', 'no', 1);
 	}
+}
+
+// Rename form (a released revision needs a reason, and says what it means)
+if ($action == 'renamefile' && is_object($filerecord) && $permissiontorename) {
+	$formquestion = array(
+		array('type' => 'text', 'name' => 'newname', 'label' => $langs->trans('RevisionFileNewName'), 'value' => $filerecord->filename, 'morecss' => 'minwidth400'),
+	);
+	if ($locked) {
+		$formquestion[] = array('type' => 'text', 'name' => 'reason', 'label' => $langs->trans('RevisionFileDeleteReason'), 'value' => '', 'morecss' => 'minwidth300');
+		$question = img_warning().' '.$langs->trans('ConfirmRenameLockedRevisionFile', $filerecord->filename);
+	} else {
+		$question = $langs->trans('ConfirmRenameRevisionFile', $filerecord->filename);
+	}
+	print $form->formconfirm($selfurl.'&fileid='.((int) $filerecord->id), $langs->trans('RenameFile'), $question, 'confirm_renamefile', $formquestion, 'no', 1, 300, 650);
 }
 
 if ($locked) {
@@ -451,6 +486,9 @@ foreach ($records as $file) {
 	}
 
 	print '<td class="right nowraponall">';
+	if ($permissiontorename) {
+		print '<a class="reposition paddingright" href="'.$selfurl.'&action=renamefile&fileid='.((int) $file->id).'&token='.newToken().'">'.img_edit($langs->trans('RenameFile')).'</a>';
+	}
 	if ($candelete) {
 		print '<a class="reposition" href="'.$selfurl.'&action=deletefile&fileid='.((int) $file->id).'&token='.newToken().'">'.img_delete($langs->trans('Delete')).'</a>';
 	}

@@ -1398,6 +1398,120 @@ class ComponentRevision extends CommonObject
 	}
 
 	/**
+	 *	Rename a file: the file on disk, its record and its documents index entry together.
+	 *	The new name follows the same rules as an upload (sanitised, prefixed with the component
+	 *	number unless the setup says otherwise, no executable extension) and keeps the extension,
+	 *	so the format and role stay true. In a locked revision this needs $forcelocked (the caller
+	 *	checks the "delete files of released revisions" right) and a reason; it is then logged as
+	 *	an event on the revision. The SHA-256 does not change. Past download log rows keep the
+	 *	name the file had when it was downloaded.
+	 *
+	 *	@param	User			$user			User renaming
+	 *	@param	RevisionFile	$file			File of this revision
+	 *	@param	string			$newname		New file name
+	 *	@param	bool			$forcelocked	Allow renaming in a released or obsolete revision
+	 *	@param	string			$reason			Why (required when locked)
+	 *	@return	int<-1,1>						>0 if OK, 0 if the name is unchanged, <0 if KO
+	 */
+	public function renameFile(User $user, $file, $newname, $forcelocked = false, $reason = '')
+	{
+		global $langs;
+
+		require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
+		$langs->loadLangs(array('errors', 'designtrace@designtrace'));
+
+		if ((int) $file->fk_revision !== (int) $this->id) {
+			return $this->setErrorAndFail($langs->trans('ErrorRecordNotFound'));
+		}
+		$locked = $this->isLocked();
+		if ($locked && !$forcelocked) {
+			return $this->setErrorAndFail($langs->trans('ErrorRevisionFilesLocked', $this->ref));
+		}
+		if ($locked && trim((string) $reason) === '') {
+			return $this->setErrorAndFail($langs->trans('ErrorFieldRequired', $langs->transnoentitiesnoconv('Reason')));
+		}
+		$component = $this->fetchComponentChecked();
+		if (!is_object($component)) {
+			return -1;
+		}
+
+		$oldname = $file->filename;
+		$newname = self::buildFileName($newname, $component->ref);
+		if ($newname === '') {
+			return $this->setErrorAndFail($langs->trans('ErrorFilenameCantStartWithDot', (string) $newname));
+		}
+		if ($newname === $oldname) {
+			return 0;
+		}
+		if (strtolower(pathinfo($newname, PATHINFO_EXTENSION)) !== strtolower(pathinfo($oldname, PATHINFO_EXTENSION))) {
+			return $this->setErrorAndFail($langs->trans('ErrorRenameFileExtension', pathinfo($oldname, PATHINFO_EXTENSION)));
+		}
+		$defaultexecutableextensions = function_exists('getExecutableContent') ? implode(',', getExecutableContent()) : 'htm,html,shtml,js,phar,php,php3,php4,php5,phtml,pht,pl,py,cgi,ksh,sh,bash,bat,cmd,wpk,exe';
+		foreach (explode(',', getDolGlobalString('MAIN_FILE_EXTENSION_UPLOAD_RESTRICTION', $defaultexecutableextensions)) as $forbidden) {
+			if (trim($forbidden) !== '' && preg_match('/\.'.preg_quote(trim($forbidden), '/').'$/i', $newname)) {
+				return $this->setErrorAndFail($langs->trans('ErrorFilenameExtensionNotAllowed', $newname));
+			}
+		}
+
+		$dir = $this->getFilesDir();
+		$oldpath = $dir.'/'.$oldname;
+		$newpath = $dir.'/'.$newname;
+		if (!is_file($oldpath)) {
+			return $this->setErrorAndFail($langs->trans('ErrorRenameFileMissing', $oldname));
+		}
+		// Another file of the revision, or something on disk, already has the name (a case-only
+		// change on a case-insensitive disk lands here too, so is refused)
+		$sql = "SELECT rowid FROM ".$this->db->prefix()."designtrace_revisionfile";
+		$sql .= " WHERE fk_revision = ".((int) $this->id)." AND filename = '".$this->db->escape($newname)."' AND rowid <> ".((int) $file->id);
+		$resql = $this->db->query($sql);
+		if (!$resql) {
+			return $this->setErrorAndFail($this->db->lasterror());
+		}
+		if ($this->db->num_rows($resql) > 0 || file_exists($newpath)) {
+			return $this->setErrorAndFail($langs->trans('ErrorRenameFileExists', $newname));
+		}
+
+		$this->db->begin();
+
+		$file->filename = $newname;
+		if ($file->update($user) <= 0) {
+			$this->db->rollback();
+			$this->setErrorsFromObject($file);
+			return -1;
+		}
+		// Documents index (core's own views of the folder)
+		$relpath = trim(preg_replace('/^'.preg_quote(DOL_DATA_ROOT, '/').'/', '', $dir), '/');
+		$sql = "UPDATE ".$this->db->prefix()."ecm_files SET filename = '".$this->db->escape($newname)."'";
+		$sql .= " WHERE filepath = '".$this->db->escape($relpath)."' AND filename = '".$this->db->escape($oldname)."'";
+		$sql .= " AND entity = ".((int) (empty($this->entity) ? $GLOBALS['conf']->entity : $this->entity));
+		if (!$this->db->query($sql)) {
+			$this->db->rollback();
+			return $this->setErrorAndFail($this->db->lasterror());
+		}
+		if ($locked) {
+			dol_include_once('/designtrace/lib/designtrace.lib.php');
+			$result = designtraceLogUnlock($this->db, $user, $this, 'AC_DESIGNTRACE_FILE_RENAME',
+				$langs->transnoentities('EventRevisionFileRenamed', $oldname, $newname, $this->ref),
+				$langs->transnoentities('EventRevisionFileRenamedNote', $oldname, $newname, $this->ref, $file->sha256, trim($reason)));
+			if ($result <= 0) {
+				$this->db->rollback();
+				return -1;
+			}
+		}
+		// Last, so a failure leaves the disk as it was and the transaction rolls back
+		if (!@rename($oldpath, $newpath)) {
+			$this->db->rollback();
+			return $this->setErrorAndFail($langs->trans('ErrorFailToRenameFile', $oldpath, $newpath));
+		}
+		if (!$this->db->commit()) {
+			@rename($newpath, $oldpath);
+			return -1;
+		}
+
+		return 1;
+	}
+
+	/**
 	 *	Check the files on disk against their records
 	 *
 	 *	@return	array{files:array<int,string>,untracked:string[]}|int<-1,-1>	Per record id 'ok', 'changed' or 'missing', and files on disk without a record; -1 if KO

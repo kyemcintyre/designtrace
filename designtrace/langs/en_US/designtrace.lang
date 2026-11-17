@@ -293,6 +293,16 @@ WarningRevisionHasNoFiles = This revision has no files.
 WarningRevisionHasNoSourceFile = This revision has no source file.
 EventRevisionFileDeleted = File %s deleted from released revision %s
 EventRevisionFileDeletedNote = File: %s\nRevision: %s\nSHA-256: %s\nSize: %s\nReason: %s
+RenameFile = Rename
+RevisionFileRenamed = %s renamed to %s.
+RevisionFileNewName = New name
+ConfirmRenameRevisionFile = Rename %s? The extension stays the same and the file keeps its SHA-256.
+ConfirmRenameLockedRevisionFile = %s belongs to a released revision. Renaming it changes what was released and is recorded in the revision's events. Past downloads keep the name the file had then, and customers or orders may know the old name.
+ErrorRenameFileExtension = The extension must stay .%s.
+ErrorRenameFileExists = A file named %s already exists in this revision.
+ErrorRenameFileMissing = %s is not on disk, so it cannot be renamed (use Verify).
+EventRevisionFileRenamed = File %s renamed to %s in released revision %s
+EventRevisionFileRenamedNote = Old name: %s\nNew name: %s\nRevision: %s\nSHA-256: %s\nReason: %s
 
 #
 # Client visibility, portals and download log (phase 5)

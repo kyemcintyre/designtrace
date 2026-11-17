@@ -163,4 +163,72 @@ class RevisionFileTest extends DesignTraceTestCase
 		$this->assertDirectoryDoesNotExist($dir);
 		$this->assertSame(0, $this->countRows('SELECT COUNT(*) as nb FROM '.MAIN_DB_PREFIX.'designtrace_revisionfile WHERE fk_revision = '.((int) $b->id)));
 	}
+
+	public function testRenameMovesFileRecordAndIndexAndKeepsTheHash()
+	{
+		$ref = $this->part->ref;
+		$f = $this->addFile($this->revision, 'Bracket.FCStd', 'fcstd v1', 0);
+		$dir = $this->revision->getFilesDir();
+		$hash = $f->sha256;
+
+		$this->assertSame(0, $this->revision->renameFile($this->user, $f, $f->filename), 'Same name: nothing to do');
+		$this->assertGreaterThan(0, $this->revision->renameFile($this->user, $f, 'Bracket_v2.fcstd'), (string) $this->revision->error);
+		$this->assertSame($ref.'-Bracket_v2.fcstd', $f->filename, 'Same rules as an upload: sanitised and prefixed');
+		$this->assertFileDoesNotExist($dir.'/'.$ref.'-Bracket.fcstd');
+		$this->assertFileExists($dir.'/'.$f->filename);
+
+		$fresh = new RevisionFile($this->db);
+		$fresh->fetch($f->id);
+		$this->assertSame($f->filename, $fresh->filename);
+		$this->assertSame($hash, $fresh->sha256);
+		$this->assertSame(1, $this->countRows("SELECT COUNT(*) as nb FROM ".MAIN_DB_PREFIX."ecm_files WHERE filename = '".$this->db->escape($f->filename)."'"));
+		$this->assertSame(0, $this->countRows("SELECT COUNT(*) as nb FROM ".MAIN_DB_PREFIX."ecm_files WHERE filename = '".$this->db->escape($ref.'-Bracket.fcstd')."'"));
+		$this->assertSame('ok', $this->revision->verifyFiles()['files'][$f->id]);
+	}
+
+	public function testRenameRefusesClashesOtherExtensionsAndExecutables()
+	{
+		$a = $this->addFile($this->revision, 'a.step', 'one', 0);
+		$b = $this->addFile($this->revision, 'b.step', 'two', 0);
+		$this->assertLessThan(0, $this->revision->renameFile($this->user, $b, $a->filename), 'Name already used in the revision');
+		$this->assertLessThan(0, $this->revision->renameFile($this->user, $b, 'b.stl'), 'The extension stays');
+		$this->assertLessThan(0, $this->revision->renameFile($this->user, $b, '.hidden.step'), 'No leading dot');
+		$this->assertLessThan(0, $this->revision->renameFile($this->user, $b, 'b.php'), 'No executable names');
+		$this->assertFileExists($this->revision->getFilesDir().'/'.$b->filename);
+		$this->assertStringContainsString('b.step', $b->filename);
+	}
+
+	public function testRenamingAReleasedFileNeedsTheRightAndAReasonAndIsLogged()
+	{
+		$step = $this->addFile($this->revision, 'a.step', 'step', 0);
+		$old = $step->filename;
+		$this->release($this->revision);
+
+		$this->assertLessThan(0, $this->revision->renameFile($this->user, $step, 'c.step'), 'Locked without the right');
+		$this->assertLessThan(0, $this->revision->renameFile($this->user, $step, 'c.step', true, ' '), 'A reason is required');
+		$this->assertGreaterThan(0, $this->revision->renameFile($this->user, $step, 'c.step', true, 'Typo in the name'), (string) $this->revision->error);
+		$this->assertFileExists($this->revision->getFilesDir().'/'.$step->filename);
+
+		$res = $this->db->query("SELECT note FROM ".MAIN_DB_PREFIX."actioncomm WHERE code = 'AC_DESIGNTRACE_FILE_RENAME' AND fk_element = ".((int) $this->revision->id));
+		$event = $this->db->fetch_object($res);
+		$this->assertNotEmpty($event);
+		$this->assertStringContainsString('Typo in the name', $event->note);
+		$this->assertStringContainsString($old, $event->note);
+		$this->assertStringContainsString($step->filename, $event->note);
+	}
+
+	public function testBreadcrumbLinksBackUpToTheDesignAndThePart()
+	{
+		dol_include_once('/designtrace/lib/designtrace.lib.php');
+		$design = new Design($this->db);
+		$design->fetch($this->part->fk_design);
+
+		$html = designtraceBreadcrumb($this->db, $this->user, $this->revision);
+		$this->assertStringContainsString('design_card.php?id='.((int) $design->id), $html);
+		$this->assertStringContainsString('component_card.php?id='.((int) $this->part->id), $html);
+
+		$html = designtraceBreadcrumb($this->db, $this->user, $this->part);
+		$this->assertStringContainsString('design_card.php?id='.((int) $design->id), $html);
+		$this->assertStringNotContainsString('component_card.php', $html, 'A part does not link to itself');
+	}
 }
