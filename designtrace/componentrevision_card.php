@@ -157,8 +157,10 @@ if ($enablepermissioncheck) {
 	$permissionnote = $user->hasRight('designtrace', 'componentrevision', 'write'); // Used by the include of actions_setnotes.inc.php
 	$permissiondellink = $user->hasRight('designtrace', 'componentrevision', 'write'); // Used by the include of actions_dellink.inc.php
 	$permissiontorelease = $user->hasRight('designtrace', 'componentrevision', 'release');
+	$permissiontounlock = $user->hasRight('designtrace', 'unlock', 'unlock') && empty($user->socid);
 } else {
 	$permissiontoread = 1;
+	$permissiontounlock = 1;
 	$permissiontoadd = 1; // Used by the include of actions_addupdatedelete.inc.php and actions_lineupdown.inc.php
 	$permissiontodelete = 1;
 	$permissionnote = 1;
@@ -216,6 +218,17 @@ if (empty($reshook)) {
 	// Release (Draft or In review -> Released), needs its own permission
 	if ($action == 'confirm_release' && $confirm == 'yes' && $permissiontorelease) {
 		$result = $object->release($user);
+		if ($result > 0) {
+			header('Location: '.$_SERVER['PHP_SELF'].'?id='.$object->id);
+			exit;
+		}
+		setEventMessages($object->error, $object->errors, 'errors');
+		$action = '';
+	}
+
+	// Unlock (Released or Obsolete -> Draft), needs its own permission and a reason
+	if ($action == 'confirm_unlock' && $confirm == 'yes' && $permissiontounlock) {
+		$result = $object->unlock($user, GETPOST('reason', 'restricthtml'));
 		if ($result > 0) {
 			header('Location: '.$_SERVER['PHP_SELF'].'?id='.$object->id);
 			exit;
@@ -413,6 +426,12 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 		$formconfirm = designtraceClientAccessConfirm($form, $object);
 	}
 
+	// Unlock a released or obsolete revision: the reason is logged
+	if ($action == 'unlock' && $permissiontounlock && $object->isLocked()) {
+		$formquestion = array(array('type' => 'text', 'name' => 'reason', 'label' => $langs->trans('UnlockReason'), 'value' => '', 'morecss' => 'minwidth300'));
+		$formconfirm = $form->formconfirm($_SERVER["PHP_SELF"].'?id='.$object->id, $langs->trans('RevisionUnlock'), $langs->trans('ConfirmRevisionUnlock', $object->ref), 'confirm_unlock', $formquestion, 0, 1, 250);
+	}
+
 	if ($action == 'clone') {
 		// Create an array for form
 		$formquestion = array();
@@ -587,6 +606,11 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 				print dolGetButtonAction('', $langs->trans('RevisionMakeObsolete'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=confirm_close&confirm=yes&token='.newToken(), '', $permissiontoadd);
 			} elseif ($object->status == $object::STATUS_OBSOLETE) {
 				print dolGetButtonAction('', $langs->trans('RevisionUndoObsolete'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=confirm_reopen&confirm=yes&token='.newToken(), '', $permissiontoadd);
+			}
+
+			// Unlock (Released or Obsolete -> Draft)
+			if ($object->isLocked() && $permissiontounlock) {
+				print dolGetButtonAction('', $langs->trans('RevisionUnlock'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=unlock&token='.newToken(), '', $permissiontounlock);
 			}
 
 			// New revision from this one

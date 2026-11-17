@@ -157,7 +157,9 @@ if ($enablepermissioncheck) {
 	$permissiontodelete = $user->hasRight('designtrace', 'design', 'delete') || ($permissiontoadd && isset($object->status) && $object->status == $object::STATUS_DRAFT);
 	$permissionnote = $user->hasRight('designtrace', 'design', 'write'); // Used by the include of actions_setnotes.inc.php
 	$permissiondellink = $user->hasRight('designtrace', 'design', 'write'); // Used by the include of actions_dellink.inc.php
+	$permissiontounlock = $user->hasRight('designtrace', 'unlock', 'unlock') && empty($user->socid);
 } else {
+	$permissiontounlock = 1;
 	$permissiontoread = 1;
 	$permissiontoadd = 1; // Used by the include of actions_addupdatedelete.inc.php and actions_lineupdown.inc.php
 	$permissiontodelete = 1;
@@ -222,7 +224,22 @@ if (empty($reshook)) {
 		}
 	}
 
-	// Actions cancel, add, update, update_extras, confirm_validate, confirm_delete, confirm_deleteline, confirm_clone, confirm_close, confirm_setdraft, confirm_reopen
+	// Reactivate an archived design (Archived -> Active): needs the unlock right and a reason
+	if ($action == 'confirm_unlock' && $confirm == 'yes' && $permissiontounlock) {
+		$result = $object->unlock($user, GETPOST('reason', 'restricthtml'));
+		if ($result > 0) {
+			header('Location: '.$_SERVER['PHP_SELF'].'?id='.$object->id);
+			exit;
+		}
+		setEventMessages($object->error, $object->errors, 'errors');
+		$action = '';
+	}
+	// The core reopen action would skip the unlock right and the reason
+	if ($action == 'confirm_reopen') {
+		$action = '';
+	}
+
+	// Actions cancel, add, update, update_extras, confirm_validate, confirm_delete, confirm_deleteline, confirm_clone, confirm_close, confirm_setdraft
 	include DOL_DOCUMENT_ROOT.'/core/actions_addupdatedelete.inc.php';
 
 	// Record the customer's portfolio consent
@@ -431,6 +448,11 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 	if ($action == 'delete' || ($conf->use_javascript_ajax && empty($conf->dol_use_jmobile))) {
 		$formconfirm = $form->formconfirm($_SERVER["PHP_SELF"].'?id='.$object->id, $langs->trans('DeleteDesign'), $langs->trans('ConfirmDeleteObject'), 'confirm_delete', '', 0, 'action-delete');
 	}
+	// Unlock (reactivate) an archived design: the reason is logged
+	if ($action == 'unlock' && $permissiontounlock && $object->status == $object::STATUS_CANCELED) {
+		$formquestion = array(array('type' => 'text', 'name' => 'reason', 'label' => $langs->trans('UnlockReason'), 'value' => '', 'morecss' => 'minwidth300'));
+		$formconfirm = $form->formconfirm($_SERVER["PHP_SELF"].'?id='.$object->id, $langs->trans('DesignReactivate'), $langs->trans('ConfirmDesignUnlock', $object->ref), 'confirm_unlock', $formquestion, 0, 1, 250);
+	}
 	// Clone confirmation
 	if ($action == 'clone') {
 		// Create an array for form
@@ -590,7 +612,7 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 			if ($object->status == $object::STATUS_VALIDATED) {
 				print dolGetButtonAction('', $langs->trans('DesignArchive'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=confirm_close&confirm=yes&token='.newToken(), '', $permissiontoadd);
 			} elseif ($object->status == $object::STATUS_CANCELED) {
-				print dolGetButtonAction('', $langs->trans('DesignReactivate'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=confirm_reopen&confirm=yes&token='.newToken(), '', $permissiontoadd);
+				print dolGetButtonAction('', $langs->trans('DesignReactivate'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=unlock&token='.newToken(), '', $permissiontounlock);
 			}
 
 			// Delete (with preloaded confirm popup)
