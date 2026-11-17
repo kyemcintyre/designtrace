@@ -447,6 +447,13 @@ class modDesignTrace extends DolibarrModules
 		$this->rights[$r][5] = 'readconfidential';
 		$r++;
 
+		// Unlock released/obsolete revisions and archived designs (staff only, reason required, logged)
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (6 * 10) + 3 + 1);
+		$this->rights[$r][1] = 'Unlock released revisions and archived designs of DesignTrace';
+		$this->rights[$r][4] = 'unlock';
+		$this->rights[$r][5] = 'unlock';
+		$r++;
+
 
 		// Main menu entries to add
 		$this->menu = array();

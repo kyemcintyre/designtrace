@@ -232,3 +232,40 @@ function designtraceRevisionCause($revision)
 	}
 	return $out;
 }
+
+/**
+ * Log an unlock (a locked revision reopened, an archived design reactivated) as an agenda event
+ * on the object, so who reopened it and why stays on record.
+ *
+ * @param	DoliDB			$db			Database handler
+ * @param	User			$user		User unlocking
+ * @param	CommonObject	$object		Revision or design that was unlocked
+ * @param	string			$code		Event code (AC_DESIGNTRACE_...)
+ * @param	string			$label		Event label
+ * @param	string			$note		Event note (holds the reason)
+ * @return	int<-1,1>					>0 if OK, <0 if KO (error in $object->error)
+ */
+function designtraceLogUnlock($db, $user, $object, $code, $label, $note)
+{
+	require_once DOL_DOCUMENT_ROOT.'/comm/action/class/actioncomm.class.php';
+
+	$now = dol_now();
+	$event = new ActionComm($db);
+	$event->type_code = 'AC_OTH_AUTO';
+	$event->code = $code;
+	$event->label = $label;
+	$event->note_private = $note;
+	$event->datep = $now;
+	$event->datef = $now;
+	$event->percentage = -1;
+	$event->userownerid = $user->id;
+	$event->authorid = $user->id;
+	$event->elementtype = $object->element.'@'.$object->module;
+	$event->fk_element = $object->id;
+	if ($event->create($user) <= 0) {
+		$object->error = $event->error;
+		$object->errors = $event->errors;
+		return -1;
+	}
+	return 1;
+}

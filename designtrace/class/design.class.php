@@ -1042,6 +1042,48 @@ class Design extends CommonObject
 	}
 
 	/**
+	 *	Unlock an archived design (Archived -> Active). Needs the unlock right, is for staff only,
+	 *	requires a reason and is logged as an agenda event.
+	 *
+	 *	@param	User		$user		User unlocking
+	 *	@param	string		$reason		Why the design is reactivated (required)
+	 *  @param	int<0,1>	$notrigger	1=Does not execute triggers, 0=Execute triggers
+	 *	@return	int<-1,1>				Return integer <0 if KO, 0=Nothing done, >0 if OK
+	 */
+	public function unlock($user, $reason, $notrigger = 0)
+	{
+		global $langs;
+
+		$langs->load('designtrace@designtrace');
+		if (!empty($user->socid) || !$user->hasRight('designtrace', 'unlock', 'unlock')) {
+			return $this->setErrorAndFail($langs->trans('ErrorUnlockNotAllowed'));
+		}
+		if ((int) $this->status !== self::STATUS_CANCELED) {
+			return 0;
+		}
+		if (trim((string) $reason) === '') {
+			return $this->setErrorAndFail($langs->trans('ErrorUnlockReasonRequired'));
+		}
+
+		$this->db->begin();
+
+		$result = $this->setStatusCommon($user, self::STATUS_VALIDATED, $notrigger, 'DESIGNTRACE_DESIGN_REOPEN');
+		if ($result > 0) {
+			dol_include_once('/designtrace/lib/designtrace.lib.php');
+			$result = designtraceLogUnlock($this->db, $user, $this, 'AC_DESIGNTRACE_DESIGN_UNLOCK',
+				$langs->transnoentities('EventDesignUnlocked', $this->ref),
+				$langs->transnoentities('EventDesignUnlockedNote', $this->ref, trim($reason)));
+		}
+		if ($result <= 0) {
+			$this->db->rollback();
+			return -1;
+		}
+
+		$this->db->commit();
+		return 1;
+	}
+
+	/**
 	 * getTooltipContentArray
 	 *
 	 * @param	array<string,string> 	$params 	Params to construct tooltip data

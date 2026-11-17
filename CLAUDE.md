@@ -142,6 +142,10 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
     `componentrevision deletereleasedfile` right and a reason, and is logged as an event on the
     revision (`AC_DESIGNTRACE_FILE_DELETE`). The revision card no longer includes
     `actions_builddoc.inc.php` (its `remove_file` would bypass the lock).
+  - Unlocking: staff (no `socid`) with the module-wide `unlock unlock` right can reopen a Released or
+    Obsolete revision to Draft (`ComponentRevision::unlock()`) and reactivate an Archived design
+    (`Design::unlock()`). A reason is required and logged as an event (`AC_DESIGNTRACE_REVISION_UNLOCK`,
+    `AC_DESIGNTRACE_DESIGN_UNLOCK`). The design card's core `confirm_reopen` is blocked so it cannot bypass this.
   - Max size: setup `DESIGNTRACE_MAX_UPLOAD_MB`, else and never more than PHP
     upload_max_filesize / post_max_size (Dolibarr's MAIN_UPLOAD_DOC is not used here).
   - Settings: `DESIGNTRACE_ROLE_EXT_SOURCE|PRESENTATION|PRODUCTION`, `DESIGNTRACE_3MF_NO_DETECT`,
