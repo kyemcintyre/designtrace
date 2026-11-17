@@ -166,7 +166,7 @@ class DesignTraceClientAccess
 	 * @param	int		$fileid		Only this file
 	 * @return	stdClass[]|int		Rows (file_id, filename, role, format, filesize, sha256, visibility, rev_id, rev_ref, rev,
 	 *								rev_status, date_release, comp_id, comp_ref, comp_label, comp_type, drawing_type, design_id, element, doc_id, doc_ref,
-	 *								doc_status), or -1 on error
+	 *								doc_status, pinned: 0 for a release a grant opens besides its pinned revision, else 1), or -1 on error
 	 */
 	public static function fetchVisibleFiles($db, $socid, $element = '', $docid = 0, $fileid = 0)
 	{
@@ -182,7 +182,7 @@ class DesignTraceClientAccess
 			$sql = "SELECT f.rowid as file_id, f.filename, f.role, f.format, f.filesize, f.sha256, f.visibility,";
 			$sql .= " r.rowid as rev_id, r.ref as rev_ref, r.rev, r.status as rev_status, r.date_release,";
 			$sql .= " c.rowid as comp_id, c.ref as comp_ref, c.label as comp_label, c.type as comp_type, c.drawing_type, c.fk_design as design_id,";
-			$sql .= " ee.sourcetype as element, d.rowid as doc_id, d.ref as doc_ref, d.fk_statut as doc_status";
+			$sql .= " ee.sourcetype as element, d.rowid as doc_id, d.ref as doc_ref, d.fk_statut as doc_status, 1 as pinned";
 			$sql .= " FROM ".$db->prefix()."element_element as ee";
 			$sql .= " INNER JOIN ".$db->prefix().$def['table']." as d ON d.rowid = ee.fk_source";
 			$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.rowid = ee.fk_target";
@@ -227,13 +227,13 @@ class DesignTraceClientAccess
 			$sql = "SELECT f.rowid as file_id, f.filename, f.role, f.format, f.filesize, f.sha256, f.visibility,";
 			$sql .= " r.rowid as rev_id, r.ref as rev_ref, r.rev, r.status as rev_status, r.date_release,";
 			$sql .= " c.rowid as comp_id, c.ref as comp_ref, c.label as comp_label, c.type as comp_type, c.drawing_type, c.fk_design as design_id,";
-			$sql .= " 'grant' as element, g.rowid as doc_id, d.ref as doc_ref, 1 as doc_status";
+			$sql .= " 'grant' as element, g.rowid as doc_id, d.ref as doc_ref, 1 as doc_status, (CASE WHEN r.rowid = pr.rowid THEN 1 ELSE 0 END) as pinned";
 			$sql .= " FROM ".$db->prefix()."designtrace_grant as g";
 			$sql .= " INNER JOIN ".$db->prefix()."designtrace_design as d ON d.rowid = g.fk_design";
 			$sql .= " INNER JOIN ".$db->prefix()."designtrace_grant_pin as p ON p.fk_grant = g.rowid";
 			$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as pr ON pr.rowid = p.fk_revision";
 			$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.fk_component = pr.fk_component";
-			$sql .= " AND (r.rowid = pr.rowid OR (r.status IN (".((int) ComponentRevision::STATUS_RELEASED).", ".((int) ComponentRevision::STATUS_OBSOLETE).") AND r.date_release IS NOT NULL))";
+			$sql .= " AND (r.rowid = pr.rowid OR ".DesignTraceGrant::sqlOpensRevision('r').")";
 			$sql .= " INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
 			$sql .= " INNER JOIN ".$db->prefix()."designtrace_revisionfile as f ON f.fk_revision = r.rowid";
 			$sql .= " WHERE g.fk_soc = ".((int) $socid)." AND g.entity IN (".getEntity('designtrace_design').")";
