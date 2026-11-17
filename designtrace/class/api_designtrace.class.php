@@ -1683,6 +1683,127 @@ class DesignTrace extends DolibarrApi
 	}
 
 	/**
+	 * A design whoever it is shared with: every component with every revision (drafts and in review
+	 * too) and every file of each, shaped like the tree of GET staff/customers/{socid}/designs/{designid}
+	 * (external components are those of other designs the design's components link to). Whether a
+	 * revision is delivered (`is_delivered`) is for the given customer, else the design's own.
+	 *
+	 * @param	int		$designid	Design id
+	 * @param	int		$socid		Customer the delivered flags are for (default: the design's own)
+	 * @return	array				id, ref, label, tree, roots
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET staff/designs/{designid}/overview
+	 *
+	 * @throws RestException 403 Needs the right to read designs
+	 * @throws RestException 404 Design or customer not found
+	 */
+	public function getStaffDesignOverview($designid, $socid = 0)
+	{
+		$this->checkStaff('design', 'read');
+		$design = $this->getStaffDesign($designid);
+		if ((int) $socid > 0) {
+			$socid = $this->checkStaffCustomer($socid);
+		}
+		return DesignTraceStaff::fetchDesignOverview($this->db, $design, (int) $socid);
+	}
+
+	/**
+	 * What happened on a design for any customer: releases, approvals and change requests, licence
+	 * acceptances, consent, downloads (staff previews left out) and grants, newest first.
+	 *
+	 * @param	int		$designid	Design id
+	 * @param	int		$limit		Max entries (1-500)
+	 * @return	array				date, type, design_id, design_ref, text, actor, soc_id
+	 * @phan-return array<int,array<string,mixed>>
+	 * @phpstan-return array<int,array<string,mixed>>
+	 *
+	 * @url	GET staff/designs/{designid}/history
+	 *
+	 * @throws RestException 403 Needs the right to read designs
+	 * @throws RestException 404 Design not found
+	 */
+	public function getStaffDesignHistory($designid, $limit = 100)
+	{
+		$this->checkStaff('design', 'read');
+		$this->getStaffDesign($designid);
+		return DesignTraceStaff::fetchDesignHistory($this->db, (int) $designid, (int) $limit);
+	}
+
+	/**
+	 * Compare two revisions of a component, with every file (hidden, source and production too)
+	 *
+	 * @param	int		$componentid	Component id
+	 * @param	int		$from			Older revision (default: the one before the newer one)
+	 * @param	int		$to				Newer revision (default: the current one, else the latest)
+	 * @return	array				component_id, from, to, files (as GET customers/{socid}/components/{componentid}/compare)
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET staff/components/{componentid}/compare
+	 *
+	 * @throws RestException 403 Needs the right to read designs
+	 * @throws RestException 404 Component not found, or nothing to compare
+	 */
+	public function compareStaffRevisions($componentid, $from = 0, $to = 0)
+	{
+		$this->checkStaff('design', 'read');
+		$component = new Component($this->db);
+		if ($component->fetch((int) $componentid) <= 0) {
+			throw new RestException(404, 'Component not found');
+		}
+		$this->getStaffDesign((int) $component->fk_design);
+		$result = DesignTraceStaff::compareComponentRevisions($this->db, (int) $componentid, (int) $from, (int) $to);
+		if (!$result) {
+			throw new RestException(404, 'Nothing to compare');
+		}
+		return $result;
+	}
+
+	/**
+	 * Any file of a design, whoever it is shared with, streamed as GET customers/{socid}/files/{fileid}/content
+	 * (headers X-Content-SHA256, X-DesignTrace-File-Id, X-DesignTrace-Revision). Production and source files
+	 * too: the staff user's right to read designs is the only gate. Logged on the staff-preview channel, which
+	 * the customer's download log and history never show.
+	 *
+	 * @param	int		$fileid		File id
+	 * @param	int		$inline		1 = Content-Disposition inline (3D formats only)
+	 * @return	void				The raw file (never returns: the file is streamed and the request ends)
+	 *
+	 * @url	GET staff/files/{fileid}/content
+	 *
+	 * @throws RestException 400 Inline on a file that is not 3D
+	 * @throws RestException 403 Needs the right to read designs
+	 * @throws RestException 404 File or design not found, or the file is missing on disk
+	 * @throws RestException 503 System error (download not logged, file not sent)
+	 */
+	public function getStaffFileContent($fileid, $inline = 0)
+	{
+		$this->checkStaff('design', 'read');
+		$row = DesignTraceStaff::fetchFileRow($this->db, (int) $fileid);
+		if (!$row) {
+			throw new RestException(404, 'File not found');
+		}
+		$this->getStaffDesign((int) $row->design_id);
+		if (!empty($inline) && !DesignTraceClientAccess::is3dFormat((string) $row->format)) {
+			throw new RestException(400, 'Only 3D files (viewer_3d) can be sent inline');
+		}
+		$fullpath = DesignTraceClientAccess::getFilePath($this->db, $row);
+		if ($fullpath === '' || !is_file(dol_osencode($fullpath))) {
+			throw new RestException(404, 'File missing on disk');
+		}
+		if (DesignTraceClientAccess::logDownload($this->db, $row, (int) $row->fk_soc, DesignTraceClientAccess::CHANNEL_ADMIN_PREVIEW, 'api:'.DolibarrApiAccess::$user->login) < 0) {
+			throw new RestException(503, 'Error logging the download');
+		}
+		DesignTraceClientAccess::sendFile($fullpath, $row->filename, !empty($inline), array(
+			'X-Content-SHA256' => (string) $row->sha256,
+			'X-DesignTrace-File-Id' => (string) ((int) $row->file_id),
+			'X-DesignTrace-Revision' => (string) $row->rev_ref,
+		));
+	}
+
+	/**
 	 * Grants of a customer (whole designs or single components), with their pins, newest first
 	 *
 	 * @param	int		$socid		Customer (third party) id

@@ -395,4 +395,264 @@ class DesignTraceStaff
 		return array('from' => (int) $from, 'to' => (int) $to, 'approval_turnaround' => $turnaround, 'eco_cycle_time' => $cycle,
 			'designs_delivered_per_month' => $permonth($delivered), 'revisions_released_per_month' => $permonth($released), 'cad_hours_per_design' => $hours);
 	}
+
+	/**
+	 * A design as the workshop sees it, whoever it is shared with: every component with every revision
+	 * (drafts and in review too) and every file of each, as the customer view's tree is shaped.
+	 *
+	 * Components of other designs that the design's components link to are included as external. Which
+	 * revisions count as delivered is worked out for one customer: the given one, else the design's.
+	 *
+	 * @param	DoliDB	$db			Database handler
+	 * @param	Design	$design		Design (the caller has checked the staff user may see it)
+	 * @param	int		$socid		Customer the delivered flags are for (0 = the design's own customer)
+	 * @return	array<string,mixed>	id, ref, label, tree (components, as GET customers/{socid}/designs/{designid}), roots
+	 */
+	public static function fetchDesignOverview($db, $design, $socid = 0)
+	{
+		$designid = (int) $design->id;
+		$socid = ((int) $socid > 0 ? (int) $socid : (int) $design->fk_soc);
+		$delivered = ($socid > 0 ? DesignTraceLibrary::getDeliveredRevisionIds($db, $socid) : array());
+
+		// The design's components, then the other designs' components they link to, until nothing new turns up
+		$ids = array();
+		$resql = $db->query("SELECT rowid FROM ".$db->prefix()."designtrace_component WHERE fk_design = ".$designid." ORDER BY rowid");
+		while ($resql && ($obj = $db->fetch_object($resql))) {
+			$ids[(int) $obj->rowid] = (int) $obj->rowid;
+		}
+		$childrows = array();
+		for ($queue = array_values($ids); !empty($queue);) {
+			$cur = ComponentLink::getCurrentRevisionIds($db, $queue);
+			$queue = array();
+			if (empty($cur)) {
+				break;
+			}
+			$sql = "SELECT pr.fk_component as parent_comp, l.link_type, cr.fk_component as child_comp FROM ".$db->prefix()."designtrace_componentlink as l";
+			$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as pr ON pr.rowid = l.fk_parent";
+			$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as cr ON cr.rowid = l.fk_child";
+			$sql .= " WHERE l.fk_parent IN (".$db->sanitize(implode(',', array_map('intval', array_values($cur)))).")";
+			$resql = $db->query($sql);
+			while ($resql && ($obj = $db->fetch_object($resql))) {
+				$childrows[] = $obj;
+				if (!isset($ids[(int) $obj->child_comp])) {
+					$ids[(int) $obj->child_comp] = (int) $obj->child_comp;
+					$queue[] = (int) $obj->child_comp;
+				}
+			}
+		}
+		$current = ComponentLink::getCurrentRevisionIds($db, array_values($ids));
+
+		$nodes = array();
+		$typenames = array(0 => 'part', 1 => 'assembly', 2 => 'drawing');
+		if (!empty($ids)) {
+			$in = $db->sanitize(implode(',', array_map('intval', array_values($ids))));
+			$sql = "SELECT c.rowid, c.ref, c.label, c.type, c.drawing_type, c.fk_design, d.ref as design_ref FROM ".$db->prefix()."designtrace_component as c";
+			$sql .= " INNER JOIN ".$db->prefix()."designtrace_design as d ON d.rowid = c.fk_design WHERE c.rowid IN (".$in.") ORDER BY c.rowid";
+			$resql = $db->query($sql);
+			while ($resql && ($c = $db->fetch_object($resql))) {
+				$nodes[(int) $c->rowid] = array('id' => (int) $c->rowid, 'ref' => $c->ref, 'label' => (string) $c->label, 'type' => $typenames[(int) $c->type] ?? 'part',
+					'drawing_type' => ((int) $c->type === 2 ? (int) $c->drawing_type : null), 'design_id' => (int) $c->fk_design, 'design_ref' => $c->design_ref,
+					'external' => ((int) $c->fk_design !== $designid), 'held_revision' => null, 'delivered_revision' => null,
+					'current_revision' => (isset($current[(int) $c->rowid]) ? (int) $current[(int) $c->rowid] : null), 'newer_revision' => false, 'revisions' => array(), 'children' => array());
+			}
+			$files = array();
+			$sql = "SELECT f.rowid, f.fk_revision, f.filename, f.role, f.format, f.filesize, f.sha256, f.visibility FROM ".$db->prefix()."designtrace_revisionfile as f";
+			$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.rowid = f.fk_revision WHERE r.fk_component IN (".$in.") ORDER BY f.fk_revision, f.filename";
+			$resql = $db->query($sql);
+			while ($resql && ($f = $db->fetch_object($resql))) {
+				$files[(int) $f->fk_revision][] = array('id' => (int) $f->rowid, 'filename' => $f->filename, 'role' => (int) $f->role, 'format' => (string) $f->format,
+					'size' => (int) $f->filesize, 'sha256' => (string) $f->sha256, 'visibility' => (int) $f->visibility);
+			}
+			$sql = "SELECT rowid, fk_component, rev, ref, status, date_release, customer_note FROM ".$db->prefix()."designtrace_componentrevision WHERE fk_component IN (".$in.") ORDER BY rowid";
+			$resql = $db->query($sql);
+			while ($resql && ($r = $db->fetch_object($resql))) {
+				$comp = (int) $r->fk_component;
+				if (!isset($nodes[$comp])) {
+					continue;
+				}
+				$isdelivered = isset($delivered[(int) $r->rowid]);
+				$nodes[$comp]['revisions'][] = array('id' => (int) $r->rowid, 'rev' => (string) $r->rev, 'ref' => (string) $r->ref, 'status' => (int) $r->status,
+					'date_release' => $db->jdate($r->date_release), 'release_note' => (string) $r->customer_note, 'is_current' => ($nodes[$comp]['current_revision'] === (int) $r->rowid),
+					'is_delivered' => $isdelivered, 'files' => $files[(int) $r->rowid] ?? array());
+				if ($isdelivered) {
+					$nodes[$comp]['delivered_revision'] = (int) $r->rowid;
+				}
+			}
+		}
+		$childof = array();
+		foreach ($childrows as $link) {
+			$parent = (int) $link->parent_comp;
+			$child = (int) $link->child_comp;
+			if (!isset($nodes[$parent]) || !isset($nodes[$child]) || $parent === $child) {
+				continue;
+			}
+			$nodes[$parent]['children'][] = array('component_id' => $child, 'link' => array(1 => 'uses', 2 => 'depicts', 3 => 'references')[(int) $link->link_type] ?? 'references');
+			$childof[$child] = true;
+		}
+		$roots = array();
+		foreach ($nodes as $compid => $node) {
+			if (!isset($childof[$compid]) && !$node['external']) {
+				$roots[] = $compid;
+			}
+		}
+		return array('id' => $designid, 'ref' => (string) $design->ref, 'label' => (string) $design->label, 'tree' => array_values($nodes), 'roots' => $roots);
+	}
+
+	/**
+	 * What happened on a design, for any customer: releases, approvals and change requests, licence
+	 * acceptances, consent, downloads (staff previews left out) and grants, newest first.
+	 *
+	 * @param	DoliDB	$db			Database handler
+	 * @param	int		$designid	Design id
+	 * @param	int		$limit		Max entries (1-500)
+	 * @return	array<int,array<string,mixed>>	date, type, design_id, design_ref, text, actor, soc_id (0 when not about one customer)
+	 */
+	public static function fetchDesignHistory($db, $designid, $limit = 100)
+	{
+		$limit = max(1, min(500, (int) $limit));
+		$designid = (int) $designid;
+		$resql = $db->query("SELECT ref FROM ".$db->prefix()."designtrace_design WHERE rowid = ".$designid);
+		$obj = $resql ? $db->fetch_object($resql) : null;
+		$ref = $obj ? (string) $obj->ref : '';
+		$events = array();
+		$add = function ($date, $type, $text, $actor, $socid = 0) use (&$events, $designid, $ref) {
+			$events[] = array('date' => (int) $date, 'type' => $type, 'design_id' => $designid, 'design_ref' => $ref, 'text' => (string) $text, 'actor' => (string) $actor, 'soc_id' => (int) $socid);
+		};
+
+		$sql = "SELECT r.ref, r.date_release FROM ".$db->prefix()."designtrace_componentrevision as r INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
+		$sql .= " WHERE c.fk_design = ".$designid." AND r.status IN (".((int) ComponentRevision::STATUS_RELEASED).", ".((int) ComponentRevision::STATUS_OBSOLETE).") AND r.date_release IS NOT NULL";
+		$resql = $db->query($sql);
+		while ($resql && ($o = $db->fetch_object($resql))) {
+			$add($db->jdate($o->date_release), 'release', $o->ref, '');
+		}
+		$sql = "SELECT a.decision, a.comment, a.actor, a.date_decision, a.fk_soc, r.ref FROM ".$db->prefix()."designtrace_approval as a";
+		$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.rowid = a.fk_revision INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
+		$sql .= " WHERE c.fk_design = ".$designid;
+		$resql = $db->query($sql);
+		while ($resql && ($o = $db->fetch_object($resql))) {
+			$add($db->jdate($o->date_decision), ((int) $o->decision === DesignTraceProofApproval::DECISION_APPROVED ? 'approval' : 'changes_requested'), $o->ref.($o->comment ? ': '.$o->comment : ''), $o->actor, $o->fk_soc);
+		}
+		$sql = "SELECT a.actor, a.date_accept, a.fk_soc, v.ref FROM ".$db->prefix()."designtrace_licenceaccept as a LEFT JOIN ".$db->prefix()."designtrace_licenceversion as v ON v.rowid = a.fk_licenceversion WHERE a.fk_design = ".$designid;
+		$resql = $db->query($sql);
+		while ($resql && ($o = $db->fetch_object($resql))) {
+			$add($db->jdate($o->date_accept), 'licence_accepted', $o->ref, $o->actor, $o->fk_soc);
+		}
+		$resql = $db->query("SELECT consent, actor, date_consent FROM ".$db->prefix()."designtrace_consent WHERE fk_design = ".$designid);
+		while ($resql && ($o = $db->fetch_object($resql))) {
+			$add($db->jdate($o->date_consent), 'consent', ((int) $o->consent === DesignTracePortfolio::CONSENT_GRANTED ? 'granted' : 'refused'), $o->actor);
+		}
+		$sql = "SELECT dl.filename, dl.actor, dl.date_download, dl.fk_soc FROM ".$db->prefix()."designtrace_download as dl";
+		$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.rowid = dl.fk_revision INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
+		$sql .= " WHERE c.fk_design = ".$designid." AND dl.channel <> '".$db->escape(DesignTraceClientAccess::CHANNEL_ADMIN_PREVIEW)."' ORDER BY dl.date_download DESC, dl.rowid DESC".$db->plimit(500);
+		$resql = $db->query($sql);
+		while ($resql && ($o = $db->fetch_object($resql))) {
+			$add($db->jdate($o->date_download), 'download', $o->filename, $o->actor, $o->fk_soc);
+		}
+		$resql = $db->query("SELECT rowid, fk_soc, date_creation, date_revoked FROM ".$db->prefix()."designtrace_grant WHERE fk_design = ".$designid);
+		while ($resql && ($o = $db->fetch_object($resql))) {
+			$add($db->jdate($o->date_creation), 'grant_given', 'GRANT-'.$o->rowid, '', $o->fk_soc);
+			if (!empty($o->date_revoked)) {
+				$add($db->jdate($o->date_revoked), 'grant_revoked', 'GRANT-'.$o->rowid, '', $o->fk_soc);
+			}
+		}
+		usort($events, function ($a, $b) {
+			return $b['date'] <=> $a['date'];
+		});
+		return array_slice($events, 0, $limit);
+	}
+
+	/**
+	 * Differences between two revisions of a component, every file counted (hidden, source and
+	 * production ones too). Files are matched by name without the component prefix, as in the customer's compare.
+	 *
+	 * @param	DoliDB	$db				Database handler
+	 * @param	int		$componentid	Component id
+	 * @param	int		$fromid			Older revision (0 = the one before the newer one)
+	 * @param	int		$toid			Newer revision (0 = the current one, else the latest)
+	 * @return	array<string,mixed>|null	component_id, from, to, files; null if the component or a revision is not there, or there is nothing to compare
+	 */
+	public static function compareComponentRevisions($db, $componentid, $fromid = 0, $toid = 0)
+	{
+		$componentid = (int) $componentid;
+		$revs = array();
+		$resql = $db->query("SELECT rowid, rev, ref, status, date_release, customer_note FROM ".$db->prefix()."designtrace_componentrevision WHERE fk_component = ".$componentid." ORDER BY rowid");
+		while ($resql && ($o = $db->fetch_object($resql))) {
+			$revs[(int) $o->rowid] = $o;
+		}
+		if (count($revs) < 1) {
+			return null;
+		}
+		$currentids = ComponentLink::getCurrentRevisionIds($db, array($componentid));
+		$current = (int) ($currentids[$componentid] ?? 0);
+		$toid = (int) $toid ?: ($current ?: max(array_keys($revs)));
+		if ((int) $fromid > 0) {
+			$fromid = (int) $fromid;
+		} else {
+			$before = array_filter(array_keys($revs), function ($id) use ($toid) {
+				return $id < $toid;
+			});
+			$fromid = $before ? max($before) : 0;
+		}
+		if (!isset($revs[$fromid]) || !isset($revs[$toid])) {
+			return null;
+		}
+		$side = function ($revid) use ($db) {
+			$out = array();
+			$sql = "SELECT f.filename, f.sha256, f.filesize, c.ref as comp_ref FROM ".$db->prefix()."designtrace_revisionfile as f";
+			$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.rowid = f.fk_revision";
+			$sql .= " INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component WHERE f.fk_revision = ".((int) $revid);
+			$resql = $db->query($sql);
+			while ($resql && ($obj = $db->fetch_object($resql))) {
+				$name = (strpos($obj->filename, $obj->comp_ref.'-') === 0 ? substr($obj->filename, strlen($obj->comp_ref) + 1) : $obj->filename);
+				$out[$name] = array('sha256' => (string) $obj->sha256, 'size' => (int) $obj->filesize);
+			}
+			return $out;
+		};
+		$old = $side($fromid);
+		$new = $side($toid);
+		$files = array();
+		foreach (array_unique(array_merge(array_keys($old), array_keys($new))) as $name) {
+			$name = (string) $name;
+			if (!isset($old[$name])) {
+				$change = 'added';
+			} elseif (!isset($new[$name])) {
+				$change = 'removed';
+			} else {
+				$change = ($old[$name]['sha256'] === $new[$name]['sha256'] ? 'unchanged' : 'changed');
+			}
+			$files[] = array('name' => $name, 'change' => $change, 'from' => $old[$name] ?? null, 'to' => $new[$name] ?? null);
+		}
+		usort($files, function ($a, $b) {
+			return strcmp($a['name'], $b['name']);
+		});
+		$describe = function ($revid) use ($db, $revs, $current) {
+			$o = $revs[$revid];
+			return array('id' => (int) $revid, 'rev' => (string) $o->rev, 'ref' => (string) $o->ref, 'status' => (int) $o->status, 'date_release' => $db->jdate($o->date_release),
+				'release_note' => (string) $o->customer_note, 'is_current' => ($current === (int) $revid), 'is_delivered' => false, 'files' => array());
+		};
+		return array('component_id' => $componentid, 'from' => $describe($fromid), 'to' => $describe($toid), 'files' => $files);
+	}
+
+	/**
+	 * A revision file as the staff download endpoint needs it, in the shape of the customer's file rows
+	 *
+	 * @param	DoliDB	$db			Database handler
+	 * @param	int		$fileid		File id
+	 * @return	stdClass|null		file_id, rev_id, rev_ref, filename, format, sha256, design_id, element, doc_id; null if there is no such file
+	 */
+	public static function fetchFileRow($db, $fileid)
+	{
+		$sql = "SELECT f.rowid as file_id, f.filename, f.format, f.sha256, r.rowid as rev_id, r.ref as rev_ref, c.fk_design as design_id, d.fk_soc FROM ".$db->prefix()."designtrace_revisionfile as f";
+		$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.rowid = f.fk_revision";
+		$sql .= " INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
+		$sql .= " INNER JOIN ".$db->prefix()."designtrace_design as d ON d.rowid = c.fk_design WHERE f.rowid = ".((int) $fileid);
+		$resql = $db->query($sql);
+		$obj = $resql ? $db->fetch_object($resql) : null;
+		if (!$obj) {
+			return null;
+		}
+		$obj->element = '';
+		$obj->doc_id = 0;
+		return $obj;
+	}
 }
