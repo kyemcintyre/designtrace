@@ -663,7 +663,7 @@ class DesignTraceLibrary
 		$sql = "SELECT dl.filename, dl.actor, dl.date_download FROM ".$db->prefix()."designtrace_download as dl";
 		$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.rowid = dl.fk_revision";
 		$sql .= " INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
-		$sql .= " WHERE dl.fk_soc = ".((int) $socid)." AND c.fk_design = ".((int) $designid)." ORDER BY dl.date_download DESC, dl.rowid DESC".$db->plimit(100);
+		$sql .= " WHERE dl.fk_soc = ".((int) $socid)." AND c.fk_design = ".((int) $designid)." AND dl.channel <> '".$db->escape(DesignTraceClientAccess::CHANNEL_ADMIN_PREVIEW)."' ORDER BY dl.date_download DESC, dl.rowid DESC".$db->plimit(100);
 		$resql = $db->query($sql);
 		while ($resql && ($obj = $db->fetch_object($resql))) {
 			$events[] = array('date' => $db->jdate($obj->date_download), 'type' => 'download', 'text' => $obj->filename, 'actor' => (string) $obj->actor);
@@ -798,7 +798,7 @@ class DesignTraceLibrary
 		}
 		$sql = "SELECT dl.filename, dl.actor, dl.date_download, c.fk_design FROM ".$db->prefix()."designtrace_download as dl";
 		$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.rowid = dl.fk_revision INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
-		$sql .= " WHERE dl.fk_soc = ".((int) $socid)." AND c.fk_design IN (".$in.")";
+		$sql .= " WHERE dl.fk_soc = ".((int) $socid)." AND c.fk_design IN (".$in.") AND dl.channel <> '".$db->escape(DesignTraceClientAccess::CHANNEL_ADMIN_PREVIEW)."'";	// Staff previews are not the customer's downloads
 		$resql = $db->query($sql);
 		while ($resql && ($obj = $db->fetch_object($resql))) {
 			$add($db->jdate($obj->date_download), 'download', $obj->fk_design, $obj->filename, $obj->actor);
