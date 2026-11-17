@@ -81,6 +81,30 @@ class GrantTest extends DesignTraceTestCase
 		$this->assertSame(-3, DesignTraceGrant::movePin($this->db, $grantid, $part->id, $draft->id), 'Only released revisions of the component');
 	}
 
+	public function testFetchForDesignListsEveryCustomerOrOneComponent()
+	{
+		$one = $this->newCustomer('ZZ One');
+		$two = $this->newCustomer('ZZ Two');
+		$design = $this->newDesign(array('fk_soc' => $one->id), true);
+		$part = $this->newComponent($design);
+		$this->newRevision($part, true);
+		$other = $this->newComponent($design);
+		$this->newRevision($other, true);
+
+		$whole = DesignTraceGrant::create($this->db, $this->user, $one->id, $design->id);
+		$partonly = DesignTraceGrant::create($this->db, $this->user, $two->id, $design->id, array($part->id));
+		$otheronly = DesignTraceGrant::create($this->db, $this->user, $two->id, $design->id, array($other->id));
+		$ids = function ($grants) {
+			return array_map(function ($g) {
+				return (int) $g->rowid;
+			}, $grants);
+		};
+		$this->assertSame(array($otheronly, $partonly, $whole), $ids(DesignTraceGrant::fetchForDesign($this->db, $design->id)), 'Every customer, newest first');
+		$this->assertSame(array($partonly, $whole), $ids(DesignTraceGrant::fetchForDesign($this->db, $design->id, $part->id)), 'Those covering the part');
+		$this->assertTrue(DesignTraceGrant::hasPin($this->db, $partonly, $part->id));
+		$this->assertFalse(DesignTraceGrant::hasPin($this->db, $partonly, $other->id));
+	}
+
 	public function testExpiryAndRevocationKeepTheRecord()
 	{
 		$CA = DesignTraceClientAccess::class;

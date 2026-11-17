@@ -166,7 +166,7 @@ class DesignTraceGrant
 	 * @param	int		$cid		Component
 	 * @return	bool
 	 */
-	private static function hasPin($db, $grantid, $cid)
+	public static function hasPin($db, $grantid, $cid)
 	{
 		$resql = $db->query("SELECT 1 FROM ".$db->prefix()."designtrace_grant_pin WHERE fk_grant = ".((int) $grantid)." AND fk_component = ".((int) $cid));
 		return $resql && $db->num_rows($resql) > 0;
@@ -282,11 +282,42 @@ class DesignTraceGrant
 	{
 		global $conf;
 
-		$grants = array();
 		$sql = "SELECT g.* FROM ".$db->prefix()."designtrace_grant as g WHERE g.fk_soc = ".((int) $socid)." AND g.entity = ".((int) $conf->entity);
 		if ((int) $designid > 0) {
 			$sql .= " AND g.fk_design = ".((int) $designid);
 		}
+		return self::loadGrants($db, $sql);
+	}
+
+	/**
+	 * Grants of a design, every customer, with their pins
+	 *
+	 * @param	DoliDB	$db				Database handler
+	 * @param	int		$designid		Design
+	 * @param	int		$componentid	Only the grants covering this component (0 = all)
+	 * @return	stdClass[]				As fetchForCustomer(), newest first
+	 */
+	public static function fetchForDesign($db, $designid, $componentid = 0)
+	{
+		global $conf;
+
+		$sql = "SELECT g.* FROM ".$db->prefix()."designtrace_grant as g WHERE g.fk_design = ".((int) $designid)." AND g.entity = ".((int) $conf->entity);
+		if ((int) $componentid > 0) {
+			$sql .= " AND EXISTS (SELECT 1 FROM ".$db->prefix()."designtrace_grant_pin as p WHERE p.fk_grant = g.rowid AND p.fk_component = ".((int) $componentid).")";
+		}
+		return self::loadGrants($db, $sql);
+	}
+
+	/**
+	 * Grant rows of a query on designtrace_grant (alias g), with ->active and ->pins
+	 *
+	 * @param	DoliDB	$db		Database handler
+	 * @param	string	$sql	SELECT g.* ... WHERE ...
+	 * @return	stdClass[]		Newest first
+	 */
+	private static function loadGrants($db, $sql)
+	{
+		$grants = array();
 		$resql = $db->query($sql." ORDER BY g.rowid DESC");
 		while ($resql && ($obj = $db->fetch_object($resql))) {
 			$obj->date_expiry = $db->jdate($obj->date_expiry);

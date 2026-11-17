@@ -78,8 +78,11 @@ class CardBlocksTest extends DesignTraceTestCase
 		$whole = DesignTraceGrant::create($this->db, $this->user, $customer->id, $design->id);
 		$html = $this->render('designtracePrintGrants', $part);
 		$this->assertStringContainsString('action=grant_revoke&grantid='.$mine, $html);
-		$this->assertStringContainsString('action=grant_revoke&grantid='.$whole, $html);
+		// The whole-design grant is listed, but revoking it here would end every component: it is changed on the design
 		$this->assertStringContainsString('Whole design', $html);
+		$this->assertStringNotContainsString('action=grant_revoke&grantid='.$whole, $html);
+		$this->assertStringContainsString('design_card.php?id='.$design->id.'#grants', $html);
+		$this->assertStringContainsString('action=grant_revoke&grantid='.$whole, $this->render('designtracePrintGrants', $design));
 		$this->assertSame(array((int) $part->id), array_keys($this->pinsOf($mine)), 'Pins this component only');
 	}
 
