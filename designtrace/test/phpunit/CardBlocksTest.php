@@ -58,6 +58,50 @@ class CardBlocksTest extends DesignTraceTestCase
 		$this->assertStringNotContainsString('action=grant_revoke', $html, 'An ended grant is kept but cannot be revoked again');
 	}
 
+	public function testGrantsBlockOnAComponentGrantsThatComponentOnly()
+	{
+		$customer = $this->newCustomer('ZZ Part grantee');
+		$design = $this->newDesign(array('fk_soc' => $customer->id), true);
+		$part = $this->newComponent($design);
+		$this->newRevision($part, true);
+		$other = $this->newComponent($design);
+		$this->newRevision($other, true);
+
+		$html = $this->render('designtracePrintGrants', $part);
+		$this->assertStringContainsString('name="action" value="grant_add"', $html);
+		$this->assertStringContainsString('Grant this component', $html);
+
+		// A grant of the other component is not shown here; one of this component and a whole-design one are
+		$elsewhere = DesignTraceGrant::create($this->db, $this->user, $customer->id, $design->id, array($other->id));
+		$this->assertStringNotContainsString('grantid='.$elsewhere, $this->render('designtracePrintGrants', $part));
+		$mine = DesignTraceGrant::create($this->db, $this->user, $customer->id, $design->id, array($part->id));
+		$whole = DesignTraceGrant::create($this->db, $this->user, $customer->id, $design->id);
+		$html = $this->render('designtracePrintGrants', $part);
+		$this->assertStringContainsString('action=grant_revoke&grantid='.$mine, $html);
+		// The whole-design grant is listed, but revoking it here would end every component: it is changed on the design
+		$this->assertStringContainsString('Whole design', $html);
+		$this->assertStringNotContainsString('action=grant_revoke&grantid='.$whole, $html);
+		$this->assertStringContainsString('design_card.php?id='.$design->id.'#grants', $html);
+		$this->assertStringContainsString('action=grant_revoke&grantid='.$whole, $this->render('designtracePrintGrants', $design));
+		$this->assertSame(array((int) $part->id), array_keys($this->pinsOf($mine)), 'Pins this component only');
+	}
+
+	/**
+	 * Component ids a grant pins
+	 *
+	 * @param	int		$grantid	Grant
+	 * @return	array<int,int>
+	 */
+	private function pinsOf($grantid)
+	{
+		$pins = array();
+		$resql = $this->db->query("SELECT fk_component, fk_revision FROM ".$this->db->prefix()."designtrace_grant_pin WHERE fk_grant = ".((int) $grantid));
+		while ($resql && ($obj = $this->db->fetch_object($resql))) {
+			$pins[(int) $obj->fk_component] = (int) $obj->fk_revision;
+		}
+		return $pins;
+	}
+
 	public function testCustomerRequestBlockAndTicketCopyOfReferenceFiles()
 	{
 		global $conf;

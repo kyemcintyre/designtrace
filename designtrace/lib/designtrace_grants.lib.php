@@ -18,15 +18,30 @@
 /**
  * \file        designtrace/lib/designtrace_grants.lib.php
  * \ingroup     designtrace
- * \brief       Design card block: access grants given to customers
+ * \brief       Design and component card block: access grants given to customers
  */
 
 dol_include_once('/designtrace/class/grant.class.php');
 
 /**
- * Actions of the grants block (grant_add, grant_revoke, grant_expiry)
+ * The design a grants block is on (the component's design on a component card), and the component, if any
  *
- * @param	Design	$object		Design
+ * @param	Design|Component	$object		Design or component
+ * @return	array{0:int,1:int}				Design id, component id (0 on a design)
+ */
+function designtraceGrantScope($object)
+{
+	if ($object instanceof Component) {
+		return array((int) $object->fk_design, (int) $object->id);
+	}
+	return array((int) $object->id, 0);
+}
+
+/**
+ * Actions of the grants block (grant_add, grant_revoke, grant_expiry). On a component card a new grant covers that
+ * component only, and only the grants covering it can be changed.
+ *
+ * @param	Design|Component	$object		Design or component
  * @param	string	$action		Action
  * @return	void
  */
@@ -57,8 +72,11 @@ function designtraceDoGrantActions($object, $action)
 			return;
 		}
 	}
+	list($designid, $componentid) = designtraceGrantScope($object);
 	$grant = $grantid > 0 ? DesignTraceGrant::fetchOne($db, $grantid) : null;
-	if ($action != 'grant_add' && (!$grant || (int) $grant->fk_design !== (int) $object->id)) {
+	// On a component card only that component's own grants are changed: a whole-design grant is the design card's
+	if ($action != 'grant_add' && (!$grant || (int) $grant->fk_design !== $designid
+		|| ($componentid && ((int) $grant->whole_design === 1 || !DesignTraceGrant::hasPin($db, (int) $grant->rowid, $componentid))))) {
 		setEventMessages($langs->trans('ErrorRecordNotFound'), null, 'errors');
 		return;
 	}
@@ -68,12 +86,20 @@ function designtraceDoGrantActions($object, $action)
 			setEventMessages($langs->trans('ErrorFieldRequired', $langs->transnoentitiesnoconv('Customer')), null, 'errors');
 			return;
 		}
-		if ((int) $object->status !== Design::STATUS_VALIDATED) {
+		$design = new Design($db);
+		if ($design->fetch($designid) <= 0 || (int) $design->status !== Design::STATUS_VALIDATED) {
 			setEventMessages($langs->trans('ErrorGrantDesignNotActive'), null, 'errors');
 			return;
 		}
-		$res = DesignTraceGrant::create($db, $user, GETPOSTINT('socid'), (int) $object->id, array(), array(), $expiry, GETPOST('note', 'alphanohtml'));
-		$msg = $res > 0 ? $langs->trans('GrantCreated') : ($res == -2 ? $langs->trans('ErrorGrantNothingToGrant') : $langs->trans('Error'));
+		// One grant in force at a time: the whole design, or (on a component) anything already covering it
+		foreach (DesignTraceGrant::fetchForDesign($db, $designid, $componentid) as $existing) {
+			if ((int) $existing->fk_soc === GETPOSTINT('socid') && $existing->active && ($componentid || (int) $existing->whole_design === 1)) {
+				setEventMessages($langs->trans('ErrorGrantAlreadyGranted', $soc->name), null, 'errors');
+				return;
+			}
+		}
+		$res = DesignTraceGrant::create($db, $user, GETPOSTINT('socid'), $designid, $componentid ? array($componentid) : array(), array(), $expiry, GETPOST('note', 'alphanohtml'));
+		$msg = $res > 0 ? $langs->trans('GrantCreated') : ($res == -2 ? $langs->trans($componentid ? 'ErrorGrantNothingToGrantComponent' : 'ErrorGrantNothingToGrant') : $langs->trans('Error'));
 	} elseif ($action == 'grant_revoke') {
 		$res = DesignTraceGrant::revoke($db, $user, $grantid);
 		$msg = $res > 0 ? $langs->trans('GrantRevoked') : $langs->trans('Error');
@@ -87,10 +113,10 @@ function designtraceDoGrantActions($object, $action)
 }
 
 /**
- * Grants of a design: customers it was granted to, pinned revisions, expiry, state, and the form to grant
- * the whole design to a customer
+ * Grants of a design (or, on a component card, those covering the component): customers it was granted to, scope,
+ * expiry, state, and the form to grant the whole design (or the component) to a customer
  *
- * @param	Design	$object		Design
+ * @param	Design|Component	$object		Design or component
  * @return	void
  */
 function designtracePrintGrants($object)
@@ -100,17 +126,9 @@ function designtracePrintGrants($object)
 	$langs->load('designtrace@designtrace');
 	$canwrite = $user->hasRight('designtrace', 'design', 'write');
 	$url = $_SERVER['PHP_SELF'].'?id='.((int) $object->id);
+	list($designid, $componentid) = designtraceGrantScope($object);
 
-	$grants = array();
-	$resql = $db->query("SELECT DISTINCT fk_soc FROM ".$db->prefix()."designtrace_grant WHERE fk_design = ".((int) $object->id));
-	while ($resql && ($obj = $db->fetch_object($resql))) {
-		foreach (DesignTraceGrant::fetchForCustomer($db, (int) $obj->fk_soc, (int) $object->id) as $grant) {
-			$grants[] = $grant;
-		}
-	}
-	usort($grants, function ($a, $b) {
-		return (int) $b->rowid <=> (int) $a->rowid;
-	});
+	$grants = DesignTraceGrant::fetchForDesign($db, $designid, $componentid);
 
 	print '<a name="grants"></a>';
 	print load_fiche_titre($langs->trans('DesignGrants'), '', 'fa-key');
@@ -120,9 +138,11 @@ function designtracePrintGrants($object)
 		$soc = new Societe($db);
 		$soc->fetch((int) $grant->fk_soc);
 		print '<tr class="oddeven"><td class="tdoverflowmax150">'.$soc->getNomUrl(1).'</td>';
-		print '<td>'.count($grant->pins).'</td>';
+		print '<td>'.((int) $grant->whole_design === 1 ? $langs->trans('GrantWholeDesign') : $langs->trans('GrantComponents', count($grant->pins))).'</td>';
+		// A whole-design grant shows on a component card, but is changed on the design card
+		$editable = $canwrite && $grant->active && (!$componentid || (int) $grant->whole_design !== 1);
 		print '<td class="nowraponall">';
-		if ($canwrite && $grant->active) {
+		if ($editable) {
 			print '<form method="POST" action="'.$url.'" class="inline-block"><input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="grant_expiry"><input type="hidden" name="grantid" value="'.((int) $grant->rowid).'">';
 			print $form->selectDate($grant->date_expiry ?: -1, 'expiry', 0, 0, 1, '', 1, 0);
 			print ' <input type="submit" class="button smallpaddingimp" value="'.dol_escape_htmltag($langs->trans('Save')).'"></form>';
@@ -138,8 +158,10 @@ function designtracePrintGrants($object)
 			print '<span class="badge badge-status4">'.$langs->trans('GrantActiveState').'</span>';
 		}
 		print '</td><td class="right">';
-		if ($canwrite && $grant->active) {
+		if ($editable) {
 			print '<a class="reposition" href="'.$url.'&action=grant_revoke&grantid='.((int) $grant->rowid).'&token='.newToken().'">'.img_picto($langs->trans('GrantRevoke'), 'delete').'</a>';
+		} elseif ($canwrite && $grant->active) {
+			print '<a href="'.dol_buildpath('/designtrace/design_card.php', 1).'?id='.$designid.'#grants">'.$langs->trans('GrantManagedOnDesign').'</a>';
 		}
 		print '</td></tr>';
 	}
@@ -148,12 +170,18 @@ function designtracePrintGrants($object)
 	}
 	print '</table></div>';
 
-	if ($canwrite && (int) $object->status === Design::STATUS_VALIDATED) {
+	if ($componentid) {
+		$design = new Design($db);
+		$active = $design->fetch($designid) > 0 && (int) $design->status === Design::STATUS_VALIDATED;
+	} else {
+		$active = (int) $object->status === Design::STATUS_VALIDATED;
+	}
+	if ($canwrite && $active) {
 		print '<form method="POST" action="'.$url.'#grants" class="margintoponly"><input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="grant_add">';
 		print $form->select_company(0, 'socid', '(s.client:IN:1,2,3)', $langs->trans('SelectThirdParty'), 0, 0, array(), 0, 'minwidth200');
 		print ' '.$form->selectDate(-1, 'expiry', 0, 0, 1, '', 1, 0);
 		print ' <input type="text" name="note" class="minwidth150" maxlength="255" placeholder="'.dol_escape_htmltag($langs->trans('GrantNote')).'">';
-		print ' <input type="submit" class="button smallpaddingimp" value="'.dol_escape_htmltag($langs->trans('GrantAdd')).'">';
+		print ' <input type="submit" class="button smallpaddingimp" value="'.dol_escape_htmltag($langs->trans($componentid ? 'GrantAddComponent' : 'GrantAdd')).'">';
 		print '</form>';
 	}
 	print '<br>';
