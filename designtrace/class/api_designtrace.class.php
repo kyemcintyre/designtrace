@@ -310,13 +310,13 @@ class DesignTrace extends DolibarrApi
 	 * @param	string	$client_ip	Customer's IP address, for the log only
 	 * @param	string	$user_agent	Customer's browser, for the log only (truncated to 255 characters)
 	 * @param	int		$inline		1 = Content-Disposition inline (3D formats only, viewer_3d in the file lists)
-	 * @param	int		$admin_preview	1 = staff acting as this customer in the portal: the licence need not be accepted (the file must still be visible to the customer). Needs the right to read designs; logged on its own channel, never shown to the customer
+	 * @param	int		$admin_preview	1 = staff acting as this customer in the portal: the licence need not be accepted (the file must still be visible to the customer). Staff users only (not external users) with the right to read designs; logged on its own channel, never shown to the customer
 	 * @return	void				The raw file (never returns: the file is streamed and the request ends)
 	 *
 	 * @url	GET customers/{socid}/files/{fileid}/content
 	 *
 	 * @throws RestException 400 Bad document type, or inline on a file that is not 3D
-	 * @throws RestException 403 Not allowed (a preview needs the right to read designs)
+	 * @throws RestException 403 Not allowed (a preview is for staff users with the right to read designs)
 	 * @throws RestException 404 File not visible to this customer, or missing on disk
 	 * @throws RestException 503 System error (download not logged, file not sent)
 	 */
@@ -331,8 +331,8 @@ class DesignTrace extends DolibarrApi
 			}
 		}
 		$previewing = !empty($admin_preview);
-		if ($previewing && !DolibarrApiAccess::$user->hasRight('designtrace', 'design', 'read')) {
-			throw new RestException(403, 'Needs the DesignTrace right to read designs to preview customer files');
+		if ($previewing) {
+			$this->checkStaff('design', 'read');	// Staff only: never an external (customer) user, whatever rights it holds
 		}
 		$row = DesignTraceClientAccess::getDownloadableFile($this->db, $socid, (int) $fileid, $type, (int) $docid, $blocked, $previewing);
 		if (!$row && $blocked === 'licence') {
