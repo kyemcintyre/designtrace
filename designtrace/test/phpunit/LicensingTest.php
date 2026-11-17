@@ -99,6 +99,17 @@ class LicensingTest extends DesignTraceTestCase
 		$this->assertFalse($sourceShown(), 'Visible, but the licence must be accepted before any download');
 		DesignTraceClientAccess::getDownloadableFile($this->db, $customer->id, $src->id, '', 0, $blocked);
 		$this->assertSame('licence', $blocked);
+		// Staff previewing as the customer get what the customer would get once they accept: no more
+		$preview = DesignTraceClientAccess::getDownloadableFile($this->db, $customer->id, $src->id, '', 0, $blocked, true);
+		$this->assertNotNull($preview, 'A staff preview does not wait for the licence');
+		$this->assertSame($src->id, (int) $preview->file_id);
+		$this->assertNull(DesignTraceClientAccess::getDownloadableFile($this->db, $customer->id, $src->id + 100000, '', 0, $blocked, true), 'Only files the customer can see');
+		$this->assertGreaterThan(0, DesignTraceClientAccess::logDownload($this->db, $preview, $customer->id, DesignTraceClientAccess::CHANNEL_ADMIN_PREVIEW, 'admin:kye@example.com'));
+		$this->assertCount(1, DesignTraceClientAccess::fetchDownloads($this->db, $rev->id), 'Staff see the preview in the log');
+		$types = array_column(DesignTraceLibrary::fetchHistory($this->db, $customer->id, $design->id), 'type');
+		$this->assertNotContains('download', $types, 'A staff preview is not the customer\'s download');
+		$types = array_column(DesignTraceLibrary::fetchDesignHistory($this->db, $customer->id, $design->id), 'type');
+		$this->assertNotContains('download', $types);
 		$err = '';
 		$this->assertGreaterThan(0, DesignTraceLicensing::accept($this->db, $customer->id, 'propal', $quote->id, $design->id, $withSource->getCurrentVersion()->id, 'api', 'zz', $err), $err);
 		$this->assertTrue($sourceShown(), 'Customer-owned under an accepted licence with source');
