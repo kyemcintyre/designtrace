@@ -329,12 +329,34 @@ class ApprovalsTest extends DesignTraceTestCase
 		$this->assertSame(-1, $A::recordOnBehalf($this->db, $this->user, $b->id, 1, 'phone', '', $err), 'A declined revision cannot be decided again');
 	}
 
-	public function testStaffCannotRecordForUnflaggedRevisionsOrDesignsWithoutACustomer()
+	public function testStaffCanRecordForUnflaggedRevisionsButNotWithoutACustomer()
 	{
 		$A = DesignTraceApprovals::class;
 		$err = '';
 		list($customer, $design, $revs) = $this->scenario(false);
-		$this->assertSame(-1, $A::recordOnBehalf($this->db, $this->user, $revs['a']->id, 1, 'phone', '', $err), 'Not flagged for approval');
+
+		// A part not flagged "needs customer approval" is flagged as part of recording the decision
+		$a = $revs['a'];
+		$this->assertSame(0, (int) $a->needs_approval);
+		$this->assertSame(array((int) $a->id), $A::recordOnBehalf($this->db, $this->user, $a->id, 1, 'phone, Ann', '', $err), $err);
+		$a->fetch($a->id);
+		$this->assertSame(1, (int) $a->needs_approval);
+		$this->assertSame(1, (int) $a->customer_approval);
+		$this->assertSame(1, $this->countRows("SELECT COUNT(*) as nb FROM ".MAIN_DB_PREFIX."designtrace_approval WHERE fk_revision = ".((int) $a->id)." AND channel = 'staff'"));
+		$this->assertGreaterThan(0, $this->release($a)->id);
+
+		// Changes on an unflagged one decline it the same way
+		$b = $revs['b'];
+		$this->assertIsArray($A::recordOnBehalf($this->db, $this->user, $b->id, 2, 'email', 'Thicker', $err), $err);
+		$b->fetch($b->id);
+		$this->assertSame(ComponentRevision::STATUS_DECLINED, (int) $b->status);
+		$this->assertSame(1, (int) $b->needs_approval);
+
+		// A refusal leaves an unflagged revision as it was
+		$c = $revs['c'];
+		$this->assertSame(-1, $A::recordOnBehalf($this->db, $this->user, $c->id, 2, 'email', '  ', $err));
+		$c->fetch($c->id);
+		$this->assertSame(0, (int) $c->needs_approval);
 
 		$nobody = $this->newDesign(array(), true);
 		$rev = $this->newRevision($this->newComponent($nobody));

@@ -402,8 +402,9 @@ class DesignTraceApprovals
 	 * Staff records the customer's decision on one revision (answered by phone, email or in person).
 	 * Same effects as the customer's own decision: the history row (channel "staff", the actor is the
 	 * staff user), the stamp on the revision and an event; an approval unblocks release, changes
-	 * requested decline the revision and reopen or open the ECO. Only for a flagged, In review
-	 * revision not approved yet, of a design that has a customer.
+	 * requested decline the revision and reopen or open the ECO. For an In review revision not
+	 * approved yet, of a design that has a customer. A revision not flagged "needs customer approval"
+	 * (parts are not by default) is flagged as part of recording it, so it goes through the same path.
 	 *
 	 * @param	DoliDB	$db			Database handler
 	 * @param	User	$user		Staff user recording the decision (needs the release right)
@@ -442,10 +443,10 @@ class DesignTraceApprovals
 			return -1;
 		}
 
-		$sql = "SELECT r.rowid, r.ref, r.rev, r.fk_eco, r.customer_approval, r.customer_note, c.rowid as comp_id, c.ref as comp_ref, c.label, c.fk_design, d.fk_soc, d.entity";
+		$sql = "SELECT r.rowid, r.ref, r.rev, r.fk_eco, r.needs_approval, r.customer_approval, r.customer_note, c.rowid as comp_id, c.ref as comp_ref, c.label, c.fk_design, d.fk_soc, d.entity";
 		$sql .= " FROM ".$db->prefix()."designtrace_componentrevision as r INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
 		$sql .= " INNER JOIN ".$db->prefix()."designtrace_design as d ON d.rowid = c.fk_design";
-		$sql .= " WHERE r.rowid = ".((int) $revid)." AND r.needs_approval = 1 AND r.status = ".((int) ComponentRevision::STATUS_INREVIEW);
+		$sql .= " WHERE r.rowid = ".((int) $revid)." AND r.status = ".((int) ComponentRevision::STATUS_INREVIEW);
 		$sql .= " AND r.customer_approval <> ".((int) DesignTraceProofApproval::DECISION_APPROVED);
 		$resql = $db->query($sql);
 		$obj = $resql ? $db->fetch_object($resql) : null;
@@ -469,6 +470,43 @@ class DesignTraceApprovals
 		$scopeid = ($scope === self::SCOPE_ECO ? (int) $obj->fk_eco : (int) $obj->fk_design);
 		$note = $langs->transnoentities('StaffDecisionNote', $received).($comment !== '' ? ' '.$comment : '');
 		$actor = 'staff:'.$user->login;
+
+		// Not flagged yet: flag it in the same transaction, so a failure leaves it as it was
+		$db->begin();
+		if (empty($obj->needs_approval) && !$db->query("UPDATE ".$db->prefix()."designtrace_componentrevision SET needs_approval = 1 WHERE rowid = ".((int) $obj->rowid))) {
+			$error = $db->lasterror();
+			$db->rollback();
+			return -1;
+		}
+		$res = self::decideOnBehalf($db, $user, $socid, $scope, $scopeid, $obj, $rev, $decision, $note, $actor, $wholeScope, $error);
+		if ($res === -1) {
+			$db->rollback();
+			return -1;
+		}
+		$db->commit();
+		return $res;
+	}
+
+	/**
+	 * The decision part of recordOnBehalf(), once the revision is checked and flagged
+	 *
+	 * @param	DoliDB		$db			Database handler
+	 * @param	User		$user		Staff user
+	 * @param	int			$socid		Customer
+	 * @param	string		$scope		Scope
+	 * @param	int			$scopeid	Scope id
+	 * @param	stdClass	$obj		The revision's row (fk_design, entity)
+	 * @param	array<string,mixed>	$rev	The revision as fetchScopeRevisions() gives it
+	 * @param	int			$decision	Decision
+	 * @param	string		$note		Comment to record
+	 * @param	string		$actor		Actor
+	 * @param	bool		$wholeScope	Approval for the whole scope
+	 * @param	string		$error		Error if KO
+	 * @return	array{eco:int,round:int,revisions:int[]}|int[]|int	-1 if KO
+	 */
+	private static function decideOnBehalf($db, $user, $socid, $scope, $scopeid, $obj, $rev, $decision, $note, $actor, $wholeScope, &$error)
+	{
+		$hidden = Design::getHiddenDesignIds($db, $user);
 
 		if ($decision === DesignTraceProofApproval::DECISION_APPROVED) {
 			$revisions = array((int) $rev['id'] => $rev);

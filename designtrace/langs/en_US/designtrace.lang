@@ -579,6 +579,7 @@ StaffDecisionWholeScopeEco = Cover every revision waiting in the same ECO
 StaffDecisionWholeScopeDesign = Cover every revision waiting in the same design
 StaffDecisionWholeScopeOnApprove = approval only, as the customer's own approval does
 StaffDecisionReceived = Received by / from
+StaffDecisionFlagsIt = This revision is not flagged "Needs customer approval": recording a decision flags it.
 StaffDecisionReceivedPlaceholder = e.g. phone, Ann
 StaffDecisionApprove = Customer approved
 StaffDecisionChanges = Customer requested changes

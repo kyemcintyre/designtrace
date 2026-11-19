@@ -376,7 +376,7 @@ no automated emails). Reference for the Go side: `designtrace/API.md`.
   `fk_eco` on those revisions. The per-revision proof flow (`DesignTraceProofApproval::decide()`, ticket/ECO
   setting) still exists for proofs shown through a document.
   **Staff on behalf**: `DesignTraceApprovals::recordOnBehalf()` records an answer received outside the portal for
-  one flagged, In review revision (channel `staff`, actor `staff:<login>`, a "received by/from" note is required,
+  one In review revision (an unflagged one, e.g. a part, is flagged as part of it) (channel `staff`, actor `staff:<login>`, a "received by/from" note is required,
   needs the `componentrevision release` right): same effects as the customer's own decision (approval unblocks
   release; changes decline the revision and reopen or open the ECO). Approval can cover just that revision or,
   with `$wholeScope`, every flagged revision waiting in the same ECO / design (same customer and entity, minus
