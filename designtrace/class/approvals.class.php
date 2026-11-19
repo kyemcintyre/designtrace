@@ -32,6 +32,7 @@
  */
 
 dol_include_once('/designtrace/class/componentrevision.class.php');
+dol_include_once('/designtrace/class/design.class.php');
 dol_include_once('/designtrace/class/changeorder.class.php');
 dol_include_once('/designtrace/class/clientaccess.class.php');
 dol_include_once('/designtrace/class/designlibrary.class.php');
@@ -105,14 +106,33 @@ class DesignTraceApprovals
 				$designs[] = (int) $designid;
 			}
 		}
+		if (empty($designs)) {
+			return array();
+		}
+		return self::queryScopeRevisions($db, $designs, $scope, $id);
+	}
+
+	/**
+	 * Flagged, In review, not approved revisions of a scope, in the given designs (null = any design: staff)
+	 *
+	 * @param	DoliDB		$db			Database handler
+	 * @param	?int[]		$designs	Design ids to look in, null for any
+	 * @param	string		$scope		self::SCOPE_*
+	 * @param	int			$id			ECO id or design id
+	 * @return	array<int,array<string,mixed>>	As fetchScopeRevisions()
+	 */
+	private static function queryScopeRevisions($db, $designs, $scope, $id)
+	{
 		$rows = array();
-		if (empty($designs) || !in_array($scope, array(self::SCOPE_ECO, self::SCOPE_DESIGN), true)) {
+		if (!in_array($scope, array(self::SCOPE_ECO, self::SCOPE_DESIGN), true)) {
 			return $rows;
 		}
 		$sql = "SELECT r.rowid, r.ref, r.rev, r.fk_eco, r.customer_approval, r.customer_note, c.rowid as comp_id, c.ref as comp_ref, c.label, c.fk_design";
 		$sql .= " FROM ".$db->prefix()."designtrace_componentrevision as r INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
 		$sql .= " WHERE r.needs_approval = 1 AND r.status = ".((int) ComponentRevision::STATUS_INREVIEW)." AND r.customer_approval <> ".((int) DesignTraceProofApproval::DECISION_APPROVED);
-		$sql .= " AND c.fk_design IN (".$db->sanitize(implode(',', $designs)).")";
+		if ($designs !== null) {
+			$sql .= " AND c.fk_design IN (".$db->sanitize(implode(',', array_map('intval', $designs))).")";
+		}
 		if ($scope === self::SCOPE_ECO) {
 			$sql .= " AND r.fk_eco = ".((int) $id);
 		} else {
@@ -217,9 +237,31 @@ class DesignTraceApprovals
 			$error = $langs->trans('ErrorApprovalNothingPending');
 			return -1;
 		}
+		return self::applyApproval($db, $user, $socid, $scope, $id, $revisions, trim((string) $comment), $channel, $actor, $ip, $useragent, $error);
+	}
+
+	/**
+	 * Record an approval for revisions already checked to be waiting
+	 *
+	 * @param	DoliDB	$db			Database handler
+	 * @param	User	$user		Author of the events
+	 * @param	int		$socid		Customer id
+	 * @param	string	$scope		self::SCOPE_*
+	 * @param	int		$id			ECO id or design id
+	 * @param	array<int,array<string,mixed>>	$revisions	Entries of fetchScopeRevisions()
+	 * @param	string	$comment	Comment
+	 * @param	string	$channel	Channel
+	 * @param	string	$actor		Who approves
+	 * @param	?string	$ip			IP (log only)
+	 * @param	?string	$useragent	User agent (log only)
+	 * @param	string	$error		Error message if KO
+	 * @return	int[]|int			Ids of the revisions approved, -1 if KO
+	 */
+	private static function applyApproval($db, $user, $socid, $scope, $id, $revisions, $comment, $channel, $actor, $ip, $useragent, &$error)
+	{
 		$db->begin();
 		foreach ($revisions as $rev) {
-			if (self::record($db, $user, $socid, $scope, $id, $rev, DesignTraceProofApproval::DECISION_APPROVED, trim((string) $comment), $channel, $actor, $ip, $useragent, 0, $error) < 0) {
+			if (self::record($db, $user, $socid, $scope, $id, $rev, DesignTraceProofApproval::DECISION_APPROVED, $comment, $channel, $actor, $ip, $useragent, 0, $error) < 0) {
 				$db->rollback();
 				return -1;
 			}
@@ -275,6 +317,30 @@ class DesignTraceApprovals
 			}
 			$revisions = array_intersect_key($revisions, array_flip($revids));
 		}
+		return self::applyChanges($db, $user, $socid, $scope, $id, $revisions, $comment, $channel, $actor, $ip, $useragent, $error);
+	}
+
+	/**
+	 * Request changes on revisions already checked to be waiting: reopens the ECO as a new round, or
+	 * opens a draft ECO, and declines the revisions
+	 *
+	 * @param	DoliDB	$db			Database handler
+	 * @param	User	$user		Author
+	 * @param	int		$socid		Customer id
+	 * @param	string	$scope		self::SCOPE_*
+	 * @param	int		$id			ECO id or design id
+	 * @param	array<int,array<string,mixed>>	$revisions	Entries of fetchScopeRevisions() (not empty)
+	 * @param	string	$comment	What to change (not empty)
+	 * @param	string	$channel	Channel
+	 * @param	string	$actor		Who asks
+	 * @param	?string	$ip			IP (log only)
+	 * @param	?string	$useragent	User agent (log only)
+	 * @param	string	$error		Error message if KO
+	 * @return	array{eco:int,round:int,revisions:int[]}|int	-1 if KO
+	 */
+	private static function applyChanges($db, $user, $socid, $scope, $id, $revisions, $comment, $channel, $actor, $ip, $useragent, &$error)
+	{
+		global $langs;
 
 		$db->begin();
 		$eco = new ChangeOrder($db);
@@ -333,6 +399,99 @@ class DesignTraceApprovals
 	}
 
 	/**
+	 * Staff records the customer's decision on one revision (answered by phone, email or in person).
+	 * Same effects as the customer's own decision: the history row (channel "staff", the actor is the
+	 * staff user), the stamp on the revision and an event; an approval unblocks release, changes
+	 * requested decline the revision and reopen or open the ECO. Only for a flagged, In review
+	 * revision not approved yet, of a design that has a customer.
+	 *
+	 * @param	DoliDB	$db			Database handler
+	 * @param	User	$user		Staff user recording the decision (needs the release right)
+	 * @param	int		$revid		Revision id
+	 * @param	int		$decision	DesignTraceProofApproval::DECISION_APPROVED or DECISION_CHANGES
+	 * @param	string	$received	How and from whom it was received (required), e.g. "phone, Ann"
+	 * @param	string	$comment	Note; what should change when requesting changes (required then)
+	 * @param	string	$error		Error message if KO
+	 * @param	bool	$wholeScope	Approval only: cover every flagged revision waiting in the same ECO (or in the same design
+	 *								when it has no ECO), as the customer's own approval does, not just this one
+	 * @return	array{eco:int,round:int,revisions:int[]}|int[]|int	Result of the decision (ids of the revisions approved), -1 if KO
+	 */
+	public static function recordOnBehalf($db, $user, $revid, $decision, $received, $comment, &$error, $wholeScope = false)
+	{
+		global $langs;
+
+		$langs->load('designtrace@designtrace');
+		$error = '';
+		if (!empty($user->socid) || !$user->hasRight('designtrace', 'componentrevision', 'release')) {
+			$error = $langs->trans('NotEnoughPermissions');
+			return -1;
+		}
+		$decision = (int) $decision;
+		if (!in_array($decision, array(DesignTraceProofApproval::DECISION_APPROVED, DesignTraceProofApproval::DECISION_CHANGES), true)) {
+			$error = $langs->trans('ErrorProofBadDecision');
+			return -1;
+		}
+		$received = trim((string) $received);
+		$comment = trim((string) $comment);
+		if ($received === '') {
+			$error = $langs->trans('ErrorStaffDecisionReceivedRequired');
+			return -1;
+		}
+		if ($decision === DesignTraceProofApproval::DECISION_CHANGES && $comment === '') {
+			$error = $langs->trans('ErrorProofCommentRequired');
+			return -1;
+		}
+
+		$sql = "SELECT r.rowid, r.ref, r.rev, r.fk_eco, r.customer_approval, r.customer_note, c.rowid as comp_id, c.ref as comp_ref, c.label, c.fk_design, d.fk_soc, d.entity";
+		$sql .= " FROM ".$db->prefix()."designtrace_componentrevision as r INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
+		$sql .= " INNER JOIN ".$db->prefix()."designtrace_design as d ON d.rowid = c.fk_design";
+		$sql .= " WHERE r.rowid = ".((int) $revid)." AND r.needs_approval = 1 AND r.status = ".((int) ComponentRevision::STATUS_INREVIEW);
+		$sql .= " AND r.customer_approval <> ".((int) DesignTraceProofApproval::DECISION_APPROVED);
+		$resql = $db->query($sql);
+		$obj = $resql ? $db->fetch_object($resql) : null;
+		if (!$obj) {
+			$error = $langs->trans('ErrorApprovalNothingPending');
+			return -1;
+		}
+		$hidden = Design::getHiddenDesignIds($db, $user);
+		if (in_array((int) $obj->fk_design, $hidden, true)) {
+			$error = $langs->trans('ErrorRecordNotFound');
+			return -1;
+		}
+		if ((int) $obj->fk_soc <= 0) {
+			$error = $langs->trans('ErrorStaffDecisionNoCustomer');
+			return -1;
+		}
+		$socid = (int) $obj->fk_soc;
+		$rev = array('id' => (int) $obj->rowid, 'ref' => $obj->ref, 'rev' => $obj->rev, 'component_id' => (int) $obj->comp_id, 'component_ref' => $obj->comp_ref,
+			'label' => (string) $obj->label, 'design_id' => (int) $obj->fk_design, 'eco_id' => (int) $obj->fk_eco, 'customer_approval' => (int) $obj->customer_approval, 'release_note' => (string) $obj->customer_note);
+		$scope = ((int) $obj->fk_eco > 0 ? self::SCOPE_ECO : self::SCOPE_DESIGN);
+		$scopeid = ($scope === self::SCOPE_ECO ? (int) $obj->fk_eco : (int) $obj->fk_design);
+		$note = $langs->transnoentities('StaffDecisionNote', $received).($comment !== '' ? ' '.$comment : '');
+		$actor = 'staff:'.$user->login;
+
+		if ($decision === DesignTraceProofApproval::DECISION_APPROVED) {
+			$revisions = array((int) $rev['id'] => $rev);
+			if ($wholeScope) {
+				// Every design of this customer in the same entity (an ECO can span several), whether or not the
+				// portal reaches it, leaving out confidential designs this staff user cannot see
+				$designs = array();
+				$sql = "SELECT rowid FROM ".$db->prefix()."designtrace_design WHERE fk_soc = ".$socid." AND entity = ".((int) $obj->entity);
+				$resql = $db->query($sql);
+				while ($resql && ($d = $db->fetch_object($resql))) {
+					if (!in_array((int) $d->rowid, $hidden, true)) {
+						$designs[] = (int) $d->rowid;
+					}
+				}
+				$revisions = self::queryScopeRevisions($db, $designs, $scope, $scopeid);
+				$revisions[(int) $rev['id']] = $rev;
+			}
+			return self::applyApproval($db, $user, $socid, $scope, $scopeid, $revisions, $note, 'staff', $actor, null, null, $error);
+		}
+		return self::applyChanges($db, $user, $socid, $scope, $scopeid, array((int) $rev['id'] => $rev), $note, 'staff', $actor, null, null, $error);
+	}
+
+	/**
 	 * Store one decision: history row, the stamp on the revision (by SQL: released revisions are
 	 * read-only to staff) and an event on the revision
 	 *
@@ -372,6 +531,11 @@ class DesignTraceApprovals
 		$sql = "UPDATE ".$db->prefix()."designtrace_componentrevision SET customer_approval = ".((int) $decision).", date_customer_approval = '".$db->idate($now)."', customer_approval_by = '".$db->escape($actor)."'";
 		$sql .= " WHERE rowid = ".((int) $rev['id']);
 		if (!$db->query($sql)) {
+			$error = $db->lasterror();
+			return -1;
+		}
+		// Changes requested close the revision: it is never released, the fix is a new revision
+		if ((int) $decision === DesignTraceProofApproval::DECISION_CHANGES && ComponentRevision::markDeclined($db, (int) $rev['id']) < 0) {
 			$error = $db->lasterror();
 			return -1;
 		}

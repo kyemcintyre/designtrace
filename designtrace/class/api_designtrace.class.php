@@ -2206,6 +2206,56 @@ class DesignTrace extends DolibarrApi
 	}
 
 	/**
+	 * Record the customer's decision on a revision for them: an answer received by phone, email or
+	 * in person. Same effects as the customer's own decision (logged with channel `staff` and the
+	 * staff user as actor): an approval unblocks release, changes requested decline the revision and
+	 * reopen or open its ECO. Only for a revision flagged for approval, In review and not approved
+	 * yet, of a design that has a customer. Needs the right to release revisions.
+	 *
+	 * @param	int		$revid			Revision id
+	 * @param	array	$request_data	`decision` (`approve` or `changes`), `received` (required: how and from whom, e.g. "phone, Ann"),
+	 *									`comment` (required for `changes`), `whole_scope` (approval only: cover every flagged revision
+	 *									waiting in the same ECO, or in the same design when there is no ECO, as the customer's own
+	 *									approval does; default only this revision)
+	 * @phan-param ?array<string,mixed> $request_data
+	 * @phpstan-param ?array<string,mixed> $request_data
+	 * @return	array				decision, revision_ids; for `changes` also eco_id and round
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	POST staff/revisions/{revid}/customer-decision
+	 *
+	 * @throws RestException 400 Unknown decision, or `received` missing
+	 * @throws RestException 403 Needs the right to release revisions
+	 * @throws RestException 404 Revision not found
+	 * @throws RestException 409 Nothing waiting, no customer on the design, or `comment` missing for `changes`
+	 */
+	public function recordStaffCustomerDecision($revid, $request_data = null)
+	{
+		$this->checkStaff('componentrevision', 'release');
+		$revision = $this->getStaffRevision((int) $revid);
+		$request_data = is_array($request_data) ? $request_data : array();
+		$names = array('approve' => DesignTraceProofApproval::DECISION_APPROVED, 'changes' => DesignTraceProofApproval::DECISION_CHANGES);
+		$name = (string) ($request_data['decision'] ?? '');
+		if (!isset($names[$name])) {
+			throw new RestException(400, 'decision must be "approve" or "changes"');
+		}
+		$received = trim((string) ($request_data['received'] ?? ''));
+		if ($received === '') {
+			throw new RestException(400, 'received is required: say how and from whom the decision was received');
+		}
+		$error = '';
+		$res = DesignTraceApprovals::recordOnBehalf($this->db, DolibarrApiAccess::$user, (int) $revision->id, $names[$name], $received, (string) ($request_data['comment'] ?? ''), $error, !empty($request_data['whole_scope']));
+		if ($res === -1 || (!is_array($res))) {
+			throw new RestException(409, $error ?: 'Not recorded');
+		}
+		if ($name === 'approve') {
+			return array('decision' => 'approved', 'revision_ids' => array_values(array_map('intval', $res)));
+		}
+		return array('decision' => 'changes', 'eco_id' => (int) $res['eco'], 'round' => (int) $res['round'], 'revision_ids' => array_values(array_map('intval', $res['revisions'])));
+	}
+
+	/**
 	 * Approve an ECO (needs the right to approve change orders). Refused while its linked quote is not accepted.
 	 *
 	 * @param	int		$ecoid		ECO id

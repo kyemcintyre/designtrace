@@ -23,6 +23,24 @@
 
 class ProofApprovalTest extends DesignTraceTestCase
 {
+	/**
+	 * Another proof drawing in review, shown to the customer through the scenario's quote
+	 *
+	 * @param	array<string,mixed>	$s	newCustomerScenario()
+	 * @param	string				$label	Component label
+	 * @return	ComponentRevision
+	 */
+	private function newProofInReview($s, $label)
+	{
+		$drawing = $this->newComponent($s['design'], Component::TYPE_DRAWING, $label, Component::DRAWING_PROOF);
+		$proof = $this->newRevision($drawing);
+		$this->addFile($proof, 'proof.pdf', '%PDF-1.4 '.$label.' '.bin2hex(random_bytes(8)), RevisionFile::ROLE_PRESENTATION, RevisionFile::VISIBILITY_NOW);
+		$this->assertOk($proof->validate($this->user), $proof, 'Proof in review');
+		$proof->fetch($proof->id);
+		$this->assertGreaterThan(0, $this->linkDoc($proof, 'propal', $s['quote']->id), (string) $proof->error);
+		return $proof;
+	}
+
 	public function testDecisionsAndWhatAChangeRequestOpens()
 	{
 		$A = DesignTraceProofApproval::class;
@@ -57,30 +75,62 @@ class ProofApprovalTest extends DesignTraceTestCase
 		$this->assertSame(DesignTraceProofApproval::DECISION_CHANGES, (int) $rev->customer_approval);
 		$this->assertSame('portal:zz', $rev->customer_approval_by);
 		$this->assertSame(1, $this->countRows("SELECT COUNT(*) as nb FROM ".MAIN_DB_PREFIX."actioncomm WHERE code = 'AC_DESIGNTRACE_PROOF_CHANGES' AND fk_element = ".$proof));
+		$this->assertSame(ComponentRevision::STATUS_DECLINED, (int) $rev->status, 'Changes requested close an In review proof');
+		$this->assertLessThan(0, $A::decide($this->db, $this->user, $soc, $proof, 'propal', $quote, 1, 'Changed my mind', 'webportal', 'x', $err), 'A declined proof is final');
+		$this->assertLessThan(0, $A::decide($this->db, $this->user, $soc, $proof, 'propal', $quote, 2, 'Again', 'webportal', 'x', $err));
+		$proofs = $A::fetchProofs($this->db, $soc, 'propal', $quote);
+		$this->assertFalse($proofs['propal_'.$quote.'_'.$proof]['can_decide']);
+		$this->assertSame(0, $rev->release($this->user), 'A declined revision is never released');
 
+		$p2 = (int) $this->newProofInReview($s, 'Proof two')->id;
 		$this->setConst('DESIGNTRACE_PROOF_CHANGES_ACTION', 'eco');
-		$r = $A::decide($this->db, $this->user, $soc, $proof, 'propal', $quote, 2, 'Also thicker', 'api', 'site:zz', $err);
+		$r = $A::decide($this->db, $this->user, $soc, $p2, 'propal', $quote, 2, 'Also thicker', 'api', 'site:zz', $err);
 		$eco = new ChangeOrder($this->db);
 		$this->assertGreaterThan(0, $eco->fetch($r['eco']));
 		$this->assertSame(ChangeOrder::STATUS_DRAFT, (int) $eco->status);
 		$this->assertSame(1, $eco->countAffectedComponents());
 
+		$p3 = (int) $this->newProofInReview($s, 'Proof three')->id;
 		$this->setConst('DESIGNTRACE_PROOF_CHANGES_ACTION', 'none');
-		$r = $A::decide($this->db, $this->user, $soc, $proof, 'propal', $quote, 2, 'One more', 'api', 'site:zz', $err);
+		$r = $A::decide($this->db, $this->user, $soc, $p3, 'propal', $quote, 2, 'One more', 'api', 'site:zz', $err);
 		$this->assertEmpty($r['ticket']);
 		$this->assertEmpty($r['eco']);
+		$rev->fetch($p3);
+		$this->assertSame(ComponentRevision::STATUS_DECLINED, (int) $rev->status);
 
+		// An approval is final and leaves the revision In review for staff to release
+		$proof = (int) $this->newProofInReview($s, 'Proof four')->id;
 		$this->assertIsArray($A::decide($this->db, $this->user, $soc, $proof, 'propal', $quote, 1, 'Looks good', 'webportal', 'portal:zz', $err), $err);
 		$rev->fetch($proof);
 		$this->assertSame(DesignTraceProofApproval::DECISION_APPROVED, (int) $rev->customer_approval);
 		$this->assertLessThan(0, $A::decide($this->db, $this->user, $soc, $proof, 'propal', $quote, 2, 'Wait', 'webportal', 'x', $err), 'Approval is final');
 		$proofs = $A::fetchProofs($this->db, $soc, 'propal', $quote);
 		$this->assertFalse(reset($proofs)['can_decide']);
-		$this->assertCount(4, $A::fetchHistory($this->db, $proof));
+		$this->assertCount(1, $A::fetchHistory($this->db, $proof));
+		$this->assertSame(ComponentRevision::STATUS_INREVIEW, (int) $rev->status);
 
 		$this->release($rev);
 		$next = $rev->createFromClone($this->user, $proof);
 		$this->assertSame(0, (int) $next->customer_approval, 'A new revision waits for the customer again');
+	}
+
+	public function testChangesOnAReleasedProofLeaveItReleased()
+	{
+		$A = DesignTraceProofApproval::class;
+		$s = $this->newCustomerScenario();
+		$soc = (int) $s['customer']->id;
+		$quote = (int) $s['quote']->id;
+		$proof = $this->newProofInReview($s, 'Released proof');
+		// Released without the customer's approval (as an older proof may have been)
+		$this->db->query("UPDATE ".MAIN_DB_PREFIX."designtrace_componentrevision SET needs_approval = 0 WHERE rowid = ".((int) $proof->id));
+		$proof->fetch($proof->id);
+		$this->release($proof);
+		$this->setConst('DESIGNTRACE_PROOF_CHANGES_ACTION', 'none');
+		$err = '';
+		$this->assertIsArray($A::decide($this->db, $this->user, $soc, $proof->id, 'propal', $quote, 2, 'Too late but noted', 'api', 'site:zz', $err), $err);
+		$proof->fetch($proof->id);
+		$this->assertSame(ComponentRevision::STATUS_RELEASED, (int) $proof->status, 'A released revision stays released');
+		$this->assertSame(DesignTraceProofApproval::DECISION_CHANGES, (int) $proof->customer_approval);
 	}
 
 	public function testAGrantOffersOnlyItsPinnedProofForADecision()
@@ -122,6 +172,7 @@ class ProofApprovalTest extends DesignTraceTestCase
 		$this->assertFalse($A::statusAllowsDecision(ComponentRevision::STATUS_DRAFT));
 		$this->assertTrue($A::statusAllowsDecision(ComponentRevision::STATUS_INREVIEW));
 		$this->assertTrue($A::statusAllowsDecision(ComponentRevision::STATUS_RELEASED));
+		$this->assertFalse($A::statusAllowsDecision(ComponentRevision::STATUS_DECLINED));
 		$this->assertFalse($A::statusAllowsDecision(ComponentRevision::STATUS_OBSOLETE));
 	}
 }

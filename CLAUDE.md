@@ -53,7 +53,7 @@ each step before the next, and wants **whole files** shown when a file changes, 
   `DRW-` (drawing subtype concept / proof / TDS). Numbers are **globally unique** (one
   sequence per type, across all designs). Each component belongs to exactly one design, but can
   be used or referenced from other designs (shown there read-only as External dependencies).
-- **Component revision**: rev, status (Draft, In review, Released, Obsolete), release date,
+- **Component revision**: rev, status (Draft, In review, Released, Declined, Obsolete), release date,
   notes, ECO, customer approval, material/process/machine. Released revisions are read-only;
   revisions are managed **manually** (no git, no automation).
 - **Revision file**: role **source** (FCStd), **presentation** (STEP, 3MF, PDF) or
@@ -119,7 +119,7 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
   (description), material, process, machine, date_release, fk_user_release. Print settings
   (layer height, nozzle, infill, print time, filament) were removed at Kye's request: they are
   MRP information, and the slicer project (production file) holds them. Draft (0) ⇄ In review (1) → Released (2) →
-  Obsolete (9, undoable). Release needs the separate `componentrevision release` right and
+  Obsolete (9, undoable); In review → Declined (8, final) when the customer requests changes. Release needs the separate `componentrevision release` right and
   fires `DESIGNTRACE_COMPONENTREVISION_RELEASE` (hook for phase 3 flagging). Released is
   read-only and undeletable. One draft/in-review revision per component at a time. "New
   revision from this one" (clone) copies notes and material/process/machine,
@@ -250,7 +250,7 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
   → Implemented (2) → Closed (3); Cancelled (9); Reopen steps back. Affected components
   (`llx_designtrace_changeorder_component`) editable while Draft/Approved; Needs update flags are
   suggested. Revisions have `fk_eco` (open ECOs only, adds the component if missing, not copied by
-  clone); history shows "from ECO-0012: summary" (`designtraceRevisionCause()`). Setting
+  clone, except from a Declined revision while its ECO is open); history shows "from ECO-0012: summary" (`designtraceRevisionCause()`). Setting
   `DESIGNTRACE_RELEASE_REQUIRES_ECO`: a revision after the first needs an Approved/Implemented ECO.
   "Raise ECO" on tickets (hook `ticketcard`) links the ticket and adds the components of revisions
   linked to it. Update delivered revision can name an ECO.
@@ -302,7 +302,11 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
   files page or `GET .../documents/{element}/{docid}/proofs`, `POST .../proofs/{revid}/decision`.
   Revision `customer_approval` 0 awaiting / 1 approved (final for that revision) / 2 changes,
   with date and actor, set by SQL (released revisions stay read-only to staff); history in
-  `llx_designtrace_approval`, events `AC_DESIGNTRACE_PROOF_*`. A change request opens a ticket
+  `llx_designtrace_approval`, events `AC_DESIGNTRACE_PROOF_*`. Changes requested on an **In review**
+  revision make it **Declined** (status 8, `ComponentRevision::markDeclined()`): final (unlock refuses it), read-only,
+  never released, not linkable, blocks a parent's review and release; listed in staff triage `declined` until a newer
+  revision of the component exists; the fix is "New revision from this one", which keeps the declined revision's ECO
+  while that ECO is open (so the next ECO round is decided on it). A Released proof stays Released. A change request opens a ticket
   linked to the revision (default), a draft ECO or nothing (`DESIGNTRACE_PROOF_CHANGES_ACTION`).
 - **Reorder** (`class/reorder.class.php`): delivered orders with delivered released revisions
   (client-visible links, i.e. after "Update delivered revision" the new one). Button on the order,
@@ -371,6 +375,14 @@ no automated emails). Reference for the Go side: `designtrace/API.md`.
   entry in `llx_designtrace_changeorder_event`), else it creates a draft ECO (reason customer) and sets
   `fk_eco` on those revisions. The per-revision proof flow (`DesignTraceProofApproval::decide()`, ticket/ECO
   setting) still exists for proofs shown through a document.
+  **Staff on behalf**: `DesignTraceApprovals::recordOnBehalf()` records an answer received outside the portal for
+  one flagged, In review revision (channel `staff`, actor `staff:<login>`, a "received by/from" note is required,
+  needs the `componentrevision release` right): same effects as the customer's own decision (approval unblocks
+  release; changes decline the revision and reopen or open the ECO). Approval can cover just that revision or,
+  with `$wholeScope`, every flagged revision waiting in the same ECO / design (same customer and entity, minus
+  confidential designs the staff user cannot see), like the
+  customer's own. Form on the revision card (`designtracePrintStaffDecisionForm()`, action `staffdecision`) and
+  staff endpoint `POST staff/revisions/{revid}/customer-decision` (`recordStaffCustomerDecision()`).
 - **Who may accept/approve**: thirdparty extrafield `designtrace_approvers` (created in `modDesignTrace::init()`,
   0 any user / 1 admins only); `DesignTraceApprovals::checkRole()`; the API takes `actor_role` and answers
   403 `role_not_allowed: ...` (the `approve`/`requestChanges` methods return -2 for it).

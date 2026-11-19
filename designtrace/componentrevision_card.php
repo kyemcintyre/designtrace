@@ -577,14 +577,14 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 
 			// Submit for review (Draft -> In review)
 			if ($object->status == $object::STATUS_DRAFT) {
-				$blocking = $object->getBlockingChildren(array($object::STATUS_DRAFT));
+				$blocking = $object->getBlockingChildren(array($object::STATUS_DRAFT, $object::STATUS_DECLINED));
 				$reason = ($blocking ? $langs->trans('ErrorRevisionChildrenNotReviewed', $object->ref, implode(', ', $blocking)) : '');
 				print dolGetButtonAction($reason, $langs->trans('RevisionSubmitForReview'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=confirm_validate&confirm=yes&token='.newToken(), '', $permissiontoadd && empty($blocking));
 			}
 
 			// Release (Draft or In review -> Released), asks for confirmation
 			if ($object->status == $object::STATUS_DRAFT || $object->status == $object::STATUS_INREVIEW) {
-				$blocking = $object->getBlockingChildren(array($object::STATUS_DRAFT, $object::STATUS_INREVIEW));
+				$blocking = $object->getBlockingChildren(array($object::STATUS_DRAFT, $object::STATUS_INREVIEW, $object::STATUS_DECLINED));
 				$reason = ($permissiontorelease ? ($blocking ? $langs->trans('ErrorRevisionChildrenNotReleased', $object->ref, implode(', ', $blocking)) : '') : $langs->trans('NotEnoughPermissions'));
 				// Setting: a change to a released design needs an approved ECO (not the first revision)
 				if ($reason === '' && getDolGlobalInt('DESIGNTRACE_RELEASE_REQUIRES_ECO') && $object->getPreviousRevision()) {
@@ -609,8 +609,8 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 				print dolGetButtonAction('', $langs->trans('RevisionUndoObsolete'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=confirm_reopen&confirm=yes&token='.newToken(), '', $permissiontoadd);
 			}
 
-			// Unlock (Released or Obsolete -> Draft)
-			if ($object->isLocked() && $permissiontounlock) {
+			// Unlock (Released or Obsolete -> Draft); Declined is final
+			if ($object->isLocked() && (int) $object->status !== $object::STATUS_DECLINED && $permissiontounlock) {
 				print dolGetButtonAction('', $langs->trans('RevisionUnlock'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=unlock&token='.newToken(), '', $permissiontounlock);
 			}
 
@@ -674,6 +674,9 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 
 		// Proof drawings: the customer's approval
 		designtracePrintProofApproval($object);
+
+		// Staff records an answer received outside the portal
+		designtracePrintStaffDecisionForm($object);
 
 		// What customers see through the quotes, orders and tickets it is linked to
 		designtracePrintClientAccess($object, $form);

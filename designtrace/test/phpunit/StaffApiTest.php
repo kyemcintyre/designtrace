@@ -295,6 +295,102 @@ class StaffApiTest extends DesignTraceTestCase
 		});
 	}
 
+	public function testStaffRecordsTheCustomersDecision()
+	{
+		$customer = $this->newCustomer();
+		$design = $this->newDesign(array('fk_soc' => $customer->id), true);
+		$revs = array();
+		foreach (array('a', 'b', 'c') as $name) {
+			$rev = $this->newRevision($this->newComponent($design, Component::TYPE_PART, 'ZZ '.$name));
+			$this->db->query("UPDATE ".MAIN_DB_PREFIX."designtrace_componentrevision SET needs_approval = 1 WHERE rowid = ".((int) $rev->id));
+			$revs[$name] = $this->inReview($rev);
+		}
+
+		$reader = $this->newUser(array('design/read', 'componentrevision/read', 'componentrevision/write'));
+		$this->asUser($reader);
+		$this->expectCode(403, function () use ($revs) {
+			$this->api->recordStaffCustomerDecision($revs['a']->id, array('decision' => 'approve', 'received' => 'phone'));
+		}, 'componentrevision release');
+		$this->asUser($this->user);
+
+		$this->expectCode(404, function () {
+			$this->api->recordStaffCustomerDecision(999999999, array('decision' => 'approve', 'received' => 'phone'));
+		});
+		$this->expectCode(400, function () use ($revs) {
+			$this->api->recordStaffCustomerDecision($revs['a']->id, array('decision' => 'maybe', 'received' => 'phone'));
+		}, 'decision');
+		$this->expectCode(400, function () use ($revs) {
+			$this->api->recordStaffCustomerDecision($revs['a']->id, array('decision' => 'approve'));
+		}, 'received');
+		$this->expectCode(409, function () use ($revs) {
+			$this->api->recordStaffCustomerDecision($revs['a']->id, array('decision' => 'changes', 'received' => 'email'));
+		});
+
+		// Release is blocked until the decision is recorded
+		$this->expectCode(409, function () use ($revs) {
+			$this->api->releaseStaffRevision($revs['a']->id);
+		}, $revs['a']->ref);
+		$res = $this->api->recordStaffCustomerDecision($revs['a']->id, array('decision' => 'approve', 'received' => 'phone, Ann', 'comment' => 'Happy'));
+		$this->assertSame(array('decision' => 'approved', 'revision_ids' => array((int) $revs['a']->id)), $res);
+		$this->assertSame(ComponentRevision::STATUS_RELEASED, $this->api->releaseStaffRevision($revs['a']->id)['status']);
+		$this->expectCode(409, function () use ($revs) {
+			$this->api->recordStaffCustomerDecision($revs['a']->id, array('decision' => 'approve', 'received' => 'phone'));
+		});
+
+		// One approval for everything waiting in the design, then changes on one that was left
+		$res = $this->api->recordStaffCustomerDecision($revs['b']->id, array('decision' => 'approve', 'received' => 'email, Ann', 'whole_scope' => true));
+		$this->assertEqualsCanonicalizing(array((int) $revs['b']->id, (int) $revs['c']->id), $res['revision_ids']);
+		$this->assertSame(2, $this->countRows("SELECT COUNT(*) as nb FROM ".MAIN_DB_PREFIX."designtrace_approval WHERE channel = 'staff' AND decision = 1 AND fk_revision IN (".((int) $revs['b']->id).", ".((int) $revs['c']->id).")"));
+
+		$d = $this->newRevision($this->newComponent($design, Component::TYPE_PART, 'ZZ d'));
+		$this->db->query("UPDATE ".MAIN_DB_PREFIX."designtrace_componentrevision SET needs_approval = 1 WHERE rowid = ".((int) $d->id));
+		$d = $this->inReview($d);
+		$res = $this->api->recordStaffCustomerDecision($d->id, array('decision' => 'changes', 'received' => 'in person', 'comment' => 'Hole too small'));
+		$this->assertSame('changes', $res['decision']);
+		$this->assertGreaterThan(0, $res['eco_id']);
+		$this->assertSame(1, $res['round']);
+		$d->fetch($d->id);
+		$this->assertSame(ComponentRevision::STATUS_DECLINED, (int) $d->status);
+	}
+
+	public function testTriageListsDeclinedRevisionsUntilFollowedUp()
+	{
+		$customer = $this->newCustomer();
+		$design = $this->newDesign(array('fk_soc' => $customer->id), true);
+		$secret = $this->newDesign(array('fk_soc' => $customer->id, 'confidential' => 1), true);
+		$revs = array();
+		foreach (array('open' => $design, 'secret' => $secret) as $name => $d) {
+			$rev = $this->newRevision($this->newComponent($d, Component::TYPE_PART, 'ZZ '.$name));
+			$this->db->query("UPDATE ".MAIN_DB_PREFIX."designtrace_componentrevision SET needs_approval = 1 WHERE rowid = ".((int) $rev->id));
+			$rev = $this->inReview($rev);
+			$this->api->recordStaffCustomerDecision($rev->id, array('decision' => 'changes', 'received' => 'phone', 'comment' => 'Thicker'));
+			$revs[$name] = $rev;
+		}
+
+		$triage = $this->api->getTriage();
+		foreach (array('approvals', 'ecos', 'licences', 'needs_update', 'counts') as $key) {
+			$this->assertArrayHasKey($key, $triage, 'Existing keys are unchanged');
+		}
+		$this->assertArrayNotHasKey($revs['open']->id, array_column($triage['approvals'], null, 'revision_id'), 'Not waiting on the customer any more');
+		$declined = array_column($triage['declined'], null, 'revision_id');
+		$this->assertArrayHasKey($revs['open']->id, $declined);
+		$this->assertSame('staff:'.$this->user->login, $declined[$revs['open']->id]['declined_by']);
+		$this->assertGreaterThan(0, $declined[$revs['open']->id]['eco_id']);
+		$this->assertSame(count($triage['declined']), $triage['counts']['declined']);
+
+		// A staff user who cannot see confidential designs does not see theirs
+		$this->asUser($this->newUser(array('design/read', 'componentrevision/read')));
+		$declined = array_column($this->api->getTriage()['declined'], null, 'revision_id');
+		$this->assertArrayHasKey($revs['open']->id, $declined);
+		$this->assertArrayNotHasKey($revs['secret']->id, $declined);
+		$this->asUser($this->user);
+
+		// Gone once the workshop makes the new revision
+		$revs['open']->fetch($revs['open']->id);
+		$this->assertIsObject($revs['open']->createFromClone($this->user, $revs['open']->id));
+		$this->assertArrayNotHasKey($revs['open']->id, array_column($this->api->getTriage()['declined'], null, 'revision_id'));
+	}
+
 	public function testEcoActionsAndForcedReacceptance()
 	{
 		$customer = $this->newCustomer();
