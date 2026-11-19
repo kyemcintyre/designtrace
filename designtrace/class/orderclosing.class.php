@@ -32,8 +32,9 @@ require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
  * - it is validated or in progress (not draft, not already closed or cancelled),
  * - a component revision is linked to it,
  * - every line is a service (titles and subtotals aside): anything to ship still closes through its shipments,
- * - every invoice made from it is paid (credit notes and abandoned invoices aside; one closed as a bad debt is not
- *   paid), and together they come to the order's total (a deposit and its final invoice together do).
+ * - every invoice made from it is paid in full, or closed with only a discount, bank charges or tax withheld written off (credit
+ *   notes and abandoned invoices aside), and together they come to the order's total including tax (a deposit and
+ *   its final invoice together do; an order changed since it was invoiced waits for the next invoice).
  */
 class DesignTraceOrderClosing
 {
@@ -73,6 +74,13 @@ class DesignTraceOrderClosing
 			if ($result > 0) {
 				$closed[] = $orderid;
 				dol_syslog(__METHOD__." order ".$order->ref." closed: paid in full by ".$invoice->ref, LOG_INFO);
+				continue;
+			}
+			// Inside the payment's transaction a failed close cannot roll back: its status change may stand all the same
+			$order->fetch($orderid);
+			if ((int) $order->status === Commande::STATUS_CLOSED) {
+				$closed[] = $orderid;
+				dol_syslog(__METHOD__." order ".$order->ref." closed after ".$invoice->ref.", but a trigger on closing failed: ".$order->error, LOG_WARNING);
 			} else {
 				dol_syslog(__METHOD__." order ".$order->ref." paid in full by ".$invoice->ref." but not closed: ".$order->error, LOG_WARNING);
 			}
@@ -111,7 +119,7 @@ class DesignTraceOrderClosing
 			return false;
 		}
 
-		$sql = "SELECT f.fk_statut, f.type, f.close_code, f.total_ttc FROM ".$db->prefix()."element_element as ee";
+		$sql = "SELECT f.fk_statut, f.type, f.paye, f.close_code, f.total_ttc FROM ".$db->prefix()."element_element as ee";
 		$sql .= " INNER JOIN ".$db->prefix()."facture as f ON f.rowid = ee.fk_target";
 		$sql .= " WHERE ee.sourcetype = 'commande' AND ee.fk_source = ".((int) $orderid)." AND ee.targettype = 'facture'";
 		$resql = $db->query($sql);
@@ -124,7 +132,9 @@ class DesignTraceOrderClosing
 			if ((int) $inv->type === Facture::TYPE_CREDIT_NOTE || (int) $inv->fk_statut === Facture::STATUS_ABANDONED) {
 				continue;
 			}
-			if ((int) $inv->fk_statut !== Facture::STATUS_CLOSED || $inv->close_code === Facture::CLOSECODE_BADDEBT) {
+			// Paid in full, or closed with only a small difference written off; a bad debt or "other" may leave much unpaid
+			$writtenoff = in_array((string) $inv->close_code, array(Facture::CLOSECODE_DISCOUNTVAT, Facture::CLOSECODE_BANKCHARGE, Facture::CLOSECODE_WITHHOLDINGTAX), true);
+			if ((int) $inv->fk_statut !== Facture::STATUS_CLOSED || (!$inv->paye && !$writtenoff)) {
 				return false;
 			}
 			$paid += (float) $inv->total_ttc;

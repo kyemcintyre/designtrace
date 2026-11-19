@@ -244,8 +244,9 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
 - **Paid design-only orders close themselves** (setting `DESIGNTRACE_CLOSE_PAID_DESIGN_ORDERS`, off by default,
   `class/orderclosing.class.php`): on `BILL_PAYED` each order the invoice was made from is closed (`cloture()`, no
   rights check) when a revision is linked to it, every line is a service (type 1; 9 special lines aside) and its
-  invoices are all paid (credit notes and abandoned ones aside, a bad debt is not paid) and come to the order's total
-  (deposit + final). That delivers its revisions and "Visible on completion" files after a card payment through the
+  invoices are all paid in full or closed writing off only a discount, bank charges or tax withheld (credit notes and abandoned
+  ones aside) and come to the order's total incl. tax (deposit + final). A close whose `ORDER_CLOSE` trigger fails
+  still stands inside the payment's transaction (nested rollback is a no-op), so the status is re-read before logging. That delivers its revisions and "Visible on completion" files after a card payment through the
   portal. Never fails the payment: a refused close is only logged. Orders with goods close through shipments.
 - No automated customer emails (Kye's decision): he tells customers with Dolibarr's own "Send
   email" on the quote/order. Do not add email on release, visibility change or delivered update.

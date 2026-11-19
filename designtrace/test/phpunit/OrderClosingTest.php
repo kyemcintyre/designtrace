@@ -129,6 +129,21 @@ class OrderClosingTest extends DesignTraceTestCase
 		$this->assertSame(Commande::STATUS_CLOSED, $this->orderStatus($s['order']));
 	}
 
+	public function testWriteOffsCountOnlyForSmallDifferences()
+	{
+		$this->setConst('DESIGNTRACE_CLOSE_PAID_DESIGN_ORDERS', '1');
+		$customer = $this->newCustomer();
+		$s = $this->designOrder($customer->id);
+		$invoice = $this->invoice($s['order'], 100);
+		$this->assertOk($invoice->setPaid($this->user, Facture::CLOSECODE_OTHER, 'ZZ rest not paid'), $invoice, 'Closed, other');
+		$this->assertSame(Commande::STATUS_VALIDATED, $this->orderStatus($s['order']));
+
+		$s = $this->designOrder($customer->id);
+		$invoice = $this->invoice($s['order'], 100);
+		$this->assertOk($invoice->setPaid($this->user, Facture::CLOSECODE_BANKCHARGE, 'ZZ bank fee'), $invoice, 'Closed, bank charge');
+		$this->assertSame(Commande::STATUS_CLOSED, $this->orderStatus($s['order']));
+	}
+
 	public function testBadDebtIsNotPaid()
 	{
 		$this->setConst('DESIGNTRACE_CLOSE_PAID_DESIGN_ORDERS', '1');
