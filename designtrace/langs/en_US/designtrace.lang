@@ -428,9 +428,9 @@ RevisionEcoHelp = The change order this revision implements. Its component is ad
 RevisionCause = Cause
 RevisionFromEco = from %s: %s
 DESIGNTRACE_RELEASE_REQUIRES_ECO = Releasing a change needs an approved ECO
+DESIGNTRACE_RELEASE_REQUIRES_ECOTooltip = A revision after the first can only be released when it is made under an approved (or implemented) change order. Off by default; for shops that need ISO 9001-style control.
 DESIGNTRACE_CLOSE_PAID_DESIGN_ORDERS = Close design-only orders once paid
 DESIGNTRACE_CLOSE_PAID_DESIGN_ORDERSTooltip = When an invoice is paid (by card through the portal, a payment entered by hand, or credit), each order it was made from is closed if: design revisions are linked to it, every line is a service, and its invoices are all paid in full (or closed with only a discount, bank charges or tax withheld written off) and come to the order's total including tax (a deposit and its final invoice together; an order changed after it was invoiced waits for the next invoice). Closing the order delivers its revisions and shows its "Visible on completion" files. Orders with goods to ship still close through their shipments.
-DESIGNTRACE_RELEASE_REQUIRES_ECOTooltip = A revision after the first can only be released when it is made under an approved (or implemented) change order. Off by default; for shops that need ISO 9001-style control.
 EventDeliveredRevisionUpdatedEco = Change order: %s (%s)
 
 #
