@@ -353,6 +353,44 @@ class StaffApiTest extends DesignTraceTestCase
 		$this->assertSame(ComponentRevision::STATUS_DECLINED, (int) $d->status);
 	}
 
+	public function testTriageListsDeclinedRevisionsUntilFollowedUp()
+	{
+		$customer = $this->newCustomer();
+		$design = $this->newDesign(array('fk_soc' => $customer->id), true);
+		$secret = $this->newDesign(array('fk_soc' => $customer->id, 'confidential' => 1), true);
+		$revs = array();
+		foreach (array('open' => $design, 'secret' => $secret) as $name => $d) {
+			$rev = $this->newRevision($this->newComponent($d, Component::TYPE_PART, 'ZZ '.$name));
+			$this->db->query("UPDATE ".MAIN_DB_PREFIX."designtrace_componentrevision SET needs_approval = 1 WHERE rowid = ".((int) $rev->id));
+			$rev = $this->inReview($rev);
+			$this->api->recordStaffCustomerDecision($rev->id, array('decision' => 'changes', 'received' => 'phone', 'comment' => 'Thicker'));
+			$revs[$name] = $rev;
+		}
+
+		$triage = $this->api->getTriage();
+		foreach (array('approvals', 'ecos', 'licences', 'needs_update', 'counts') as $key) {
+			$this->assertArrayHasKey($key, $triage, 'Existing keys are unchanged');
+		}
+		$this->assertArrayNotHasKey($revs['open']->id, array_column($triage['approvals'], null, 'revision_id'), 'Not waiting on the customer any more');
+		$declined = array_column($triage['declined'], null, 'revision_id');
+		$this->assertArrayHasKey($revs['open']->id, $declined);
+		$this->assertSame('staff:'.$this->user->login, $declined[$revs['open']->id]['declined_by']);
+		$this->assertGreaterThan(0, $declined[$revs['open']->id]['eco_id']);
+		$this->assertSame(count($triage['declined']), $triage['counts']['declined']);
+
+		// A staff user who cannot see confidential designs does not see theirs
+		$this->asUser($this->newUser(array('design/read', 'componentrevision/read')));
+		$declined = array_column($this->api->getTriage()['declined'], null, 'revision_id');
+		$this->assertArrayHasKey($revs['open']->id, $declined);
+		$this->assertArrayNotHasKey($revs['secret']->id, $declined);
+		$this->asUser($this->user);
+
+		// Gone once the workshop makes the new revision
+		$revs['open']->fetch($revs['open']->id);
+		$this->assertIsObject($revs['open']->createFromClone($this->user, $revs['open']->id));
+		$this->assertArrayNotHasKey($revs['open']->id, array_column($this->api->getTriage()['declined'], null, 'revision_id'));
+	}
+
 	public function testEcoActionsAndForcedReacceptance()
 	{
 		$customer = $this->newCustomer();

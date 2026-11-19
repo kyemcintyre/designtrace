@@ -132,7 +132,10 @@ class DesignTraceDocLinks
 		}
 		$rule = $rules[$element];
 		$status = (int) $revision->status;
-		if (in_array($status, array(ComponentRevision::STATUS_OBSOLETE, ComponentRevision::STATUS_DECLINED), true) || ($rule['statuses'] === self::RELEASED_ONLY && $status !== ComponentRevision::STATUS_RELEASED)) {
+		if ($status === ComponentRevision::STATUS_DECLINED) {
+			return self::fail($revision, $langs->trans('ErrorLinkChildDeclined', $revision->ref));
+		}
+		if ($status === ComponentRevision::STATUS_OBSOLETE || ($rule['statuses'] === self::RELEASED_ONLY && $status !== ComponentRevision::STATUS_RELEASED)) {
 			return self::fail($revision, $langs->trans('ErrorDocLinkNeedsReleased', $revision->ref, $langs->transnoentitiesnoconv($rule['label'])));
 		}
 		$doc = self::fetchDocument($db, $element, $docid);

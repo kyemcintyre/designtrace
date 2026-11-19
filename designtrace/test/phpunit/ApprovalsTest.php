@@ -344,6 +344,58 @@ class ApprovalsTest extends DesignTraceTestCase
 		$this->assertNotEmpty($err);
 	}
 
+	public function testADeclinedRevisionIsFinal()
+	{
+		$A = DesignTraceApprovals::class;
+		list($customer, $design, $revs) = $this->scenario();
+		$err = '';
+		$a = $revs['a'];
+		// A draft assembly uses it before the customer declines it
+		$asm = $this->newRevision($this->newComponent($design, Component::TYPE_ASSEMBLY, 'ZZ asm'));
+		$link = $this->newLink($asm, $a, ComponentLink::TYPE_USES, 1);
+		$this->assertGreaterThan(0, (int) $link->id, (string) $link->error);
+		$this->assertIsArray($A::recordOnBehalf($this->db, $this->user, $a->id, 2, 'phone', 'Thicker', $err), $err);
+		$a->fetch($a->id);
+		$this->assertSame(ComponentRevision::STATUS_DECLINED, (int) $a->status);
+
+		// Not reopened by unlock, even with the right and a reason
+		$unlocker = $this->newUser(array('design/read', 'componentrevision/read', 'unlock/unlock'));
+		$this->assertLessThan(0, $a->unlock($unlocker, 'Customer changed their mind'));
+		$this->assertStringContainsString($a->ref, $a->error);
+		$a->fetch($a->id);
+		$this->assertSame(ComponentRevision::STATUS_DECLINED, (int) $a->status);
+
+		// Not linkable to a document, with a message that says why
+		$this->assertLessThan(0, $this->linkDoc($a, 'propal', $this->newQuote($customer->id)->id));
+		$this->assertStringContainsString('declined', $a->error);
+
+		// The draft parent pinned to it cannot be submitted for review
+		$asm->fetch($asm->id);
+		$this->assertLessThan(0, $asm->validate($this->user));
+		$this->assertStringContainsString($a->ref, $asm->error);
+	}
+
+	public function testStaffWholeScopeLeavesOutConfidentialDesignsTheUserCannotSee()
+	{
+		$A = DesignTraceApprovals::class;
+		$err = '';
+		$customer = $this->newCustomer();
+		$eco = $this->newEco($customer->id);
+		$revs = array();
+		$approver = $this->newUser(array('design/read', 'componentrevision/read', 'componentrevision/release'));
+		foreach (array('open' => 0, 'secret' => 1) as $name => $confidential) {
+			$d = $this->newDesign(array('fk_soc' => $customer->id, 'confidential' => $confidential), true);
+			$rev = $this->newRevision($this->newComponent($d, Component::TYPE_PART, 'ZZ '.$name));
+			$this->db->query("UPDATE ".MAIN_DB_PREFIX."designtrace_componentrevision SET needs_approval = 1, fk_eco = ".((int) $eco->id)." WHERE rowid = ".((int) $rev->id));
+			$revs[$name] = $this->inReview($rev);
+		}
+		$done = $A::recordOnBehalf($this->db, $approver, $revs['open']->id, 1, 'phone', '', $err, true);
+		$this->assertSame(array((int) $revs['open']->id), $done, $err);
+		$revs['secret']->fetch($revs['secret']->id);
+		$this->assertSame(0, (int) $revs['secret']->customer_approval, 'Not approved by someone who cannot see it');
+		$this->assertSame(-1, $A::recordOnBehalf($this->db, $approver, $revs['secret']->id, 1, 'phone', '', $err), 'Nor directly');
+	}
+
 	public function testApproverRoleSetting()
 	{
 		$A = DesignTraceApprovals::class;

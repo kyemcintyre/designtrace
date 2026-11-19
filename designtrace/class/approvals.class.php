@@ -32,6 +32,7 @@
  */
 
 dol_include_once('/designtrace/class/componentrevision.class.php');
+dol_include_once('/designtrace/class/design.class.php');
 dol_include_once('/designtrace/class/changeorder.class.php');
 dol_include_once('/designtrace/class/clientaccess.class.php');
 dol_include_once('/designtrace/class/designlibrary.class.php');
@@ -441,7 +442,7 @@ class DesignTraceApprovals
 			return -1;
 		}
 
-		$sql = "SELECT r.rowid, r.ref, r.rev, r.fk_eco, r.customer_approval, r.customer_note, c.rowid as comp_id, c.ref as comp_ref, c.label, c.fk_design, d.fk_soc";
+		$sql = "SELECT r.rowid, r.ref, r.rev, r.fk_eco, r.customer_approval, r.customer_note, c.rowid as comp_id, c.ref as comp_ref, c.label, c.fk_design, d.fk_soc, d.entity";
 		$sql .= " FROM ".$db->prefix()."designtrace_componentrevision as r INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
 		$sql .= " INNER JOIN ".$db->prefix()."designtrace_design as d ON d.rowid = c.fk_design";
 		$sql .= " WHERE r.rowid = ".((int) $revid)." AND r.needs_approval = 1 AND r.status = ".((int) ComponentRevision::STATUS_INREVIEW);
@@ -450,6 +451,11 @@ class DesignTraceApprovals
 		$obj = $resql ? $db->fetch_object($resql) : null;
 		if (!$obj) {
 			$error = $langs->trans('ErrorApprovalNothingPending');
+			return -1;
+		}
+		$hidden = Design::getHiddenDesignIds($db, $user);
+		if (in_array((int) $obj->fk_design, $hidden, true)) {
+			$error = $langs->trans('ErrorRecordNotFound');
 			return -1;
 		}
 		if ((int) $obj->fk_soc <= 0) {
@@ -467,11 +473,15 @@ class DesignTraceApprovals
 		if ($decision === DesignTraceProofApproval::DECISION_APPROVED) {
 			$revisions = array((int) $rev['id'] => $rev);
 			if ($wholeScope) {
-				// Every design of this customer (an ECO can span several), whether or not the portal reaches it
+				// Every design of this customer in the same entity (an ECO can span several), whether or not the
+				// portal reaches it, leaving out confidential designs this staff user cannot see
 				$designs = array();
-				$resql = $db->query("SELECT rowid FROM ".$db->prefix()."designtrace_design WHERE fk_soc = ".$socid);
+				$sql = "SELECT rowid FROM ".$db->prefix()."designtrace_design WHERE fk_soc = ".$socid." AND entity = ".((int) $obj->entity);
+				$resql = $db->query($sql);
 				while ($resql && ($d = $db->fetch_object($resql))) {
-					$designs[] = (int) $d->rowid;
+					if (!in_array((int) $d->rowid, $hidden, true)) {
+						$designs[] = (int) $d->rowid;
+					}
 				}
 				$revisions = self::queryScopeRevisions($db, $designs, $scope, $scopeid);
 				$revisions[(int) $rev['id']] = $rev;

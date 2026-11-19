@@ -667,7 +667,7 @@ class ComponentRevision extends CommonObject
 			return 0;
 		}
 		// Nothing goes to review while it depends on a draft
-		$blocking = $this->getBlockingChildren(array(self::STATUS_DRAFT));
+		$blocking = $this->getBlockingChildren(array(self::STATUS_DRAFT, self::STATUS_DECLINED));
 		if ($blocking) {
 			$langs->load('designtrace@designtrace');
 			return $this->setErrorAndFail($langs->trans('ErrorRevisionChildrenNotReviewed', $this->ref, implode(', ', $blocking)));
@@ -937,7 +937,7 @@ class ComponentRevision extends CommonObject
 	}
 
 	/**
-	 *	Unlock a locked revision (Released, Obsolete or Declined -> Draft). Needs the unlock right, is for staff
+	 *	Unlock a locked revision (Released or Obsolete -> Draft; Declined is final). Needs the unlock right, is for staff
 	 *	only, requires a reason and is logged as an agenda event. The customer's decision is forgotten
 	 *	as the revision is open for changes again.
 	 *
@@ -957,6 +957,11 @@ class ComponentRevision extends CommonObject
 		if (!$this->isLocked()) {
 			return 0;
 		}
+		if ((int) $this->status === self::STATUS_DECLINED) {
+			// Final: reopening it would make a second open revision next to its follow-up and let the
+			// customer approve what they turned down. The fix is a new revision.
+			return $this->setErrorAndFail($langs->trans('ErrorRevisionDeclinedIsFinal', $this->ref));
+		}
 		if (trim((string) $reason) === '') {
 			return $this->setErrorAndFail($langs->trans('ErrorUnlockReasonRequired'));
 		}
@@ -970,7 +975,7 @@ class ComponentRevision extends CommonObject
 			dol_include_once('/designtrace/lib/designtrace.lib.php');
 			$result = designtraceLogUnlock($this->db, $user, $this, 'AC_DESIGNTRACE_REVISION_UNLOCK',
 				$langs->transnoentities('EventRevisionUnlocked', $this->ref),
-				$langs->transnoentities('EventRevisionUnlockedNote', $this->ref, $langs->transnoentitiesnoconv($oldstatus === self::STATUS_OBSOLETE ? 'RevisionStatusObsolete' : ($oldstatus === self::STATUS_DECLINED ? 'RevisionStatusDeclined' : 'RevisionStatusReleased')), trim($reason)));
+				$langs->transnoentities('EventRevisionUnlockedNote', $this->ref, $langs->transnoentitiesnoconv($oldstatus === self::STATUS_OBSOLETE ? 'RevisionStatusObsolete' : 'RevisionStatusReleased'), trim($reason)));
 		}
 		if ($result <= 0) {
 			$this->db->rollback();

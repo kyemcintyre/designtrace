@@ -41,7 +41,8 @@ class DesignTraceStaff
 	 *
 	 * @param	DoliDB	$db		Database handler
 	 * @param	User	$user	Staff user (confidential designs they cannot see are left out)
-	 * @return	array<string,mixed>	approvals (flagged revisions In review waiting for the customer), ecos (open ECOs, customer
+	 * @return	array<string,mixed>	approvals (flagged revisions In review waiting for the customer), declined (revisions the customer
+	 *								declined that have no newer revision yet: the workshop owes them one), ecos (open ECOs, customer
 	 *								requests first, with the next action), licences (designs with active work whose licence is not
 	 *								accepted), needs_update (flagged components) and counts
 	 */
@@ -110,12 +111,28 @@ class DesignTraceStaff
 			$needsupdate[] = array('link_id' => (int) $row->rowid, 'flag' => (int) $row->flag_status, 'note' => (string) $row->flag_note);
 		}
 
+		// Declined by the customer and not followed up yet (no newer revision of the component)
+		$declined = array();
+		$sql = "SELECT r.rowid, r.ref, r.fk_eco, r.date_customer_approval, r.customer_approval_by, c.rowid as comp_id, c.ref as comp_ref, d.rowid as design_id, d.ref as design_ref, d.fk_soc, s.nom as socname";
+		$sql .= " FROM ".$db->prefix()."designtrace_componentrevision as r INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
+		$sql .= " INNER JOIN ".$db->prefix()."designtrace_design as d ON d.rowid = c.fk_design LEFT JOIN ".$db->prefix()."societe as s ON s.rowid = d.fk_soc";
+		$sql .= " WHERE r.status = ".((int) ComponentRevision::STATUS_DECLINED).$hiddensql;
+		$sql .= " AND NOT EXISTS (SELECT 1 FROM ".$db->prefix()."designtrace_componentrevision as n WHERE n.fk_component = r.fk_component AND n.rowid > r.rowid)";
+		$sql .= " ORDER BY r.date_customer_approval ASC, r.rowid ASC";
+		$resql = $db->query($sql);
+		while ($resql && ($obj = $db->fetch_object($resql))) {
+			$declined[] = array('revision_id' => (int) $obj->rowid, 'revision_ref' => $obj->ref, 'component_id' => (int) $obj->comp_id, 'component_ref' => $obj->comp_ref,
+				'design_id' => (int) $obj->design_id, 'design_ref' => $obj->design_ref, 'socid' => (int) $obj->fk_soc, 'customer' => (string) $obj->socname, 'eco_id' => (int) $obj->fk_eco,
+				'declined_by' => (string) $obj->customer_approval_by, 'declined_at' => $db->jdate($obj->date_customer_approval));
+		}
+
 		return array(
 			'approvals' => $approvals,
+			'declined' => $declined,
 			'ecos' => $ecos,
 			'licences' => $licences,
 			'needs_update' => $needsupdate,
-			'counts' => array('approvals' => count($approvals), 'ecos' => count($ecos), 'licences' => count($licences), 'needs_update' => count($needsupdate)),
+			'counts' => array('approvals' => count($approvals), 'ecos' => count($ecos), 'licences' => count($licences), 'needs_update' => count($needsupdate), 'declined' => count($declined)),
 		);
 	}
 

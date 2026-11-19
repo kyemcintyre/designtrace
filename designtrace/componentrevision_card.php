@@ -226,7 +226,7 @@ if (empty($reshook)) {
 		$action = '';
 	}
 
-	// Unlock (Released, Obsolete or Declined -> Draft), needs its own permission and a reason
+	// Unlock (Released or Obsolete -> Draft), needs its own permission and a reason
 	if ($action == 'confirm_unlock' && $confirm == 'yes' && $permissiontounlock) {
 		$result = $object->unlock($user, GETPOST('reason', 'restricthtml'));
 		if ($result > 0) {
@@ -577,7 +577,7 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 
 			// Submit for review (Draft -> In review)
 			if ($object->status == $object::STATUS_DRAFT) {
-				$blocking = $object->getBlockingChildren(array($object::STATUS_DRAFT));
+				$blocking = $object->getBlockingChildren(array($object::STATUS_DRAFT, $object::STATUS_DECLINED));
 				$reason = ($blocking ? $langs->trans('ErrorRevisionChildrenNotReviewed', $object->ref, implode(', ', $blocking)) : '');
 				print dolGetButtonAction($reason, $langs->trans('RevisionSubmitForReview'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=confirm_validate&confirm=yes&token='.newToken(), '', $permissiontoadd && empty($blocking));
 			}
@@ -609,8 +609,8 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 				print dolGetButtonAction('', $langs->trans('RevisionUndoObsolete'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=confirm_reopen&confirm=yes&token='.newToken(), '', $permissiontoadd);
 			}
 
-			// Unlock (Released, Obsolete or Declined -> Draft)
-			if ($object->isLocked() && $permissiontounlock) {
+			// Unlock (Released or Obsolete -> Draft); Declined is final
+			if ($object->isLocked() && (int) $object->status !== $object::STATUS_DECLINED && $permissiontounlock) {
 				print dolGetButtonAction('', $langs->trans('RevisionUnlock'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=unlock&token='.newToken(), '', $permissiontounlock);
 			}
 

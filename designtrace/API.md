@@ -189,7 +189,7 @@ design the user cannot see is `404`. Nothing here emails a customer.
 
 | Method and path | Right | What |
 |---|---|---|
-| `GET staff/triage` | design read | `approvals` (flagged revisions In review, `awaiting_customer` or `changes_requested`), `ecos` (open ECOs, customer requests first, with `next_action`: approve / implement / close), `licences` (designs with active work whose licence is not accepted), `needs_update`, `counts`. |
+| `GET staff/triage` | design read | `approvals` (flagged revisions In review, `awaiting_customer` or `changes_requested`), `declined` (revisions the customer declined with no newer revision yet: `revision_id`, `revision_ref`, `component_id`, `component_ref`, `design_id`, `design_ref`, `socid`, `customer`, `eco_id`, `declined_by`, `declined_at`; `counts.declined`), `ecos` (open ECOs, customer requests first, with `next_action`: approve / implement / close), `licences` (designs with active work whose licence is not accepted), `needs_update`, `counts`. |
 | `GET staff/customers/{socid}/library[?q&action&page&limit]` | design read | The customer's library as they see it. |
 | `GET staff/customers/{socid}/designs/{designid}` | design read | Everything the customer sees of the design, plus `grants`, `licence` state and `files` with `shown_to_customer` and `reason_not_shown` (hidden, production file, source not allowed by licence or ownership, waits for completion). |
 | `GET staff/customers/{socid}/grants[?design_id]` | design read | Grants with their pins. |
