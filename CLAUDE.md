@@ -241,6 +241,12 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
     apidirect, actor (`portal:<login>` or the API's actor), IP, user agent (`logDownload()` takes
     optional `$ip`/`$useragent` for a proxying backend). Shown on the Files tab (count per
     file, latest 50).
+- **Paid design-only orders close themselves** (setting `DESIGNTRACE_CLOSE_PAID_DESIGN_ORDERS`, off by default,
+  `class/orderclosing.class.php`): on `BILL_PAYED` each order the invoice was made from is closed (`cloture()`, no
+  rights check) when a revision is linked to it, every line is a service (type 1; 9 special lines aside) and its
+  invoices are all paid (credit notes and abandoned ones aside, a bad debt is not paid) and come to the order's total
+  (deposit + final). That delivers its revisions and "Visible on completion" files after a card payment through the
+  portal. Never fails the payment: a refused close is only logged. Orders with goods close through shipments.
 - No automated customer emails (Kye's decision): he tells customers with Dolibarr's own "Send
   email" on the quote/order. Do not add email on release, visibility change or delivered update.
 - **Change orders** (phase 6, `ChangeOrder`, `llx_designtrace_changeorder`): `ECO-0001` given at
