@@ -262,7 +262,7 @@ class DesignTraceProofApproval
 		if ($ok && $decision === self::DECISION_CHANGES && (int) $revision->status === ComponentRevision::STATUS_INREVIEW) {
 			// Changes requested close an In review proof: never released, the fix is a new revision.
 			// A proof that is already Released stays Released (its change request only opens the ticket or ECO).
-			$ok = (ComponentRevision::markDeclined($db, (int) $revid) >= 0);
+			$ok = (ComponentRevision::declineWithChildren($db, $user, (int) $revid, (int) $result['eco']) !== -1);
 		}
 		if ($ok) {
 			$ok = (self::addEvent($db, $user, $revision, $proof, $decision, $comment, $actor, $result) > 0);

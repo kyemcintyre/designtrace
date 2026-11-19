@@ -270,11 +270,15 @@ function designtracePrintProofApproval($object)
 
 	dol_include_once('/designtrace/class/proofapproval.class.php');
 	$component = new Component($db);
-	if ($component->fetch((int) $object->fk_component) <= 0 || !DesignTraceProofApproval::isProof((int) $component->type, (int) $component->drawing_type)) {
+	if ($component->fetch((int) $object->fk_component) <= 0) {
+		return;
+	}
+	$history = DesignTraceProofApproval::fetchHistory($db, (int) $object->id);
+	// Proof drawings always; any other revision once it is flagged for approval or has a decision
+	if (!DesignTraceProofApproval::isProof((int) $component->type, (int) $component->drawing_type) && empty($object->needs_approval) && empty($history)) {
 		return;
 	}
 	$labels = DesignTraceProofApproval::getDecisionLabels();
-	$history = DesignTraceProofApproval::fetchHistory($db, (int) $object->id);
 
 	print load_fiche_titre($langs->trans('CustomerApproval'), '', 'fa-user-check');
 	print '<div class="div-table-responsive-no-min"><table class="noborder centpercent">';
@@ -324,7 +328,7 @@ function designtracePrintStaffDecisionForm($object)
 	if (!empty($user->socid) || !$user->hasRight('designtrace', 'componentrevision', 'release')) {
 		return;
 	}
-	if (empty($object->needs_approval) || (int) $object->status !== ComponentRevision::STATUS_INREVIEW || (int) $object->customer_approval === DesignTraceProofApproval::DECISION_APPROVED) {
+	if ((int) $object->status !== ComponentRevision::STATUS_INREVIEW || (int) $object->customer_approval === DesignTraceProofApproval::DECISION_APPROVED) {
 		return;
 	}
 	$sql = "SELECT d.fk_soc FROM ".$db->prefix()."designtrace_design as d INNER JOIN ".$db->prefix()."designtrace_component as c ON c.fk_design = d.rowid";
@@ -335,11 +339,17 @@ function designtracePrintStaffDecisionForm($object)
 		return;
 	}
 
-	print load_fiche_titre($langs->trans('StaffDecisionTitle'), '', 'fa-user-edit');
+	// Open when the revision waits for the customer; folded on others (internal parts), to keep the card quiet
+	print '<details class="designtrace-staffdecision"'.(empty($object->needs_approval) ? '' : ' open').'>';
+	print '<summary class="marginbottomonly">'.img_picto('', 'fa-user-edit', 'class="pictofixedwidth"').'<span class="titre">'.$langs->trans('StaffDecisionTitle').'</span></summary>';
 	print '<form method="POST" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'?id='.((int) $object->id).'">';
 	print '<input type="hidden" name="token" value="'.newToken().'">';
 	print '<input type="hidden" name="action" value="staffdecision">';
-	print '<div class="opacitymedium marginbottomonly">'.$langs->trans('StaffDecisionHelp').'</div>';
+	print '<div class="opacitymedium marginbottomonly">'.$langs->trans('StaffDecisionHelp');
+	if (empty($object->needs_approval)) {
+		print ' '.$langs->trans('StaffDecisionNotFlagged');
+	}
+	print '</div>';
 	print '<table class="noborder centpercent">';
 	print '<tr class="oddeven"><td class="titlefield">'.$langs->trans('CustomerApproval').'</td><td>';
 	print '<select name="decision" class="flat minwidth200">';
@@ -356,5 +366,5 @@ function designtracePrintStaffDecisionForm($object)
 	print '</td></tr>';
 	print '</table>';
 	print '<div class="center margintoponly"><input type="submit" class="button small" value="'.dol_escape_htmltag($langs->trans('StaffDecisionRecord')).'"></div>';
-	print '</form><br>';
+	print '</form></details><br>';
 }

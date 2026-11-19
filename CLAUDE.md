@@ -305,7 +305,17 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
   `llx_designtrace_approval`, events `AC_DESIGNTRACE_PROOF_*`. Changes requested on an **In review**
   revision make it **Declined** (status 8, `ComponentRevision::markDeclined()`): final (unlock refuses it), read-only,
   never released, not linkable, blocks a parent's review and release; listed in staff triage `declined` until a newer
-  revision of the component exists; the fix is "New revision from this one", which keeps the declined revision's ECO
+  revision of the component exists (one declined with a parent has `declined_with` and its date from the cascade's event). **The decline cascades** (`ComponentRevision::declineWithChildren()`, both decision
+  paths): the revisions it links to that are still In review are declined too, down the tree **within the same design**
+  (components of other designs are never touched), put under the request's
+  ECO when they have none (and it is open), with an `AC_DESIGNTRACE_REVISION_DECLINED` event; left alone are children
+  flagged `needs_approval` (the customer decides on them) and children another draft/in-review parent outside the
+  decline still pins. Cloning keeps links to a declined child (context `keepdeclinedpin`), pinning its newest draft/
+  in-review revision instead when one exists, and cloning a declined revision moves draft parents' pins to the new one,
+  so new revisions can be made in any order. On a revision already Declined (declined before the cascade, or whose
+  children went back in review) "Decline linked revisions" on its card (release right; shown only when something would
+  be declined, with a confirmation listing it: a dry run, `$dryRun`) or `POST staff/revisions/{revid}/decline-linked`
+  (`dry_run`) runs the cascade again; the fix is "New revision from this one", which keeps the declined revision's ECO
   while that ECO is open (so the next ECO round is decided on it). A Released proof stays Released. A change request opens a ticket
   linked to the revision (default), a draft ECO or nothing (`DESIGNTRACE_PROOF_CHANGES_ACTION`).
 - **Reorder** (`class/reorder.class.php`): delivered orders with delivered released revisions
@@ -376,7 +386,8 @@ no automated emails). Reference for the Go side: `designtrace/API.md`.
   `fk_eco` on those revisions. The per-revision proof flow (`DesignTraceProofApproval::decide()`, ticket/ECO
   setting) still exists for proofs shown through a document.
   **Staff on behalf**: `DesignTraceApprovals::recordOnBehalf()` records an answer received outside the portal for
-  one flagged, In review revision (channel `staff`, actor `staff:<login>`, a "received by/from" note is required,
+  one In review revision, flagged or not (an unflagged one, e.g. a part, stays unflagged so its next revisions are not
+  held for approval; the card's form is folded on unflagged revisions) (channel `staff`, actor `staff:<login>`, a "received by/from" note is required,
   needs the `componentrevision release` right): same effects as the customer's own decision (approval unblocks
   release; changes decline the revision and reopen or open the ECO). Approval can cover just that revision or,
   with `$wholeScope`, every flagged revision waiting in the same ECO / design (same customer and entity, minus

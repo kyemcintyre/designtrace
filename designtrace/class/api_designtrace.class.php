@@ -2256,6 +2256,48 @@ class DesignTrace extends DolibarrApi
 	}
 
 	/**
+	 * Decline what a declined revision links to that is still In review: the cascade a decline runs,
+	 * run again (for a revision declined before it existed, or whose children went back in review).
+	 * With `dry_run` it only says what would be declined. Needs the right to release revisions.
+	 *
+	 * @param	int		$revid			Revision id (must be Declined)
+	 * @param	array	$request_data	`dry_run` (optional)
+	 * @phan-param ?array<string,mixed> $request_data
+	 * @phpstan-param ?array<string,mixed> $request_data
+	 * @return	array				dry_run, declined: [{ id, ref }]
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	POST staff/revisions/{revid}/decline-linked
+	 *
+	 * @throws RestException 403 Needs the right to release revisions
+	 * @throws RestException 404 Revision not found
+	 * @throws RestException 409 The revision is not Declined
+	 */
+	public function declineStaffLinkedRevisions($revid, $request_data = null)
+	{
+		$this->checkStaff('componentrevision', 'release');
+		$revision = $this->getStaffRevision((int) $revid);
+		if ((int) $revision->status !== ComponentRevision::STATUS_DECLINED) {
+			throw new RestException(409, 'Only a declined revision cascades');
+		}
+		$dryRun = is_array($request_data) && !empty($request_data['dry_run']);
+		$this->db->begin();
+		$done = ComponentRevision::declineWithChildren($this->db, DolibarrApiAccess::$user, (int) $revision->id, 0, $dryRun);
+		if ($done === -1) {
+			dol_syslog(__METHOD__.' revision '.((int) $revision->id).': '.$this->db->lasterror(), LOG_ERR);
+			$this->db->rollback();
+			throw new RestException(500, 'Not declined: a database error was logged');
+		}
+		$this->db->commit();
+		$declined = array();
+		foreach ($done as $id => $ref) {
+			$declined[] = array('id' => (int) $id, 'ref' => $ref);
+		}
+		return array('dry_run' => $dryRun, 'declined' => $declined);
+	}
+
+	/**
 	 * Approve an ECO (needs the right to approve change orders). Refused while its linked quote is not accepted.
 	 *
 	 * @param	int		$ecoid		ECO id

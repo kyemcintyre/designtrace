@@ -391,6 +391,48 @@ class StaffApiTest extends DesignTraceTestCase
 		$this->assertArrayNotHasKey($revs['open']->id, array_column($this->api->getTriage()['declined'], null, 'revision_id'));
 	}
 
+	public function testDeclineLinkedRunsTheCascadeAgain()
+	{
+		$customer = $this->newCustomer();
+		$design = $this->newDesign(array('fk_soc' => $customer->id), true);
+		$part = $this->inReview($this->newRevision($this->newComponent($design, Component::TYPE_PART, 'ZZ part')));
+		$proof = $this->newRevision($this->newComponent($design, Component::TYPE_DRAWING, 'ZZ proof', Component::DRAWING_PROOF));
+		$this->assertGreaterThan(0, (int) $this->newLink($proof, $part, ComponentLink::TYPE_DEPICTS)->id);
+		$proof = $this->inReview($proof);
+
+		$this->expectCode(409, function () use ($proof) {
+			$this->api->declineStaffLinkedRevisions($proof->id);
+		});
+		ComponentRevision::markDeclined($this->db, (int) $proof->id);
+
+		$reader = $this->newUser(array('design/read', 'componentrevision/read', 'componentrevision/write'));
+		$this->asUser($reader);
+		$this->expectCode(403, function () use ($proof) {
+			$this->api->declineStaffLinkedRevisions($proof->id);
+		}, 'componentrevision release');
+		$this->asUser($this->user);
+
+		$dry = $this->api->declineStaffLinkedRevisions($proof->id, array('dry_run' => true));
+		$this->assertTrue($dry['dry_run']);
+		$this->assertSame(array(array('id' => (int) $part->id, 'ref' => $part->ref)), $dry['declined']);
+		$part->fetch($part->id);
+		$this->assertSame(ComponentRevision::STATUS_INREVIEW, (int) $part->status);
+
+		$res = $this->api->declineStaffLinkedRevisions($proof->id);
+		$this->assertFalse($res['dry_run']);
+		$this->assertSame($dry['declined'], $res['declined']);
+		$part->fetch($part->id);
+		$this->assertSame(ComponentRevision::STATUS_DECLINED, (int) $part->status);
+		$this->assertSame(array(), $this->api->declineStaffLinkedRevisions($proof->id)['declined']);
+
+		// Triage names the parent it was declined with, and when
+		$declined = array_column($this->api->getTriage()['declined'], null, 'revision_id');
+		$this->assertSame($proof->ref, $declined[$part->id]['declined_with']);
+		$this->assertNotEmpty($declined[$part->id]['declined_at']);
+		$this->assertSame('', $declined[$part->id]['declined_by']);
+		$this->assertNull($declined[$proof->id]['declined_with'], 'Declined itself, not with a parent');
+	}
+
 	public function testEcoActionsAndForcedReacceptance()
 	{
 		$customer = $this->newCustomer();

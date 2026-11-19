@@ -354,6 +354,7 @@ class ComponentRevision extends CommonObject
 		$object->ref = '';
 		$object->rev = '';
 		$object->change_reason = null;
+		$fromstatus = (int) $object->status;
 		// Each revision states its own reason and ECO; notes, material, process and machine carry over.
 		// The one exception is the fix for a declined revision: it stays under the ECO the customer's
 		// change request opened or reopened (while that is open), so the next round is decided on it.
@@ -401,7 +402,11 @@ class ComponentRevision extends CommonObject
 		while ($resql && ($obj = $this->db->fetch_object($resql))) {
 			$link = new ComponentLink($this->db);
 			$link->fk_parent = $object->id;
-			$link->fk_child = (int) $obj->fk_child;
+			$link->fk_child = $this->followUpOf((int) $obj->fk_child);
+			if ($link->fk_child === (int) $obj->fk_child) {
+				// A declined child with no new revision yet keeps its pin (review is blocked until it has one)
+				$link->context['keepdeclinedpin'] = 1;
+			}
 			$link->link_type = (int) $obj->link_type;
 			$link->qty = $obj->qty;
 			$link->note = $obj->note;
@@ -410,7 +415,35 @@ class ComponentRevision extends CommonObject
 			}
 		}
 
+		// The new revision of a declined one takes its place in the drafts that pin it (a parent's next
+		// round cloned first), so the order the new revisions are made in does not matter
+		if ($fromstatus === self::STATUS_DECLINED) {
+			$sql = "UPDATE ".$this->db->prefix()."designtrace_componentlink SET fk_child = ".((int) $object->id);
+			$sql .= " WHERE fk_child = ".((int) $fromid)." AND fk_parent IN (SELECT p.rowid FROM ".$this->db->prefix()."designtrace_componentrevision as p WHERE p.status = ".self::STATUS_DRAFT.")";
+			if (!$this->db->query($sql)) {
+				$object->warnings[] = $this->db->lasterror();
+			}
+		}
+
 		return $object;
+	}
+
+	/**
+	 * The revision a link should pin instead of this one: for a declined revision, the newest draft or
+	 * in-review revision of its component made after it; otherwise (or with none yet) the same one
+	 *
+	 * @param	int		$revid	Child revision id
+	 * @return	int				Revision id to pin
+	 */
+	private function followUpOf($revid)
+	{
+		$sql = "SELECT n.rowid FROM ".$this->db->prefix().$this->table_element." as r";
+		$sql .= " INNER JOIN ".$this->db->prefix().$this->table_element." as n ON n.fk_component = r.fk_component AND n.rowid > r.rowid";
+		$sql .= " WHERE r.rowid = ".((int) $revid)." AND r.status = ".self::STATUS_DECLINED." AND n.status IN (".self::STATUS_DRAFT.", ".self::STATUS_INREVIEW.")";
+		$sql .= " ORDER BY n.rowid DESC";
+		$resql = $this->db->query($sql.$this->db->plimit(1));
+		$obj = $resql ? $this->db->fetch_object($resql) : null;
+		return $obj ? (int) $obj->rowid : (int) $revid;
 	}
 
 	/**
@@ -728,6 +761,125 @@ class ComponentRevision extends CommonObject
 			return -1;
 		}
 		return ($db->affected_rows($resql) > 0 ? 1 : 0);
+	}
+
+	/**
+	 *	Decline a revision (markDeclined()) and with it the revisions it links to that are still In review,
+	 *	down the tree, within the same design: the customer turned down the package, so each needs a new
+	 *	revision. Left alone are components of other designs, children flagged "needs customer approval"
+	 *	(the customer decides on those themselves) and children another draft or in-review parent outside
+	 *	this decline still pins. Each one declined gets an event,
+	 *	and goes under the ECO of the request (when it has none and the ECO is open), so its new revision does.
+	 *	Nothing cascades when the revision itself was not declined (a Released proof stays Released).
+	 *	Run again on a revision already Declined (one declined before the cascade existed, or whose
+	 *	children were put back in review since) it declines what is still In review below it.
+	 *
+	 *	@param	DoliDB	$db			Database handler
+	 *	@param	User	$user		Author of the events
+	 *	@param	int		$revid		Revision the customer declined
+	 *	@param	int		$ecoid		ECO the request opened or reopened (0: the revision's own, if any)
+	 *	@param	bool	$dryRun		Only say what would be declined (the revision must already be Declined)
+	 *	@return	array<int,string>|int	Revisions declined with it (would be, for a dry run), id => ref; -1 if KO
+	 */
+	public static function declineWithChildren($db, $user, $revid, $ecoid = 0, $dryRun = false)
+	{
+		global $langs;
+
+		if (!$dryRun && self::markDeclined($db, $revid) < 0) {
+			return -1;
+		}
+		$sql = "SELECT r.ref, r.status, r.fk_eco, c.fk_design FROM ".$db->prefix()."designtrace_componentrevision as r";
+		$sql .= " INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component WHERE r.rowid = ".((int) $revid);
+		$resql = $db->query($sql);
+		$root = $resql ? $db->fetch_object($resql) : null;
+		if (!$root || (int) $root->status !== self::STATUS_DECLINED) {
+			return array();
+		}
+		$eco = null;
+		$ecoid = ((int) $ecoid > 0 ? (int) $ecoid : (int) $root->fk_eco);
+		if ($ecoid > 0 && !$dryRun) {
+			dol_include_once('/designtrace/class/changeorder.class.php');
+			$eco = new ChangeOrder($db);
+			if ($eco->fetch($ecoid) <= 0 || !$eco->isOpen()) {
+				$eco = null;
+			}
+		}
+		require_once DOL_DOCUMENT_ROOT.'/comm/action/class/actioncomm.class.php';
+		$langs->load('designtrace@designtrace');
+
+		$declined = array((int) $revid => true);
+		$children = array();
+		$queue = array((int) $revid);
+		while (!empty($queue)) {
+			$parentid = array_shift($queue);
+			// Only in the same design: a linked component from another design (another customer's, a
+			// library part) is not part of what this customer turned down
+			$sql = "SELECT r.rowid, r.ref, r.fk_component, r.fk_eco, r.needs_approval FROM ".$db->prefix()."designtrace_componentlink as l";
+			$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.rowid = l.fk_child";
+			$sql .= " INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
+			$sql .= " WHERE l.fk_parent = ".((int) $parentid)." AND r.status = ".self::STATUS_INREVIEW." AND c.fk_design = ".((int) $root->fk_design);
+			$resql = $db->query($sql);
+			if (!$resql) {
+				return -1;
+			}
+			$rows = array();
+			while ($obj = $db->fetch_object($resql)) {
+				$rows[] = $obj;
+			}
+			foreach ($rows as $child) {
+				$childid = (int) $child->rowid;
+				if (isset($declined[$childid]) || !empty($child->needs_approval)) {
+					continue;
+				}
+				// Still needed as it is by a parent this decline does not reach (another assembly)
+				$sql = "SELECT p.rowid FROM ".$db->prefix()."designtrace_componentlink as l INNER JOIN ".$db->prefix()."designtrace_componentrevision as p ON p.rowid = l.fk_parent";
+				$sql .= " WHERE l.fk_child = ".$childid." AND p.status IN (".self::STATUS_DRAFT.", ".self::STATUS_INREVIEW.")";
+				$sql .= " AND p.rowid NOT IN (".$db->sanitize(implode(',', array_keys($declined))).")";
+				$resql = $db->query($sql);
+				if (!$resql) {
+					return -1;
+				}
+				if ($db->num_rows($resql) > 0) {
+					continue;
+				}
+				$declined[$childid] = true;
+				$children[$childid] = (string) $child->ref;
+				$queue[] = $childid;
+				if ($dryRun) {
+					continue;
+				}
+				if (self::markDeclined($db, $childid) < 0) {
+					return -1;
+				}
+
+				if ($eco && empty($child->fk_eco)) {
+					if (!$db->query("UPDATE ".$db->prefix()."designtrace_componentrevision SET fk_eco = ".((int) $eco->id)." WHERE rowid = ".$childid)) {
+						return -1;
+					}
+					if ($eco->addAffectedComponent($user, (int) $child->fk_component, $langs->transnoentities('EcoAffectedDeclinedWith', $root->ref), 1) < 0) {
+						return -1;
+					}
+				}
+
+				$now = dol_now();
+				$event = new ActionComm($db);
+				$event->type_code = 'AC_OTH_AUTO';
+				$event->code = 'AC_DESIGNTRACE_REVISION_DECLINED';
+				$event->label = $langs->transnoentities('EventRevisionDeclinedWith', $child->ref, $root->ref);
+				$event->note_private = $langs->transnoentities('EventRevisionDeclinedWithNote', $root->ref);
+				$event->datep = $now;
+				$event->datef = $now;
+				$event->percentage = -1;
+				$event->userownerid = $user->id;
+				$event->authorid = $user->id;
+				$event->elementtype = 'componentrevision@designtrace';
+				$event->fk_element = $childid;
+				if ($event->create($user) <= 0) {
+					return -1;
+				}
+			}
+		}
+		return $children;
 	}
 
 	/**

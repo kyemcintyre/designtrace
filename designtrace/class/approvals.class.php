@@ -402,8 +402,9 @@ class DesignTraceApprovals
 	 * Staff records the customer's decision on one revision (answered by phone, email or in person).
 	 * Same effects as the customer's own decision: the history row (channel "staff", the actor is the
 	 * staff user), the stamp on the revision and an event; an approval unblocks release, changes
-	 * requested decline the revision and reopen or open the ECO. Only for a flagged, In review
-	 * revision not approved yet, of a design that has a customer.
+	 * requested decline the revision and reopen or open the ECO. For an In review revision not
+	 * approved yet, of a design that has a customer, flagged "needs customer approval" or not (parts are
+	 * not by default). An unflagged one is left unflagged: its next revisions are not held for approval.
 	 *
 	 * @param	DoliDB	$db			Database handler
 	 * @param	User	$user		Staff user recording the decision (needs the release right)
@@ -442,10 +443,10 @@ class DesignTraceApprovals
 			return -1;
 		}
 
-		$sql = "SELECT r.rowid, r.ref, r.rev, r.fk_eco, r.customer_approval, r.customer_note, c.rowid as comp_id, c.ref as comp_ref, c.label, c.fk_design, d.fk_soc, d.entity";
+		$sql = "SELECT r.rowid, r.ref, r.rev, r.fk_eco, r.needs_approval, r.customer_approval, r.customer_note, c.rowid as comp_id, c.ref as comp_ref, c.label, c.fk_design, d.fk_soc, d.entity";
 		$sql .= " FROM ".$db->prefix()."designtrace_componentrevision as r INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
 		$sql .= " INNER JOIN ".$db->prefix()."designtrace_design as d ON d.rowid = c.fk_design";
-		$sql .= " WHERE r.rowid = ".((int) $revid)." AND r.needs_approval = 1 AND r.status = ".((int) ComponentRevision::STATUS_INREVIEW);
+		$sql .= " WHERE r.rowid = ".((int) $revid)." AND r.status = ".((int) ComponentRevision::STATUS_INREVIEW);
 		$sql .= " AND r.customer_approval <> ".((int) DesignTraceProofApproval::DECISION_APPROVED);
 		$resql = $db->query($sql);
 		$obj = $resql ? $db->fetch_object($resql) : null;
@@ -469,6 +470,30 @@ class DesignTraceApprovals
 		$scopeid = ($scope === self::SCOPE_ECO ? (int) $obj->fk_eco : (int) $obj->fk_design);
 		$note = $langs->transnoentities('StaffDecisionNote', $received).($comment !== '' ? ' '.$comment : '');
 		$actor = 'staff:'.$user->login;
+
+		return self::decideOnBehalf($db, $user, $socid, $scope, $scopeid, $obj, $rev, $decision, $note, $actor, $wholeScope, $error);
+	}
+
+	/**
+	 * The decision part of recordOnBehalf(), once the revision is checked
+	 *
+	 * @param	DoliDB		$db			Database handler
+	 * @param	User		$user		Staff user
+	 * @param	int			$socid		Customer
+	 * @param	string		$scope		Scope
+	 * @param	int			$scopeid	Scope id
+	 * @param	stdClass	$obj		The revision's row (fk_design, entity)
+	 * @param	array<string,mixed>	$rev	The revision as fetchScopeRevisions() gives it
+	 * @param	int			$decision	Decision
+	 * @param	string		$note		Comment to record
+	 * @param	string		$actor		Actor
+	 * @param	bool		$wholeScope	Approval for the whole scope
+	 * @param	string		$error		Error if KO
+	 * @return	array{eco:int,round:int,revisions:int[]}|int[]|int	-1 if KO
+	 */
+	private static function decideOnBehalf($db, $user, $socid, $scope, $scopeid, $obj, $rev, $decision, $note, $actor, $wholeScope, &$error)
+	{
+		$hidden = Design::getHiddenDesignIds($db, $user);
 
 		if ($decision === DesignTraceProofApproval::DECISION_APPROVED) {
 			$revisions = array((int) $rev['id'] => $rev);
@@ -535,8 +560,9 @@ class DesignTraceApprovals
 			return -1;
 		}
 		// Changes requested close the revision: it is never released, the fix is a new revision
-		if ((int) $decision === DesignTraceProofApproval::DECISION_CHANGES && ComponentRevision::markDeclined($db, (int) $rev['id']) < 0) {
-			$error = $db->lasterror();
+		if ((int) $decision === DesignTraceProofApproval::DECISION_CHANGES
+			&& ComponentRevision::declineWithChildren($db, $user, (int) $rev['id'], $ecoid > 0 ? (int) $ecoid : (int) $rev['eco_id']) === -1) {
+			$error = $db->lasterror() ?: $langs->trans('Error');
 			return -1;
 		}
 		require_once DOL_DOCUMENT_ROOT.'/comm/action/class/actioncomm.class.php';

@@ -113,17 +113,24 @@ class DesignTraceStaff
 
 		// Declined by the customer and not followed up yet (no newer revision of the component)
 		$declined = array();
-		$sql = "SELECT r.rowid, r.ref, r.fk_eco, r.date_customer_approval, r.customer_approval_by, c.rowid as comp_id, c.ref as comp_ref, d.rowid as design_id, d.ref as design_ref, d.fk_soc, s.nom as socname";
+		// Declined with a parent (the cascade): no customer stamp of its own, so the date is the cascade's event
+		// and declined_with names the declined parent
+		$sql = "SELECT r.rowid, r.ref, r.fk_eco, r.customer_approval_by, c.rowid as comp_id, c.ref as comp_ref, d.rowid as design_id, d.ref as design_ref, d.fk_soc, s.nom as socname,";
+		$sql .= " COALESCE(r.date_customer_approval, (SELECT MAX(a.datep) FROM ".$db->prefix()."actioncomm as a WHERE a.code = 'AC_DESIGNTRACE_REVISION_DECLINED'";
+		$sql .= " AND a.elementtype = 'componentrevision@designtrace' AND a.fk_element = r.rowid)) as declined_date,";
+		$sql .= " (SELECT MIN(p.ref) FROM ".$db->prefix()."designtrace_componentlink as l INNER JOIN ".$db->prefix()."designtrace_componentrevision as p ON p.rowid = l.fk_parent";
+		$sql .= " WHERE l.fk_child = r.rowid AND p.status = ".((int) ComponentRevision::STATUS_DECLINED).") as declined_with";
 		$sql .= " FROM ".$db->prefix()."designtrace_componentrevision as r INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
 		$sql .= " INNER JOIN ".$db->prefix()."designtrace_design as d ON d.rowid = c.fk_design LEFT JOIN ".$db->prefix()."societe as s ON s.rowid = d.fk_soc";
 		$sql .= " WHERE r.status = ".((int) ComponentRevision::STATUS_DECLINED).$hiddensql;
 		$sql .= " AND NOT EXISTS (SELECT 1 FROM ".$db->prefix()."designtrace_componentrevision as n WHERE n.fk_component = r.fk_component AND n.rowid > r.rowid)";
-		$sql .= " ORDER BY r.date_customer_approval ASC, r.rowid ASC";
+		$sql .= " ORDER BY declined_date ASC, r.rowid ASC";
 		$resql = $db->query($sql);
 		while ($resql && ($obj = $db->fetch_object($resql))) {
 			$declined[] = array('revision_id' => (int) $obj->rowid, 'revision_ref' => $obj->ref, 'component_id' => (int) $obj->comp_id, 'component_ref' => $obj->comp_ref,
 				'design_id' => (int) $obj->design_id, 'design_ref' => $obj->design_ref, 'socid' => (int) $obj->fk_soc, 'customer' => (string) $obj->socname, 'eco_id' => (int) $obj->fk_eco,
-				'declined_by' => (string) $obj->customer_approval_by, 'declined_at' => $db->jdate($obj->date_customer_approval));
+				'declined_by' => (string) $obj->customer_approval_by, 'declined_at' => $db->jdate($obj->declined_date),
+				'declined_with' => ($obj->customer_approval_by === null || $obj->customer_approval_by === '' ? ($obj->declined_with !== null ? (string) $obj->declined_with : null) : null));
 		}
 
 		return array(
