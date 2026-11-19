@@ -73,7 +73,7 @@ function designtraceDoClientAccessActions($action, $object, $user)
 	if ($action == 'staffdecision') {
 		$decision = GETPOSTINT('decision');
 		$error = '';
-		$result = DesignTraceApprovals::recordOnBehalf($db, $user, (int) $object->id, $decision, GETPOST('received', 'alphanohtml'), GETPOST('comment', 'restricthtml'), $error);
+		$result = DesignTraceApprovals::recordOnBehalf($db, $user, (int) $object->id, $decision, GETPOST('received', 'alphanohtml'), GETPOST('comment', 'restricthtml'), $error, GETPOSTINT('wholescope') > 0);
 		if ($result === -1) {
 			setEventMessages($error, null, 'errors');
 		} else {
@@ -346,6 +346,8 @@ function designtracePrintStaffDecisionForm($object)
 	print '<option value="'.DesignTraceProofApproval::DECISION_APPROVED.'">'.$langs->trans('StaffDecisionApprove').'</option>';
 	print '<option value="'.DesignTraceProofApproval::DECISION_CHANGES.'">'.$langs->trans('StaffDecisionChanges').'</option>';
 	print '</select></td></tr>';
+	print '<tr class="oddeven"><td></td><td><label><input type="checkbox" name="wholescope" value="1"> '.$langs->trans($object->fk_eco > 0 ? 'StaffDecisionWholeScopeEco' : 'StaffDecisionWholeScopeDesign').'</label>';
+	print ' <span class="opacitymedium">('.$langs->trans('StaffDecisionWholeScopeOnApprove').')</span></td></tr>';
 	print '<tr class="oddeven"><td>'.$langs->trans('StaffDecisionReceived').'</td><td>';
 	print '<input type="text" name="received" class="flat minwidth300" maxlength="100" required placeholder="'.dol_escape_htmltag($langs->trans('StaffDecisionReceivedPlaceholder')).'">';
 	print '</td></tr>';

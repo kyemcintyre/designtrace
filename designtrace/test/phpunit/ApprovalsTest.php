@@ -269,6 +269,41 @@ class ApprovalsTest extends DesignTraceTestCase
 		$this->assertSame(-1, $A::recordOnBehalf($this->db, $this->user, $a->id, 2, 'phone', 'Wait', $err), 'Already approved');
 	}
 
+	public function testStaffApprovalCanCoverEverythingWaitingInTheScope()
+	{
+		$A = DesignTraceApprovals::class;
+		list($customer, $design, $revs) = $this->scenario();
+		$err = '';
+		// a and b belong to an ECO, c to the design alone
+		$eco = $this->newEco($customer->id);
+		foreach (array('a', 'b') as $name) {
+			$this->db->query("UPDATE ".MAIN_DB_PREFIX."designtrace_componentrevision SET fk_eco = ".((int) $eco->id)." WHERE rowid = ".((int) $revs[$name]->id));
+		}
+
+		$done = $A::recordOnBehalf($this->db, $this->user, $revs['a']->id, 1, 'phone, Ann', 'All fine', $err, true);
+		$this->assertIsArray($done, $err);
+		$this->assertEqualsCanonicalizing(array((int) $revs['a']->id, (int) $revs['b']->id), $done, 'The ECO scope, not the design alone');
+		foreach (array('a', 'b') as $name) {
+			$revs[$name]->fetch($revs[$name]->id);
+			$this->assertSame(1, (int) $revs[$name]->customer_approval);
+			$this->assertSame('staff:'.$this->user->login, $revs[$name]->customer_approval_by);
+		}
+		$revs['c']->fetch($revs['c']->id);
+		$this->assertSame(0, (int) $revs['c']->customer_approval, 'Another scope is left alone');
+		$this->assertSame(2, $this->countRows("SELECT COUNT(*) as nb FROM ".MAIN_DB_PREFIX."designtrace_approval WHERE element = 'eco' AND fk_element = ".((int) $eco->id)." AND channel = 'staff' AND decision = 1"));
+
+		// Without the option only the one revision is approved
+		$this->assertSame(array((int) $revs['c']->id), $A::recordOnBehalf($this->db, $this->user, $revs['c']->id, 1, 'phone', '', $err, false), $err);
+
+		// The option is for approvals: changes still name one revision
+		list($customer2, $design2, $revs2) = $this->scenario();
+		$r = $A::recordOnBehalf($this->db, $this->user, $revs2['a']->id, 2, 'phone', 'Thicker', $err, true);
+		$this->assertIsArray($r, $err);
+		$this->assertSame(array((int) $revs2['a']->id), $r['revisions']);
+		$revs2['b']->fetch($revs2['b']->id);
+		$this->assertSame(ComponentRevision::STATUS_INREVIEW, (int) $revs2['b']->status);
+	}
+
 	public function testStaffRecordsRequestedChangesOnBehalfOfTheCustomer()
 	{
 		$A = DesignTraceApprovals::class;

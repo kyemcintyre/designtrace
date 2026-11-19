@@ -105,14 +105,33 @@ class DesignTraceApprovals
 				$designs[] = (int) $designid;
 			}
 		}
+		if (empty($designs)) {
+			return array();
+		}
+		return self::queryScopeRevisions($db, $designs, $scope, $id);
+	}
+
+	/**
+	 * Flagged, In review, not approved revisions of a scope, in the given designs (null = any design: staff)
+	 *
+	 * @param	DoliDB		$db			Database handler
+	 * @param	?int[]		$designs	Design ids to look in, null for any
+	 * @param	string		$scope		self::SCOPE_*
+	 * @param	int			$id			ECO id or design id
+	 * @return	array<int,array<string,mixed>>	As fetchScopeRevisions()
+	 */
+	private static function queryScopeRevisions($db, $designs, $scope, $id)
+	{
 		$rows = array();
-		if (empty($designs) || !in_array($scope, array(self::SCOPE_ECO, self::SCOPE_DESIGN), true)) {
+		if (!in_array($scope, array(self::SCOPE_ECO, self::SCOPE_DESIGN), true)) {
 			return $rows;
 		}
 		$sql = "SELECT r.rowid, r.ref, r.rev, r.fk_eco, r.customer_approval, r.customer_note, c.rowid as comp_id, c.ref as comp_ref, c.label, c.fk_design";
 		$sql .= " FROM ".$db->prefix()."designtrace_componentrevision as r INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
 		$sql .= " WHERE r.needs_approval = 1 AND r.status = ".((int) ComponentRevision::STATUS_INREVIEW)." AND r.customer_approval <> ".((int) DesignTraceProofApproval::DECISION_APPROVED);
-		$sql .= " AND c.fk_design IN (".$db->sanitize(implode(',', $designs)).")";
+		if ($designs !== null) {
+			$sql .= " AND c.fk_design IN (".$db->sanitize(implode(',', array_map('intval', $designs))).")";
+		}
 		if ($scope === self::SCOPE_ECO) {
 			$sql .= " AND r.fk_eco = ".((int) $id);
 		} else {
@@ -392,9 +411,11 @@ class DesignTraceApprovals
 	 * @param	string	$received	How and from whom it was received (required), e.g. "phone, Ann"
 	 * @param	string	$comment	Note; what should change when requesting changes (required then)
 	 * @param	string	$error		Error message if KO
-	 * @return	array{eco:int,round:int,revisions:int[]}|int[]|int	Result of the decision, -1 if KO
+	 * @param	bool	$wholeScope	Approval only: cover every flagged revision waiting in the same ECO (or in the same design
+	 *								when it has no ECO), as the customer's own approval does, not just this one
+	 * @return	array{eco:int,round:int,revisions:int[]}|int[]|int	Result of the decision (ids of the revisions approved), -1 if KO
 	 */
-	public static function recordOnBehalf($db, $user, $revid, $decision, $received, $comment, &$error)
+	public static function recordOnBehalf($db, $user, $revid, $decision, $received, $comment, &$error, $wholeScope = false)
 	{
 		global $langs;
 
@@ -444,7 +465,18 @@ class DesignTraceApprovals
 		$actor = 'staff:'.$user->login;
 
 		if ($decision === DesignTraceProofApproval::DECISION_APPROVED) {
-			return self::applyApproval($db, $user, $socid, $scope, $scopeid, array((int) $rev['id'] => $rev), $note, 'staff', $actor, null, null, $error);
+			$revisions = array((int) $rev['id'] => $rev);
+			if ($wholeScope) {
+				// Every design of this customer (an ECO can span several), whether or not the portal reaches it
+				$designs = array();
+				$resql = $db->query("SELECT rowid FROM ".$db->prefix()."designtrace_design WHERE fk_soc = ".$socid);
+				while ($resql && ($d = $db->fetch_object($resql))) {
+					$designs[] = (int) $d->rowid;
+				}
+				$revisions = self::queryScopeRevisions($db, $designs, $scope, $scopeid);
+				$revisions[(int) $rev['id']] = $rev;
+			}
+			return self::applyApproval($db, $user, $socid, $scope, $scopeid, $revisions, $note, 'staff', $actor, null, null, $error);
 		}
 		return self::applyChanges($db, $user, $socid, $scope, $scopeid, array((int) $rev['id'] => $rev), $note, 'staff', $actor, null, null, $error);
 	}

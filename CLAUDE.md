@@ -377,8 +377,10 @@ no automated emails). Reference for the Go side: `designtrace/API.md`.
   **Staff on behalf**: `DesignTraceApprovals::recordOnBehalf()` records an answer received outside the portal for
   one flagged, In review revision (channel `staff`, actor `staff:<login>`, a "received by/from" note is required,
   needs the `componentrevision release` right): same effects as the customer's own decision (approval unblocks
-  release; changes decline the revision and reopen or open the ECO). Form on the revision card
-  (`designtracePrintStaffDecisionForm()`, action `staffdecision`). No staff REST endpoint yet.
+  release; changes decline the revision and reopen or open the ECO). Approval can cover just that revision or,
+  with `$wholeScope`, every flagged revision waiting in the same ECO / design (of the same customer), like the
+  customer's own. Form on the revision card (`designtracePrintStaffDecisionForm()`, action `staffdecision`) and
+  staff endpoint `POST staff/revisions/{revid}/customer-decision` (`recordStaffCustomerDecision()`).
 - **Who may accept/approve**: thirdparty extrafield `designtrace_approvers` (created in `modDesignTrace::init()`,
   0 any user / 1 admins only); `DesignTraceApprovals::checkRole()`; the API takes `actor_role` and answers
   403 `role_not_allowed: ...` (the `approve`/`requestChanges` methods return -2 for it).

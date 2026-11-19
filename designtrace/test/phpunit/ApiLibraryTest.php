@@ -179,7 +179,7 @@ class ApiLibraryTest extends DesignTraceTestCase
 		$this->db->query("INSERT INTO ".MAIN_DB_PREFIX."societe_extrafields (fk_object, designtrace_approvers) VALUES (".((int) $customer->id).", 1) ON DUPLICATE KEY UPDATE designtrace_approvers = 1");
 		$entries = $this->api->listApprovals($customer->id);
 		$scopes = array_column($entries, null, 'scope');
-		$this->assertArrayHasKey('eco', $scopes);
+		$this->assertArrayNotHasKey('eco', $scopes, 'The declined revision no longer waits on the customer');
 		foreach (array(
 			function () use ($customer, $design) {
 				$this->api->approveScope($customer->id, 'design', $design->id, '', 'portal:bob', 'user');
