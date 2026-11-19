@@ -297,7 +297,7 @@ class DesignTrace extends DolibarrApi
 	 * "Visible now", or "Visible on completion" on a delivered order). Errors are JSON, sent before
 	 * any file data. The response is the file itself (not JSON) with Content-Type, Content-Length,
 	 * Content-Disposition (attachment, or inline with inline=1 for 3D files, e.g. for a viewer),
-	 * X-Content-SHA256, X-DesignTrace-File-Id and X-DesignTrace-Revision. Every download is logged
+	 * X-Content-SHA256, X-DesignTrace-File-Id, X-DesignTrace-Revision (its ref) and X-DesignTrace-Revision-Id. Every download is logged
 	 * with the channel "API (direct)". client_ip and user_agent are the customer's as seen by the
 	 * backend: they are only written to the log (trusted because the caller holds the service API
 	 * key) and never affect access; when missing or invalid, the caller's own are logged.
@@ -360,6 +360,7 @@ class DesignTrace extends DolibarrApi
 			'X-Content-SHA256' => (string) $row->sha256,
 			'X-DesignTrace-File-Id' => (string) ((int) $row->file_id),
 			'X-DesignTrace-Revision' => (string) $row->rev_ref,
+			'X-DesignTrace-Revision-Id' => (string) ((int) $row->rev_id),
 		));
 	}
 
@@ -1854,6 +1855,7 @@ class DesignTrace extends DolibarrApi
 			'X-Content-SHA256' => (string) $row->sha256,
 			'X-DesignTrace-File-Id' => (string) ((int) $row->file_id),
 			'X-DesignTrace-Revision' => (string) $row->rev_ref,
+			'X-DesignTrace-Revision-Id' => (string) ((int) $row->rev_id),
 		));
 	}
 
