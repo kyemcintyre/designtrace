@@ -418,6 +418,100 @@ class ApprovalsTest extends DesignTraceTestCase
 		$this->assertSame(-1, $A::recordOnBehalf($this->db, $approver, $revs['secret']->id, 1, 'phone', '', $err), 'Nor directly');
 	}
 
+	/**
+	 * A proof in review depicting: p (in review), flagged (in review, waiting on its own decision),
+	 * released, shared (in review, also used by another assembly in review), and an assembly in review
+	 * that uses part deep (in review)
+	 */
+	private function proofTree()
+	{
+		$customer = $this->newCustomer();
+		$design = $this->newDesign(array('fk_soc' => $customer->id), true);
+		$r = array();
+		foreach (array('p', 'flagged', 'shared', 'deep') as $name) {
+			$r[$name] = $this->newRevision($this->newComponent($design, Component::TYPE_PART, 'ZZ '.$name));
+		}
+		$this->db->query("UPDATE ".MAIN_DB_PREFIX."designtrace_componentrevision SET needs_approval = 1 WHERE rowid = ".((int) $r['flagged']->id));
+		foreach (array('p', 'flagged', 'shared', 'deep') as $name) {
+			$r[$name] = $this->inReview($r[$name]);
+		}
+		$r['released'] = $this->newRevision($this->newComponent($design, Component::TYPE_PART, 'ZZ released'), true);
+		$r['asm'] = $this->newRevision($this->newComponent($design, Component::TYPE_ASSEMBLY, 'ZZ asm'));
+		$this->assertGreaterThan(0, (int) $this->newLink($r['asm'], $r['deep'], ComponentLink::TYPE_USES, 1)->id);
+		$r['asm'] = $this->inReview($r['asm']);
+		$r['other'] = $this->newRevision($this->newComponent($design, Component::TYPE_ASSEMBLY, 'ZZ other'));
+		$this->assertGreaterThan(0, (int) $this->newLink($r['other'], $r['shared'], ComponentLink::TYPE_USES, 1)->id);
+		$r['other'] = $this->inReview($r['other']);
+		$r['proof'] = $this->newRevision($this->newComponent($design, Component::TYPE_DRAWING, 'ZZ proof', Component::DRAWING_PROOF));
+		foreach (array('p', 'flagged', 'released', 'shared', 'asm') as $name) {
+			$this->assertGreaterThan(0, (int) $this->newLink($r['proof'], $r[$name], ComponentLink::TYPE_DEPICTS)->id, $name);
+		}
+		$r['proof'] = $this->inReview($r['proof']);
+		return array($customer, $r);
+	}
+
+	public function testDecliningARevisionDeclinesWhatItLinksToThatIsStillInReview()
+	{
+		$A = DesignTraceApprovals::class;
+		list($customer, $r) = $this->proofTree();
+		$err = '';
+		$res = $A::recordOnBehalf($this->db, $this->user, $r['proof']->id, 2, 'phone, Ann', 'Wrong colour', $err);
+		$this->assertIsArray($res, $err);
+		foreach ($r as $name => $rev) {
+			$rev->fetch($rev->id);
+		}
+		$this->assertSame(ComponentRevision::STATUS_DECLINED, (int) $r['proof']->status);
+		$this->assertSame(ComponentRevision::STATUS_DECLINED, (int) $r['p']->status, 'In review child declined');
+		$this->assertSame(ComponentRevision::STATUS_DECLINED, (int) $r['asm']->status, 'Sub-assembly declined');
+		$this->assertSame(ComponentRevision::STATUS_DECLINED, (int) $r['deep']->status, 'Down the tree');
+		$this->assertSame(ComponentRevision::STATUS_INREVIEW, (int) $r['flagged']->status, 'Waits on its own decision');
+		$this->assertSame(ComponentRevision::STATUS_RELEASED, (int) $r['released']->status);
+		$this->assertSame(ComponentRevision::STATUS_INREVIEW, (int) $r['shared']->status, 'Still pinned by another assembly in review');
+
+		// Each declined child is under the request's ECO, with an event saying why
+		$eco = new ChangeOrder($this->db);
+		$eco->fetch($res['eco']);
+		$affected = array_map('intval', array_column($eco->fetchAffectedComponents(), 'fk_component'));
+		foreach (array('p', 'asm', 'deep') as $name) {
+			$this->assertSame((int) $eco->id, (int) $r[$name]->fk_eco, $name);
+			$this->assertContains((int) $r[$name]->fk_component, $affected, $name);
+			$this->assertSame(1, $this->countRows("SELECT COUNT(*) as nb FROM ".MAIN_DB_PREFIX."actioncomm WHERE code = 'AC_DESIGNTRACE_REVISION_DECLINED' AND fk_element = ".((int) $r[$name]->id)), $name);
+		}
+	}
+
+	public function testNewRevisionsAfterADeclineArePinnedWhicheverIsMadeFirst()
+	{
+		$A = DesignTraceApprovals::class;
+		list($customer, $r) = $this->proofTree();
+		$err = '';
+		$this->assertIsArray($A::recordOnBehalf($this->db, $this->user, $r['proof']->id, 2, 'phone', 'Wrong colour', $err), $err);
+		foreach ($r as $rev) {
+			$rev->fetch($rev->id);
+		}
+		$pinOf = function ($parent, $child) {
+			$res = $this->db->query("SELECT l.fk_child FROM ".MAIN_DB_PREFIX."designtrace_componentlink as l INNER JOIN ".MAIN_DB_PREFIX."designtrace_componentrevision as c ON c.rowid = l.fk_child WHERE l.fk_parent = ".((int) $parent->id)." AND c.fk_component = ".((int) $child->fk_component));
+			$obj = $this->db->fetch_object($res);
+			return $obj ? (int) $obj->fk_child : 0;
+		};
+
+		// The part's new revision first: the proof's new revision pins it straight away
+		$p2 = $r['p']->createFromClone($this->user, $r['p']->id);
+		$this->assertIsObject($p2, (string) $r['p']->error);
+		$proof2 = $r['proof']->createFromClone($this->user, $r['proof']->id);
+		$this->assertIsObject($proof2, (string) $r['proof']->error);
+		$this->assertSame((int) $p2->id, $pinOf($proof2, $r['p']));
+
+		// The proof's new revision first: it keeps the declined pin (nothing is lost) and moves to the
+		// sub-assembly's new revision once that is made
+		$this->assertSame((int) $r['asm']->id, $pinOf($proof2, $r['asm']), 'Declined pin kept');
+		$this->assertSame(5, $this->countRows("SELECT COUNT(*) as nb FROM ".MAIN_DB_PREFIX."designtrace_componentlink WHERE fk_parent = ".((int) $proof2->id)), 'Every link copied');
+		$this->assertLessThan(0, $proof2->validate($this->user), 'Not to review while it pins a declined revision');
+		$asm2 = $r['asm']->createFromClone($this->user, $r['asm']->id);
+		$this->assertIsObject($asm2, (string) $r['asm']->error);
+		$this->assertSame((int) $asm2->id, $pinOf($proof2, $r['asm']), 'Moved to the new revision');
+		$this->assertSame((int) $r['deep']->id, $pinOf($asm2, $r['deep']), 'Its own declined child stays pinned');
+	}
+
 	public function testApproverRoleSetting()
 	{
 		$A = DesignTraceApprovals::class;

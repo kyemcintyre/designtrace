@@ -305,7 +305,13 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
   `llx_designtrace_approval`, events `AC_DESIGNTRACE_PROOF_*`. Changes requested on an **In review**
   revision make it **Declined** (status 8, `ComponentRevision::markDeclined()`): final (unlock refuses it), read-only,
   never released, not linkable, blocks a parent's review and release; listed in staff triage `declined` until a newer
-  revision of the component exists; the fix is "New revision from this one", which keeps the declined revision's ECO
+  revision of the component exists. **The decline cascades** (`ComponentRevision::declineWithChildren()`, both decision
+  paths): the revisions it links to that are still In review are declined too, down the tree, put under the request's
+  ECO when they have none (and it is open), with an `AC_DESIGNTRACE_REVISION_DECLINED` event; left alone are children
+  flagged `needs_approval` (the customer decides on them) and children another draft/in-review parent outside the
+  decline still pins. Cloning keeps links to a declined child (context `keepdeclinedpin`), pinning its newest draft/
+  in-review revision instead when one exists, and cloning a declined revision moves draft parents' pins to the new one,
+  so new revisions can be made in any order; the fix is "New revision from this one", which keeps the declined revision's ECO
   while that ECO is open (so the next ECO round is decided on it). A Released proof stays Released. A change request opens a ticket
   linked to the revision (default), a draft ECO or nothing (`DESIGNTRACE_PROOF_CHANGES_ACTION`).
 - **Reorder** (`class/reorder.class.php`): delivered orders with delivered released revisions

@@ -253,7 +253,7 @@ class ComponentLink extends CommonObject
 		if ((int) $child->status === ComponentRevision::STATUS_OBSOLETE) {
 			return $this->setErrorAndFail($langs->trans('ErrorLinkChildObsolete', $child->ref));
 		}
-		if ((int) $child->status === ComponentRevision::STATUS_DECLINED) {
+		if ((int) $child->status === ComponentRevision::STATUS_DECLINED && empty($this->context['keepdeclinedpin'])) {
 			return $this->setErrorAndFail($langs->trans('ErrorLinkChildDeclined', $child->ref));
 		}
 

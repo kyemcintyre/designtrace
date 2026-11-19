@@ -573,8 +573,9 @@ class DesignTraceApprovals
 			return -1;
 		}
 		// Changes requested close the revision: it is never released, the fix is a new revision
-		if ((int) $decision === DesignTraceProofApproval::DECISION_CHANGES && ComponentRevision::markDeclined($db, (int) $rev['id']) < 0) {
-			$error = $db->lasterror();
+		if ((int) $decision === DesignTraceProofApproval::DECISION_CHANGES
+			&& ComponentRevision::declineWithChildren($db, $user, (int) $rev['id'], $ecoid > 0 ? (int) $ecoid : (int) $rev['eco_id']) === -1) {
+			$error = $db->lasterror() ?: $langs->trans('Error');
 			return -1;
 		}
 		require_once DOL_DOCUMENT_ROOT.'/comm/action/class/actioncomm.class.php';
