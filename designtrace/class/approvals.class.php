@@ -375,6 +375,11 @@ class DesignTraceApprovals
 			$error = $db->lasterror();
 			return -1;
 		}
+		// Changes requested close the revision: it is never released, the fix is a new revision
+		if ((int) $decision === DesignTraceProofApproval::DECISION_CHANGES && ComponentRevision::markDeclined($db, (int) $rev['id']) < 0) {
+			$error = $db->lasterror();
+			return -1;
+		}
 		require_once DOL_DOCUMENT_ROOT.'/comm/action/class/actioncomm.class.php';
 		$langs->load('designtrace@designtrace');
 		$event = new ActionComm($db);

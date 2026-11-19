@@ -226,7 +226,7 @@ if (empty($reshook)) {
 		$action = '';
 	}
 
-	// Unlock (Released or Obsolete -> Draft), needs its own permission and a reason
+	// Unlock (Released, Obsolete or Declined -> Draft), needs its own permission and a reason
 	if ($action == 'confirm_unlock' && $confirm == 'yes' && $permissiontounlock) {
 		$result = $object->unlock($user, GETPOST('reason', 'restricthtml'));
 		if ($result > 0) {
@@ -584,7 +584,7 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 
 			// Release (Draft or In review -> Released), asks for confirmation
 			if ($object->status == $object::STATUS_DRAFT || $object->status == $object::STATUS_INREVIEW) {
-				$blocking = $object->getBlockingChildren(array($object::STATUS_DRAFT, $object::STATUS_INREVIEW));
+				$blocking = $object->getBlockingChildren(array($object::STATUS_DRAFT, $object::STATUS_INREVIEW, $object::STATUS_DECLINED));
 				$reason = ($permissiontorelease ? ($blocking ? $langs->trans('ErrorRevisionChildrenNotReleased', $object->ref, implode(', ', $blocking)) : '') : $langs->trans('NotEnoughPermissions'));
 				// Setting: a change to a released design needs an approved ECO (not the first revision)
 				if ($reason === '' && getDolGlobalInt('DESIGNTRACE_RELEASE_REQUIRES_ECO') && $object->getPreviousRevision()) {
@@ -609,7 +609,7 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 				print dolGetButtonAction('', $langs->trans('RevisionUndoObsolete'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=confirm_reopen&confirm=yes&token='.newToken(), '', $permissiontoadd);
 			}
 
-			// Unlock (Released or Obsolete -> Draft)
+			// Unlock (Released, Obsolete or Declined -> Draft)
 			if ($object->isLocked() && $permissiontounlock) {
 				print dolGetButtonAction('', $langs->trans('RevisionUnlock'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=unlock&token='.newToken(), '', $permissiontounlock);
 			}

@@ -62,7 +62,7 @@ class ApprovalsTest extends DesignTraceTestCase
 			$this->assertGreaterThan(0, $this->linkDoc($rev, 'propal', $quote->id), $rev->error);
 			$revs[$name] = $rev;
 		}
-		return array($customer, $design, $revs);
+		return array($customer, $design, $revs, $quote);
 	}
 
 	public function testFlagDefaultsOnForProofsAndBlocksRelease()
@@ -150,7 +150,7 @@ class ApprovalsTest extends DesignTraceTestCase
 	public function testRequestChangesOpensOrReopensTheEcoAsANewRound()
 	{
 		$A = DesignTraceApprovals::class;
-		list($customer, $design, $revs) = $this->scenario();
+		list($customer, $design, $revs, $quote) = $this->scenario();
 		$err = '';
 		$this->assertSame(-1, $A::requestChanges($this->db, $this->user, $customer->id, 'design', $design->id, array(), '  ', 'user', 'api', 'x', $err), 'Comment required');
 		$this->assertSame(-1, $A::requestChanges($this->db, $this->user, $customer->id, 'design', $design->id, array(999999), 'x', 'user', 'api', 'x', $err), 'Revision not in scope');
@@ -172,28 +172,68 @@ class ApprovalsTest extends DesignTraceTestCase
 		$revs['b']->fetch($revs['b']->id);
 		$this->assertSame(0, (int) $revs['b']->customer_approval, 'Not named: untouched');
 
+		$revs['a']->fetch($revs['a']->id);
+		$this->assertSame(ComponentRevision::STATUS_DECLINED, (int) $revs['a']->status, 'Changes requested close the revision');
+		$revs['b']->fetch($revs['b']->id);
+		$this->assertSame(ComponentRevision::STATUS_INREVIEW, (int) $revs['b']->status, 'Not named: still in review');
+		$this->assertSame(-1, $A::approve($this->db, $this->user, $customer->id, 'eco', $eco->id, 'user', '', 'api', 'x', $err), 'A declined revision is no longer waiting');
+		$this->assertSame(0, $revs['a']->release($this->user), 'Never released');
+
+		// The fix is a new revision of the declined one: it stays under the ECO, so the next round is decided on it
+		$a2 = $revs['a']->createFromClone($this->user, $revs['a']->id);
+		$this->assertIsObject($a2, (string) $revs['a']->error);
+		$this->assertSame((int) $eco->id, (int) $a2->fk_eco, 'The follow-up stays under the ECO');
+		$a2 = $this->inReview($a2);
+		$this->assertSame(1, (int) $a2->needs_approval, 'The flag carries over');
+		$this->assertGreaterThan(0, $this->linkDoc($a2, 'propal', $quote->id), $a2->error);
+		$pending = $A::fetchPending($this->db, $customer->id);
+		$this->assertSame(1, array_column($pending, null, 'scope')['eco']['round'], 'Round 1 until the customer asks again');
+		$this->assertCount(1, array_column($pending, null, 'scope')['eco']['revisions'], 'Only the follow-up waits');
+
 		// The same ECO again: a new round, one more timeline entry
 		$r2 = $A::requestChanges($this->db, $this->user, $customer->id, 'eco', $eco->id, array(), 'Also the slot', 'user', 'api', 'portal:bob', $err);
 		$this->assertIsArray($r2, $err);
 		$this->assertSame($eco->id, $r2['eco']);
 		$this->assertSame(2, $r2['round']);
+		$a2->fetch($a2->id);
+		$this->assertSame(ComponentRevision::STATUS_DECLINED, (int) $a2->status);
 		$eco->fetch($eco->id);
 		$timeline = $eco->fetchTimeline();
 		$this->assertSame(array('opened', 'changes_requested', 'changes_requested'), array_column($timeline, 'type'));
 		$this->assertSame(array(1, 1, 2), array_map('intval', array_column($timeline, 'round')));
 		$this->assertSame('portal:bob', $timeline[2]->actor);
 		$this->assertSame('Also the slot', $timeline[2]->comment);
-		$pending = $A::fetchPending($this->db, $customer->id);
-		$this->assertSame(2, array_column($pending, null, 'scope')['eco']['round']);
 
 		// An approved ECO goes back to Draft for the new round
 		$eco->approve($this->user);
 		$eco->fetch($eco->id);
 		$this->assertSame(ChangeOrder::STATUS_APPROVED, (int) $eco->status);
+		$a3 = $a2->createFromClone($this->user, $a2->id);
+		$this->assertIsObject($a3, (string) $a2->error);
+		$a3 = $this->inReview($a3);
+		$this->assertGreaterThan(0, $this->linkDoc($a3, 'propal', $quote->id), $a3->error);
 		$this->assertIsArray($A::requestChanges($this->db, $this->user, $customer->id, 'eco', $eco->id, array(), 'And a third', 'user', 'api', 'portal:bob', $err), $err);
 		$eco->fetch($eco->id);
 		$this->assertSame(ChangeOrder::STATUS_DRAFT, (int) $eco->status);
 		$this->assertSame(3, $eco->getRound());
+	}
+
+	public function testTheFollowUpOfADeclinedRevisionKeepsAnOpenEcoOnly()
+	{
+		$A = DesignTraceApprovals::class;
+		list($customer, $design, $revs) = $this->scenario();
+		$err = '';
+		$r = $A::requestChanges($this->db, $this->user, $customer->id, 'design', $design->id, array($revs['a']->id), 'Hole too small', 'user', 'api', 'portal:ann', $err);
+		$this->assertIsArray($r, $err);
+		$revs['a']->fetch($revs['a']->id);
+		$this->assertSame(ComponentRevision::STATUS_DECLINED, (int) $revs['a']->status);
+		$this->assertTrue($revs['a']->isLocked(), 'A declined revision is read-only');
+
+		// The ECO the request opened is cancelled: the follow-up starts without an ECO instead of failing
+		$this->db->query("UPDATE ".MAIN_DB_PREFIX."designtrace_changeorder SET status = ".ChangeOrder::STATUS_CANCELED." WHERE rowid = ".((int) $r['eco']));
+		$a2 = $revs['a']->createFromClone($this->user, $revs['a']->id);
+		$this->assertIsObject($a2, (string) $revs['a']->error);
+		$this->assertEmpty($a2->fk_eco, 'A cancelled ECO is not carried over');
 	}
 
 	public function testApproverRoleSetting()

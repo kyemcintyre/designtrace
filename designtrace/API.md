@@ -116,7 +116,7 @@ ECO, or in the same design when there is no ECO.
 |---|---|
 | `GET customers/{socid}/approvals` | Entries waiting for the customer: `scope` (`eco` or `design`), `id`, `ref`, `label`, `round` (ECOs), `awaiting`, `changes_requested`, `revisions` (with `release_note`). |
 | `POST customers/{socid}/approvals/{eco\|design}/{id}/approve` | Body `comment`, `actor`, `actor_role`, `client_ip`, `user_agent`. Approves all revisions of the entry. `409` if nothing waits. |
-| `POST customers/{socid}/approvals/{eco\|design}/{id}/request-changes` | Body `comment` (required), `revision_ids` (the revisions the changes are for; empty = all), `actor`, `actor_role`, `client_ip`, `user_agent`. Reopens the same ECO as a new round (a timeline entry per round), or opens a draft ECO (reason customer) when there is none. Returns `eco_id`, `round`, `revision_ids`. |
+| `POST customers/{socid}/approvals/{eco\|design}/{id}/request-changes` | Body `comment` (required), `revision_ids` (the revisions the changes are for; empty = all), `actor`, `actor_role`, `client_ip`, `user_agent`. Reopens the same ECO as a new round (a timeline entry per round), or opens a draft ECO (reason customer) when there is none. The named revisions become **Declined** (final; staff make a new revision, which stays under the ECO). Returns `eco_id`, `round`, `revision_ids`. |
 
 **Who may accept and approve**: for a customer with several users, a setting on the third party (DesignTrace:
 "who accepts licences and approves") says any user or the customer's admins only. Pass the acting user's
@@ -158,7 +158,7 @@ be approved until the quote is accepted.
 | Method and path | What |
 |---|---|
 | `GET customers/{socid}/documents/{element}/{docid}/proofs` | Proof drawings: `decision` (`none`, `approved`, `changes`), `can_decide`. |
-| `POST customers/{socid}/documents/{element}/{docid}/proofs/{revid}/decision` | Body `decision` (`approve` or `changes`), `comment` (required for changes), `actor`, `client_ip`, `user_agent`. Returns `ticket_id` / `eco_id` opened for a change request. Approval is final for that revision (`409` after). |
+| `POST customers/{socid}/documents/{element}/{docid}/proofs/{revid}/decision` | Body `decision` (`approve` or `changes`), `comment` (required for changes), `actor`, `client_ip`, `user_agent`. Returns `ticket_id` / `eco_id` opened for a change request. Approval is final for that revision (`409` after), and so is a change request on an In review proof (the revision becomes Declined; a Released proof stays Released). |
 
 ### Gallery consent
 

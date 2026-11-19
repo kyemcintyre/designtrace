@@ -53,7 +53,7 @@ each step before the next, and wants **whole files** shown when a file changes, 
   `DRW-` (drawing subtype concept / proof / TDS). Numbers are **globally unique** (one
   sequence per type, across all designs). Each component belongs to exactly one design, but can
   be used or referenced from other designs (shown there read-only as External dependencies).
-- **Component revision**: rev, status (Draft, In review, Released, Obsolete), release date,
+- **Component revision**: rev, status (Draft, In review, Released, Declined, Obsolete), release date,
   notes, ECO, customer approval, material/process/machine. Released revisions are read-only;
   revisions are managed **manually** (no git, no automation).
 - **Revision file**: role **source** (FCStd), **presentation** (STEP, 3MF, PDF) or
@@ -302,7 +302,10 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
   files page or `GET .../documents/{element}/{docid}/proofs`, `POST .../proofs/{revid}/decision`.
   Revision `customer_approval` 0 awaiting / 1 approved (final for that revision) / 2 changes,
   with date and actor, set by SQL (released revisions stay read-only to staff); history in
-  `llx_designtrace_approval`, events `AC_DESIGNTRACE_PROOF_*`. A change request opens a ticket
+  `llx_designtrace_approval`, events `AC_DESIGNTRACE_PROOF_*`. Changes requested on an **In review**
+  revision make it **Declined** (status 8, `ComponentRevision::markDeclined()`): final, read-only, never
+  released, not linkable; the fix is "New revision from this one", which keeps the declined revision's ECO
+  while that ECO is open (so the next ECO round is decided on it). A Released proof stays Released. A change request opens a ticket
   linked to the revision (default), a draft ECO or nothing (`DESIGNTRACE_PROOF_CHANGES_ACTION`).
 - **Reorder** (`class/reorder.class.php`): delivered orders with delivered released revisions
   (client-visible links, i.e. after "Update delivered revision" the new one). Button on the order,

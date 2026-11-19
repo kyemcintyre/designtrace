@@ -79,6 +79,8 @@ class ComponentRevision extends CommonObject
 	const STATUS_DRAFT = 0;
 	const STATUS_INREVIEW = 1;
 	const STATUS_RELEASED = 2;
+	/** The customer asked for changes while the revision was In review: final, never released, the fix is a new revision */
+	const STATUS_DECLINED = 8;
 	const STATUS_OBSOLETE = 9;
 	// Names used by generated code
 	const STATUS_VALIDATED = 1;
@@ -166,7 +168,7 @@ class ComponentRevision extends CommonObject
 		"last_main_doc" => array("type" => "varchar(255)", "label" => "LastMainDoc", "enabled" => "1", 'position' => 600, 'notnull' => 0, "visible" => "0",),
 		"import_key" => array("type" => "varchar(14)", "label" => "ImportId", "enabled" => "1", 'position' => 1000, 'notnull' => -1, "visible" => "-2",),
 		"model_pdf" => array("type" => "varchar(255)", "label" => "Model pdf", "enabled" => "1", 'position' => 1010, 'notnull' => -1, "visible" => "0",),
-		"status" => array("type" => "integer", "label" => "Status", "enabled" => "1", 'position' => 2000, 'notnull' => 1, "visible" => "2", "default" => "0", "index" => "1", "arrayofkeyval" => array("0" => "Draft", "1" => "RevisionStatusInReview", "2" => "RevisionStatusReleased", "9" => "RevisionStatusObsolete"), "validate" => "1",),
+		"status" => array("type" => "integer", "label" => "Status", "enabled" => "1", 'position' => 2000, 'notnull' => 1, "visible" => "2", "default" => "0", "index" => "1", "arrayofkeyval" => array("0" => "Draft", "1" => "RevisionStatusInReview", "2" => "RevisionStatusReleased", "8" => "RevisionStatusDeclined", "9" => "RevisionStatusObsolete"), "validate" => "1",),
 	);
 	public $rowid;
 	public $ref;
@@ -352,7 +354,17 @@ class ComponentRevision extends CommonObject
 		$object->ref = '';
 		$object->rev = '';
 		$object->change_reason = null;
-		$object->fk_eco = null;			// Each revision states its own reason and ECO; notes, material, process and machine carry over
+		// Each revision states its own reason and ECO; notes, material, process and machine carry over.
+		// The one exception is the fix for a declined revision: it stays under the ECO the customer's
+		// change request opened or reopened (while that is open), so the next round is decided on it.
+		if ((int) $object->status === self::STATUS_DECLINED && !empty($object->fk_eco)) {
+			$srceco = $object->fetchEco();
+			if (!$srceco || !$srceco->isOpen()) {
+				$object->fk_eco = null;
+			}
+		} else {
+			$object->fk_eco = null;
+		}
 		$object->customer_note = null;		// Each revision has its own release note
 		$object->customer_approval = 0;		// The customer approves each proof revision
 		$object->date_customer_approval = null;
@@ -699,6 +711,26 @@ class ComponentRevision extends CommonObject
 	}
 
 	/**
+	 *	Mark an In review revision Declined: the customer asked for changes, so it is final and never
+	 *	released; the fix is a new revision ("New revision from this one"). Done by SQL, like the
+	 *	customer's other stamps, and only from In review. The caller records the decision itself.
+	 *
+	 *	@param	DoliDB	$db			Database handler
+	 *	@param	int		$revid		Revision id
+	 *	@return	int					1 if declined, 0 if it was not In review, <0 if KO
+	 */
+	public static function markDeclined($db, $revid)
+	{
+		$sql = "UPDATE ".$db->prefix()."designtrace_componentrevision SET status = ".self::STATUS_DECLINED;
+		$sql .= " WHERE rowid = ".((int) $revid)." AND status = ".self::STATUS_INREVIEW;
+		$resql = $db->query($sql);
+		if (!$resql) {
+			return -1;
+		}
+		return ($db->affected_rows($resql) > 0 ? 1 : 0);
+	}
+
+	/**
 	 * Forget the customer's decision: the revision changed hands again, so what they approved or
 	 * asked to change no longer describes it (the history of decisions stays in llx_designtrace_approval)
 	 *
@@ -786,7 +818,7 @@ class ComponentRevision extends CommonObject
 			return 0;
 		}
 		// Nothing is released while it depends on something not released
-		$blocking = $this->getBlockingChildren(array(self::STATUS_DRAFT, self::STATUS_INREVIEW));
+		$blocking = $this->getBlockingChildren(array(self::STATUS_DRAFT, self::STATUS_INREVIEW, self::STATUS_DECLINED));
 		if ($blocking) {
 			$langs->load('designtrace@designtrace');
 			return $this->setErrorAndFail($langs->trans('ErrorRevisionChildrenNotReleased', $this->ref, implode(', ', $blocking)));
@@ -905,7 +937,7 @@ class ComponentRevision extends CommonObject
 	}
 
 	/**
-	 *	Unlock a locked revision (Released or Obsolete -> Draft). Needs the unlock right, is for staff
+	 *	Unlock a locked revision (Released, Obsolete or Declined -> Draft). Needs the unlock right, is for staff
 	 *	only, requires a reason and is logged as an agenda event. The customer's decision is forgotten
 	 *	as the revision is open for changes again.
 	 *
@@ -938,7 +970,7 @@ class ComponentRevision extends CommonObject
 			dol_include_once('/designtrace/lib/designtrace.lib.php');
 			$result = designtraceLogUnlock($this->db, $user, $this, 'AC_DESIGNTRACE_REVISION_UNLOCK',
 				$langs->transnoentities('EventRevisionUnlocked', $this->ref),
-				$langs->transnoentities('EventRevisionUnlockedNote', $this->ref, $langs->transnoentitiesnoconv($oldstatus === self::STATUS_OBSOLETE ? 'RevisionStatusObsolete' : 'RevisionStatusReleased'), trim($reason)));
+				$langs->transnoentities('EventRevisionUnlockedNote', $this->ref, $langs->transnoentitiesnoconv($oldstatus === self::STATUS_OBSOLETE ? 'RevisionStatusObsolete' : ($oldstatus === self::STATUS_DECLINED ? 'RevisionStatusDeclined' : 'RevisionStatusReleased')), trim($reason)));
 		}
 		if ($result <= 0) {
 			$this->db->rollback();
@@ -1133,7 +1165,7 @@ class ComponentRevision extends CommonObject
 	}
 
 	/**
-	 *	Tell if the files of this revision are locked: released and obsolete revisions are read-only.
+	 *	Tell if the files of this revision are locked: released, declined and obsolete revisions are read-only.
 	 *
 	 *	@return	bool
 	 */
@@ -1840,6 +1872,7 @@ class ComponentRevision extends CommonObject
 				self::STATUS_DRAFT => 'Draft',
 				self::STATUS_INREVIEW => 'RevisionStatusInReview',
 				self::STATUS_RELEASED => 'RevisionStatusReleased',
+				self::STATUS_DECLINED => 'RevisionStatusDeclined',
 				self::STATUS_OBSOLETE => 'RevisionStatusObsolete',
 			) as $code => $key) {
 				$this->labelStatus[$code] = $langs->transnoentitiesnoconv($key);
@@ -1847,7 +1880,7 @@ class ComponentRevision extends CommonObject
 			}
 		}
 
-		$statustypes = array(self::STATUS_DRAFT => 'status0', self::STATUS_INREVIEW => 'status1', self::STATUS_RELEASED => 'status4', self::STATUS_OBSOLETE => 'status6');
+		$statustypes = array(self::STATUS_DRAFT => 'status0', self::STATUS_INREVIEW => 'status1', self::STATUS_RELEASED => 'status4', self::STATUS_DECLINED => 'status8', self::STATUS_OBSOLETE => 'status6');
 		$statusType = $statustypes[$status] ?? 'status0';
 
 		return dolGetStatus($this->labelStatus[$status], $this->labelStatusShort[$status], '', $statusType, $mode, '', $paramsBadge);

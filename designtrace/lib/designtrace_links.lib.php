@@ -524,7 +524,7 @@ function designtracePrintDocLinkForm($object)
 	global $db, $langs, $user, $form;
 
 	dol_include_once('/designtrace/class/doclinks.class.php');
-	if (!$user->hasRight('designtrace', 'componentrevision', 'write') || (int) $object->status === ComponentRevision::STATUS_OBSOLETE) {
+	if (!$user->hasRight('designtrace', 'componentrevision', 'write') || in_array((int) $object->status, array(ComponentRevision::STATUS_OBSOLETE, ComponentRevision::STATUS_DECLINED), true)) {
 		return;
 	}
 	$component = $object->fetchComponentChecked();
