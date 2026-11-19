@@ -424,6 +424,13 @@ class StaffApiTest extends DesignTraceTestCase
 		$part->fetch($part->id);
 		$this->assertSame(ComponentRevision::STATUS_DECLINED, (int) $part->status);
 		$this->assertSame(array(), $this->api->declineStaffLinkedRevisions($proof->id)['declined']);
+
+		// Triage names the parent it was declined with, and when
+		$declined = array_column($this->api->getTriage()['declined'], null, 'revision_id');
+		$this->assertSame($proof->ref, $declined[$part->id]['declined_with']);
+		$this->assertNotEmpty($declined[$part->id]['declined_at']);
+		$this->assertSame('', $declined[$part->id]['declined_by']);
+		$this->assertNull($declined[$proof->id]['declined_with'], 'Declined itself, not with a parent');
 	}
 
 	public function testEcoActionsAndForcedReacceptance()

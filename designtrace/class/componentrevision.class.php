@@ -765,9 +765,10 @@ class ComponentRevision extends CommonObject
 
 	/**
 	 *	Decline a revision (markDeclined()) and with it the revisions it links to that are still In review,
-	 *	down the tree: the customer turned down the package, so each needs a new revision. Left alone are
-	 *	children flagged "needs customer approval" (the customer decides on those themselves) and children
-	 *	another draft or in-review parent outside this decline still pins. Each one declined gets an event,
+	 *	down the tree, within the same design: the customer turned down the package, so each needs a new
+	 *	revision. Left alone are components of other designs, children flagged "needs customer approval"
+	 *	(the customer decides on those themselves) and children another draft or in-review parent outside
+	 *	this decline still pins. Each one declined gets an event,
 	 *	and goes under the ECO of the request (when it has none and the ECO is open), so its new revision does.
 	 *	Nothing cascades when the revision itself was not declined (a Released proof stays Released).
 	 *	Run again on a revision already Declined (one declined before the cascade existed, or whose
@@ -787,7 +788,9 @@ class ComponentRevision extends CommonObject
 		if (!$dryRun && self::markDeclined($db, $revid) < 0) {
 			return -1;
 		}
-		$resql = $db->query("SELECT ref, status, fk_eco FROM ".$db->prefix()."designtrace_componentrevision WHERE rowid = ".((int) $revid));
+		$sql = "SELECT r.ref, r.status, r.fk_eco, c.fk_design FROM ".$db->prefix()."designtrace_componentrevision as r";
+		$sql .= " INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component WHERE r.rowid = ".((int) $revid);
+		$resql = $db->query($sql);
 		$root = $resql ? $db->fetch_object($resql) : null;
 		if (!$root || (int) $root->status !== self::STATUS_DECLINED) {
 			return array();
@@ -809,9 +812,12 @@ class ComponentRevision extends CommonObject
 		$queue = array((int) $revid);
 		while (!empty($queue)) {
 			$parentid = array_shift($queue);
+			// Only in the same design: a linked component from another design (another customer's, a
+			// library part) is not part of what this customer turned down
 			$sql = "SELECT r.rowid, r.ref, r.fk_component, r.fk_eco, r.needs_approval FROM ".$db->prefix()."designtrace_componentlink as l";
 			$sql .= " INNER JOIN ".$db->prefix()."designtrace_componentrevision as r ON r.rowid = l.fk_child";
-			$sql .= " WHERE l.fk_parent = ".((int) $parentid)." AND r.status = ".self::STATUS_INREVIEW;
+			$sql .= " INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = r.fk_component";
+			$sql .= " WHERE l.fk_parent = ".((int) $parentid)." AND r.status = ".self::STATUS_INREVIEW." AND c.fk_design = ".((int) $root->fk_design);
 			$resql = $db->query($sql);
 			if (!$resql) {
 				return -1;

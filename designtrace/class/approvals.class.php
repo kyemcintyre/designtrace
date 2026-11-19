@@ -403,8 +403,8 @@ class DesignTraceApprovals
 	 * Same effects as the customer's own decision: the history row (channel "staff", the actor is the
 	 * staff user), the stamp on the revision and an event; an approval unblocks release, changes
 	 * requested decline the revision and reopen or open the ECO. For an In review revision not
-	 * approved yet, of a design that has a customer. A revision not flagged "needs customer approval"
-	 * (parts are not by default) is flagged as part of recording it, so it goes through the same path.
+	 * approved yet, of a design that has a customer, flagged "needs customer approval" or not (parts are
+	 * not by default). An unflagged one is left unflagged: its next revisions are not held for approval.
 	 *
 	 * @param	DoliDB	$db			Database handler
 	 * @param	User	$user		Staff user recording the decision (needs the release right)
@@ -471,24 +471,11 @@ class DesignTraceApprovals
 		$note = $langs->transnoentities('StaffDecisionNote', $received).($comment !== '' ? ' '.$comment : '');
 		$actor = 'staff:'.$user->login;
 
-		// Not flagged yet: flag it in the same transaction, so a failure leaves it as it was
-		$db->begin();
-		if (empty($obj->needs_approval) && !$db->query("UPDATE ".$db->prefix()."designtrace_componentrevision SET needs_approval = 1 WHERE rowid = ".((int) $obj->rowid))) {
-			$error = $db->lasterror();
-			$db->rollback();
-			return -1;
-		}
-		$res = self::decideOnBehalf($db, $user, $socid, $scope, $scopeid, $obj, $rev, $decision, $note, $actor, $wholeScope, $error);
-		if ($res === -1) {
-			$db->rollback();
-			return -1;
-		}
-		$db->commit();
-		return $res;
+		return self::decideOnBehalf($db, $user, $socid, $scope, $scopeid, $obj, $rev, $decision, $note, $actor, $wholeScope, $error);
 	}
 
 	/**
-	 * The decision part of recordOnBehalf(), once the revision is checked and flagged
+	 * The decision part of recordOnBehalf(), once the revision is checked
 	 *
 	 * @param	DoliDB		$db			Database handler
 	 * @param	User		$user		Staff user

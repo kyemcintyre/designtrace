@@ -339,13 +339,15 @@ function designtracePrintStaffDecisionForm($object)
 		return;
 	}
 
-	print load_fiche_titre($langs->trans('StaffDecisionTitle'), '', 'fa-user-edit');
+	// Open when the revision waits for the customer; folded on others (internal parts), to keep the card quiet
+	print '<details class="designtrace-staffdecision"'.(empty($object->needs_approval) ? '' : ' open').'>';
+	print '<summary class="marginbottomonly">'.img_picto('', 'fa-user-edit', 'class="pictofixedwidth"').'<span class="titre">'.$langs->trans('StaffDecisionTitle').'</span></summary>';
 	print '<form method="POST" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'?id='.((int) $object->id).'">';
 	print '<input type="hidden" name="token" value="'.newToken().'">';
 	print '<input type="hidden" name="action" value="staffdecision">';
 	print '<div class="opacitymedium marginbottomonly">'.$langs->trans('StaffDecisionHelp');
 	if (empty($object->needs_approval)) {
-		print ' '.$langs->trans('StaffDecisionFlagsIt');
+		print ' '.$langs->trans('StaffDecisionNotFlagged');
 	}
 	print '</div>';
 	print '<table class="noborder centpercent">';
@@ -364,5 +366,5 @@ function designtracePrintStaffDecisionForm($object)
 	print '</td></tr>';
 	print '</table>';
 	print '<div class="center margintoponly"><input type="submit" class="button small" value="'.dol_escape_htmltag($langs->trans('StaffDecisionRecord')).'"></div>';
-	print '</form><br>';
+	print '</form></details><br>';
 }

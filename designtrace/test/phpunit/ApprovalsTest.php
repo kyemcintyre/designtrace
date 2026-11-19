@@ -335,22 +335,32 @@ class ApprovalsTest extends DesignTraceTestCase
 		$err = '';
 		list($customer, $design, $revs) = $this->scenario(false);
 
-		// A part not flagged "needs customer approval" is flagged as part of recording the decision
+		// A part not flagged "needs customer approval" takes a decision and stays unflagged
 		$a = $revs['a'];
 		$this->assertSame(0, (int) $a->needs_approval);
 		$this->assertSame(array((int) $a->id), $A::recordOnBehalf($this->db, $this->user, $a->id, 1, 'phone, Ann', '', $err), $err);
 		$a->fetch($a->id);
-		$this->assertSame(1, (int) $a->needs_approval);
+		$this->assertSame(0, (int) $a->needs_approval);
 		$this->assertSame(1, (int) $a->customer_approval);
 		$this->assertSame(1, $this->countRows("SELECT COUNT(*) as nb FROM ".MAIN_DB_PREFIX."designtrace_approval WHERE fk_revision = ".((int) $a->id)." AND channel = 'staff'"));
 		$this->assertGreaterThan(0, $this->release($a)->id);
+
+		// So its next revision is not held for the customer's approval
+		$a2 = $a->createFromClone($this->user, $a->id);
+		$this->assertIsObject($a2, (string) $a->error);
+		$this->assertSame(0, (int) $a2->needs_approval);
+		$a2 = $this->inReview($a2);
+		$this->assertGreaterThan(0, $this->release($a2)->id, 'Released without an approval');
+		$this->assertSame(array(), array_filter($A::fetchPending($this->db, $customer->id), function ($e) use ($a2) {
+			return in_array((int) $a2->id, array_column($e['revisions'], 'id'), true);
+		}), 'Never in the customer\'s pending approvals');
 
 		// Changes on an unflagged one decline it the same way
 		$b = $revs['b'];
 		$this->assertIsArray($A::recordOnBehalf($this->db, $this->user, $b->id, 2, 'email', 'Thicker', $err), $err);
 		$b->fetch($b->id);
 		$this->assertSame(ComponentRevision::STATUS_DECLINED, (int) $b->status);
-		$this->assertSame(1, (int) $b->needs_approval);
+		$this->assertSame(0, (int) $b->needs_approval);
 
 		// A refusal leaves an unflagged revision as it was
 		$c = $revs['c'];
@@ -421,7 +431,7 @@ class ApprovalsTest extends DesignTraceTestCase
 	/**
 	 * A proof in review depicting: p (in review), flagged (in review, waiting on its own decision),
 	 * released, shared (in review, also used by another assembly in review), and an assembly in review
-	 * that uses part deep (in review)
+	 * that uses part deep (in review), and external (in review, a part of another customer's design)
 	 */
 	private function proofTree()
 	{
@@ -442,8 +452,10 @@ class ApprovalsTest extends DesignTraceTestCase
 		$r['other'] = $this->newRevision($this->newComponent($design, Component::TYPE_ASSEMBLY, 'ZZ other'));
 		$this->assertGreaterThan(0, (int) $this->newLink($r['other'], $r['shared'], ComponentLink::TYPE_USES, 1)->id);
 		$r['other'] = $this->inReview($r['other']);
+		$elsewhere = $this->newDesign(array('fk_soc' => $this->newCustomer('ZZ Someone else')->id), true);
+		$r['external'] = $this->inReview($this->newRevision($this->newComponent($elsewhere, Component::TYPE_PART, 'ZZ external')));
 		$r['proof'] = $this->newRevision($this->newComponent($design, Component::TYPE_DRAWING, 'ZZ proof', Component::DRAWING_PROOF));
-		foreach (array('p', 'flagged', 'released', 'shared', 'asm') as $name) {
+		foreach (array('p', 'flagged', 'released', 'shared', 'asm', 'external') as $name) {
 			$this->assertGreaterThan(0, (int) $this->newLink($r['proof'], $r[$name], ComponentLink::TYPE_DEPICTS)->id, $name);
 		}
 		$r['proof'] = $this->inReview($r['proof']);
@@ -467,6 +479,8 @@ class ApprovalsTest extends DesignTraceTestCase
 		$this->assertSame(ComponentRevision::STATUS_INREVIEW, (int) $r['flagged']->status, 'Waits on its own decision');
 		$this->assertSame(ComponentRevision::STATUS_RELEASED, (int) $r['released']->status);
 		$this->assertSame(ComponentRevision::STATUS_INREVIEW, (int) $r['shared']->status, 'Still pinned by another assembly in review');
+		$this->assertSame(ComponentRevision::STATUS_INREVIEW, (int) $r['external']->status, 'Another design is not part of the decline');
+		$this->assertEmpty($r['external']->fk_eco, 'Nor put under this customer\'s ECO');
 
 		// Each declined child is under the request's ECO, with an event saying why
 		$eco = new ChangeOrder($this->db);
@@ -502,7 +516,7 @@ class ApprovalsTest extends DesignTraceTestCase
 			$r[$name]->fetch($r[$name]->id);
 			$this->assertSame(ComponentRevision::STATUS_DECLINED, (int) $r[$name]->status, $name);
 		}
-		foreach (array('flagged', 'shared') as $name) {
+		foreach (array('flagged', 'shared', 'external') as $name) {
 			$r[$name]->fetch($r[$name]->id);
 			$this->assertSame(ComponentRevision::STATUS_INREVIEW, (int) $r[$name]->status, $name);
 		}
@@ -535,7 +549,7 @@ class ApprovalsTest extends DesignTraceTestCase
 		// The proof's new revision first: it keeps the declined pin (nothing is lost) and moves to the
 		// sub-assembly's new revision once that is made
 		$this->assertSame((int) $r['asm']->id, $pinOf($proof2, $r['asm']), 'Declined pin kept');
-		$this->assertSame(5, $this->countRows("SELECT COUNT(*) as nb FROM ".MAIN_DB_PREFIX."designtrace_componentlink WHERE fk_parent = ".((int) $proof2->id)), 'Every link copied');
+		$this->assertSame(6, $this->countRows("SELECT COUNT(*) as nb FROM ".MAIN_DB_PREFIX."designtrace_componentlink WHERE fk_parent = ".((int) $proof2->id)), 'Every link copied');
 		$this->assertLessThan(0, $proof2->validate($this->user), 'Not to review while it pins a declined revision');
 		$asm2 = $r['asm']->createFromClone($this->user, $r['asm']->id);
 		$this->assertIsObject($asm2, (string) $r['asm']->error);

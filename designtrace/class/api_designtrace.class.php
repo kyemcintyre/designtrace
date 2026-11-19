@@ -2285,8 +2285,9 @@ class DesignTrace extends DolibarrApi
 		$this->db->begin();
 		$done = ComponentRevision::declineWithChildren($this->db, DolibarrApiAccess::$user, (int) $revision->id, 0, $dryRun);
 		if ($done === -1) {
+			dol_syslog(__METHOD__.' revision '.((int) $revision->id).': '.$this->db->lasterror(), LOG_ERR);
 			$this->db->rollback();
-			throw new RestException(500, 'Not declined: '.$this->db->lasterror());
+			throw new RestException(500, 'Not declined: a database error was logged');
 		}
 		$this->db->commit();
 		$declined = array();
