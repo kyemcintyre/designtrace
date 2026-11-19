@@ -675,6 +675,9 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 		// Proof drawings: the customer's approval
 		designtracePrintProofApproval($object);
 
+		// Staff records an answer received outside the portal
+		designtracePrintStaffDecisionForm($object);
+
 		// What customers see through the quotes, orders and tickets it is linked to
 		designtracePrintClientAccess($object, $form);
 

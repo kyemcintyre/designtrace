@@ -374,6 +374,11 @@ no automated emails). Reference for the Go side: `designtrace/API.md`.
   entry in `llx_designtrace_changeorder_event`), else it creates a draft ECO (reason customer) and sets
   `fk_eco` on those revisions. The per-revision proof flow (`DesignTraceProofApproval::decide()`, ticket/ECO
   setting) still exists for proofs shown through a document.
+  **Staff on behalf**: `DesignTraceApprovals::recordOnBehalf()` records an answer received outside the portal for
+  one flagged, In review revision (channel `staff`, actor `staff:<login>`, a "received by/from" note is required,
+  needs the `componentrevision release` right): same effects as the customer's own decision (approval unblocks
+  release; changes decline the revision and reopen or open the ECO). Form on the revision card
+  (`designtracePrintStaffDecisionForm()`, action `staffdecision`). No staff REST endpoint yet.
 - **Who may accept/approve**: thirdparty extrafield `designtrace_approvers` (created in `modDesignTrace::init()`,
   0 any user / 1 admins only); `DesignTraceApprovals::checkRole()`; the API takes `actor_role` and answers
   403 `role_not_allowed: ...` (the `approve`/`requestChanges` methods return -2 for it).

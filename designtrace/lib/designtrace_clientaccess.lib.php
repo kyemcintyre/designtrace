@@ -23,6 +23,7 @@
  */
 
 dol_include_once('/designtrace/class/clientaccess.class.php');
+dol_include_once('/designtrace/class/approvals.class.php');
 
 /**
  * Handle the customer access actions of the revision card (redirects when it handles one).
@@ -64,6 +65,19 @@ function designtraceDoClientAccessActions($action, $object, $user)
 			setEventMessages($langs->trans(GETPOSTINT('visible') ? 'ClientAccessShown' : 'ClientAccessHidden', $object->ref), null, 'mesgs');
 		} else {
 			setEventMessages($db->lasterror(), null, 'errors');
+		}
+		header('Location: '.$selfurl);
+		exit;
+	}
+
+	if ($action == 'staffdecision') {
+		$decision = GETPOSTINT('decision');
+		$error = '';
+		$result = DesignTraceApprovals::recordOnBehalf($db, $user, (int) $object->id, $decision, GETPOST('received', 'alphanohtml'), GETPOST('comment', 'restricthtml'), $error);
+		if ($result === -1) {
+			setEventMessages($error, null, 'errors');
+		} else {
+			setEventMessages($langs->trans('StaffDecisionRecorded', $object->ref), null, 'mesgs');
 		}
 		header('Location: '.$selfurl);
 		exit;
@@ -293,4 +307,52 @@ function designtracePrintProofApproval($object)
 		print '<tr class="oddeven"><td colspan="4"><span class="opacitymedium">'.$langs->trans('CustomerApprovalNoHistory').'</span></td></tr>';
 	}
 	print '</table></div><br>';
+}
+
+/**
+ * Form for staff to record the customer's decision on a revision (answered by phone, email or in
+ * person). Shown while the revision is flagged for the customer's approval, In review and not
+ * approved yet, to staff who can release.
+ *
+ * @param	ComponentRevision	$object		Revision
+ * @return	void
+ */
+function designtracePrintStaffDecisionForm($object)
+{
+	global $db, $langs, $user;
+
+	if (!empty($user->socid) || !$user->hasRight('designtrace', 'componentrevision', 'release')) {
+		return;
+	}
+	if (empty($object->needs_approval) || (int) $object->status !== ComponentRevision::STATUS_INREVIEW || (int) $object->customer_approval === DesignTraceProofApproval::DECISION_APPROVED) {
+		return;
+	}
+	$sql = "SELECT d.fk_soc FROM ".$db->prefix()."designtrace_design as d INNER JOIN ".$db->prefix()."designtrace_component as c ON c.fk_design = d.rowid";
+	$sql .= " WHERE c.rowid = ".((int) $object->fk_component);
+	$resql = $db->query($sql);
+	$design = $resql ? $db->fetch_object($resql) : null;
+	if (!$design || (int) $design->fk_soc <= 0) {
+		return;
+	}
+
+	print load_fiche_titre($langs->trans('StaffDecisionTitle'), '', 'fa-user-edit');
+	print '<form method="POST" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'?id='.((int) $object->id).'">';
+	print '<input type="hidden" name="token" value="'.newToken().'">';
+	print '<input type="hidden" name="action" value="staffdecision">';
+	print '<div class="opacitymedium marginbottomonly">'.$langs->trans('StaffDecisionHelp').'</div>';
+	print '<table class="noborder centpercent">';
+	print '<tr class="oddeven"><td class="titlefield">'.$langs->trans('CustomerApproval').'</td><td>';
+	print '<select name="decision" class="flat minwidth200">';
+	print '<option value="'.DesignTraceProofApproval::DECISION_APPROVED.'">'.$langs->trans('StaffDecisionApprove').'</option>';
+	print '<option value="'.DesignTraceProofApproval::DECISION_CHANGES.'">'.$langs->trans('StaffDecisionChanges').'</option>';
+	print '</select></td></tr>';
+	print '<tr class="oddeven"><td>'.$langs->trans('StaffDecisionReceived').'</td><td>';
+	print '<input type="text" name="received" class="flat minwidth300" maxlength="100" required placeholder="'.dol_escape_htmltag($langs->trans('StaffDecisionReceivedPlaceholder')).'">';
+	print '</td></tr>';
+	print '<tr class="oddeven"><td>'.$langs->trans('Comment').'</td><td>';
+	print '<textarea name="comment" class="flat quatrevingtpercent" rows="3"></textarea>';
+	print '</td></tr>';
+	print '</table>';
+	print '<div class="center margintoponly"><input type="submit" class="button small" value="'.dol_escape_htmltag($langs->trans('StaffDecisionRecord')).'"></div>';
+	print '</form><br>';
 }

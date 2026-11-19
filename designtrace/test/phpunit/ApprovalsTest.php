@@ -236,6 +236,79 @@ class ApprovalsTest extends DesignTraceTestCase
 		$this->assertEmpty($a2->fk_eco, 'A cancelled ECO is not carried over');
 	}
 
+	public function testStaffRecordsAnApprovalOnBehalfOfTheCustomer()
+	{
+		$A = DesignTraceApprovals::class;
+		list($customer, $design, $revs) = $this->scenario();
+		$a = $revs['a'];
+		$err = '';
+
+		$clerk = $this->newUser(array('componentrevision/read', 'componentrevision/write'));
+		$this->assertSame(-1, $A::recordOnBehalf($this->db, $clerk, $a->id, 1, 'phone, Ann', '', $err), 'Needs the release right');
+		$this->assertSame(-1, $A::recordOnBehalf($this->db, $this->user, $a->id, 1, '  ', '', $err), 'Says how it was received');
+		$this->assertSame(-1, $A::recordOnBehalf($this->db, $this->user, $a->id, 0, 'phone', '', $err), 'Unknown decision');
+		$this->assertSame(-1, $A::recordOnBehalf($this->db, $this->user, 999999, 1, 'phone', '', $err), 'Unknown revision');
+
+		$done = $A::recordOnBehalf($this->db, $this->user, $a->id, 1, 'phone, Ann', 'Happy with it', $err);
+		$this->assertSame(array((int) $a->id), $done, $err);
+		$a->fetch($a->id);
+		$this->assertSame(1, (int) $a->customer_approval);
+		$this->assertSame('staff:'.$this->user->login, $a->customer_approval_by);
+		$this->assertSame(ComponentRevision::STATUS_INREVIEW, (int) $a->status);
+		$row = $this->db->fetch_object($this->db->query("SELECT channel, actor, comment, fk_soc, element, fk_element FROM ".MAIN_DB_PREFIX."designtrace_approval WHERE fk_revision = ".((int) $a->id)));
+		$this->assertSame('staff', $row->channel);
+		$this->assertSame((int) $customer->id, (int) $row->fk_soc);
+		$this->assertSame('design', $row->element);
+		$this->assertStringContainsString('phone, Ann', $row->comment);
+		$this->assertStringContainsString('Happy with it', $row->comment);
+		$this->assertGreaterThan(0, $this->release($a)->id, 'Release now allowed');
+
+		// Only that revision was approved, and it cannot be decided again
+		$revs['b']->fetch($revs['b']->id);
+		$this->assertSame(0, (int) $revs['b']->customer_approval, 'One approval covers one revision when staff records it');
+		$this->assertSame(-1, $A::recordOnBehalf($this->db, $this->user, $a->id, 2, 'phone', 'Wait', $err), 'Already approved');
+	}
+
+	public function testStaffRecordsRequestedChangesOnBehalfOfTheCustomer()
+	{
+		$A = DesignTraceApprovals::class;
+		list($customer, $design, $revs) = $this->scenario();
+		$b = $revs['b'];
+		$err = '';
+
+		$this->assertSame(-1, $A::recordOnBehalf($this->db, $this->user, $b->id, 2, 'email, Ann', '  ', $err), 'Changes need a comment');
+		$r = $A::recordOnBehalf($this->db, $this->user, $b->id, 2, 'email, Ann', 'Hole too small', $err);
+		$this->assertIsArray($r, $err);
+		$this->assertSame(array((int) $b->id), $r['revisions']);
+		$this->assertSame(1, $r['round']);
+		$b->fetch($b->id);
+		$this->assertSame(ComponentRevision::STATUS_DECLINED, (int) $b->status, 'Declined like the customer\'s own request');
+		$this->assertSame(2, (int) $b->customer_approval);
+		$this->assertSame((int) $r['eco'], (int) $b->fk_eco);
+		$eco = new ChangeOrder($this->db);
+		$this->assertGreaterThan(0, $eco->fetch($r['eco']));
+		$this->assertSame(ChangeOrder::REASON_CUSTOMER, (int) $eco->reason);
+		$this->assertSame((int) $customer->id, (int) $eco->fk_soc);
+		$this->assertStringContainsString('Hole too small', $eco->description);
+		$this->assertSame(1, $this->countRows("SELECT COUNT(*) as nb FROM ".MAIN_DB_PREFIX."designtrace_approval WHERE fk_revision = ".((int) $b->id)." AND channel = 'staff' AND decision = 2"));
+		$this->assertSame(-1, $A::recordOnBehalf($this->db, $this->user, $b->id, 1, 'phone', '', $err), 'A declined revision cannot be decided again');
+	}
+
+	public function testStaffCannotRecordForUnflaggedRevisionsOrDesignsWithoutACustomer()
+	{
+		$A = DesignTraceApprovals::class;
+		$err = '';
+		list($customer, $design, $revs) = $this->scenario(false);
+		$this->assertSame(-1, $A::recordOnBehalf($this->db, $this->user, $revs['a']->id, 1, 'phone', '', $err), 'Not flagged for approval');
+
+		$nobody = $this->newDesign(array(), true);
+		$rev = $this->newRevision($this->newComponent($nobody));
+		$this->db->query("UPDATE ".MAIN_DB_PREFIX."designtrace_componentrevision SET needs_approval = 1 WHERE rowid = ".((int) $rev->id));
+		$rev = $this->inReview($rev);
+		$this->assertSame(-1, $A::recordOnBehalf($this->db, $this->user, $rev->id, 1, 'phone', '', $err), 'No customer on the design');
+		$this->assertNotEmpty($err);
+	}
+
 	public function testApproverRoleSetting()
 	{
 		$A = DesignTraceApprovals::class;
