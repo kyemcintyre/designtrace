@@ -133,6 +133,10 @@ $formSetup->newItem('DESIGNTRACE_RELEASE_REQUIRES_SOURCE')->setAsYesNo();
 $item = $formSetup->newItem('DESIGNTRACE_RELEASE_REQUIRES_ECO')->setAsYesNo();
 $item->helpText = $langs->trans('DESIGNTRACE_RELEASE_REQUIRES_ECOTooltip');
 
+// Design-only orders: off by default, as closing an order is otherwise always done by hand or by shipments
+$item = $formSetup->newItem('DESIGNTRACE_CLOSE_PAID_DESIGN_ORDERS')->setAsYesNo();
+$item->helpText = $langs->trans('DESIGNTRACE_CLOSE_PAID_DESIGN_ORDERSTooltip');
+
 // Server limit: smallest of upload_max_filesize and post_max_size
 $phplimit = 0;
 foreach (array('upload_max_filesize', 'post_max_size') as $inikey) {

@@ -18,7 +18,8 @@
 /**
  *	\file       designtrace/core/triggers/interface_99_modDesignTrace_DesignTraceTriggers.class.php
  *	\ingroup    designtrace
- *	\brief      Triggers of DesignTrace: carry revision and design links from quotes to orders to invoices
+ *	\brief      Triggers of DesignTrace: carry revision and design links from quotes to orders to invoices, and close
+ *				design-only orders once paid
  */
 
 require_once DOL_DOCUMENT_ROOT.'/core/triggers/dolibarrtriggers.class.php';
@@ -38,7 +39,7 @@ class InterfaceDesignTraceTriggers extends DolibarrTriggers
 	{
 		parent::__construct($db);
 		$this->family = "products";
-		$this->description = "DesignTrace triggers: carry linked design revisions from quotes to orders and invoices.";
+		$this->description = "DesignTrace triggers: carry linked design revisions from quotes to orders and invoices, and close paid design-only orders.";
 		$this->version = self::VERSIONS['prod'];
 		$this->picto = 'fa-drafting-compass';
 	}
@@ -58,6 +59,11 @@ class InterfaceDesignTraceTriggers extends DolibarrTriggers
 	{
 		if (!isModEnabled('designtrace')) {
 			return 0;
+		}
+		// A paid invoice may complete a design-only order: closing it delivers its files. Never fails the payment
+		if ($action === 'BILL_PAYED') {
+			dol_include_once('/designtrace/class/orderclosing.class.php');
+			return DesignTraceOrderClosing::closePaidOrders($this->db, $user, $object) ? 1 : 0;
 		}
 		if ($action !== 'ORDER_CREATE' && $action !== 'BILL_CREATE') {
 			return 0;
