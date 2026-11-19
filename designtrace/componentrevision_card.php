@@ -237,6 +237,21 @@ if (empty($reshook)) {
 		$action = '';
 	}
 
+	// Decline what a declined revision links to that is still In review (the cascade, run again)
+	if ($action == 'confirm_declinelinked' && $confirm == 'yes' && $permissiontorelease && (int) $object->status === $object::STATUS_DECLINED) {
+		$db->begin();
+		$done = ComponentRevision::declineWithChildren($db, $user, (int) $object->id);
+		if ($done === -1) {
+			$db->rollback();
+			setEventMessages($db->lasterror() ?: $langs->trans('Error'), null, 'errors');
+		} else {
+			$db->commit();
+			setEventMessages(empty($done) ? $langs->trans('DeclineLinkedNothing', $object->ref) : $langs->trans('DeclineLinkedDone', count($done), implode(', ', $done)), null, empty($done) ? 'warnings' : 'mesgs');
+		}
+		header('Location: '.$_SERVER['PHP_SELF'].'?id='.$object->id);
+		exit;
+	}
+
 	// Released revisions are read-only
 	if ($isreadonly && in_array($action, array('edit', 'update', 'update_extras', 'confirm_delete'), true)) {
 		setEventMessages($langs->trans('ErrorRevisionIsReadOnly', $object->ref), null, 'errors');
@@ -432,6 +447,15 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 		$formconfirm = $form->formconfirm($_SERVER["PHP_SELF"].'?id='.$object->id, $langs->trans('RevisionUnlock'), $langs->trans('ConfirmRevisionUnlock', $object->ref), 'confirm_unlock', $formquestion, 0, 1, 250);
 	}
 
+	if ($action == 'declinelinked' && $permissiontorelease && (int) $object->status === $object::STATUS_DECLINED) {
+		$todecline = ComponentRevision::declineWithChildren($db, $user, (int) $object->id, 0, true);
+		if (is_array($todecline) && !empty($todecline)) {
+			$formconfirm = $form->formconfirm($_SERVER["PHP_SELF"].'?id='.$object->id, $langs->trans('DeclineLinked'), $langs->trans('ConfirmDeclineLinked', $object->ref, implode(', ', $todecline)), 'confirm_declinelinked', '', 0, 1);
+		} else {
+			setEventMessages($langs->trans('DeclineLinkedNothing', $object->ref), null, 'warnings');
+		}
+	}
+
 	if ($action == 'clone') {
 		// Create an array for form
 		$formquestion = array();
@@ -607,6 +631,14 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 				print dolGetButtonAction('', $langs->trans('RevisionMakeObsolete'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=confirm_close&confirm=yes&token='.newToken(), '', $permissiontoadd);
 			} elseif ($object->status == $object::STATUS_OBSOLETE) {
 				print dolGetButtonAction('', $langs->trans('RevisionUndoObsolete'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=confirm_reopen&confirm=yes&token='.newToken(), '', $permissiontoadd);
+			}
+
+			// Declined: decline what it links to that is still In review (shown only when there is some)
+			if ((int) $object->status === $object::STATUS_DECLINED && $permissiontorelease) {
+				$todecline = ComponentRevision::declineWithChildren($db, $user, (int) $object->id, 0, true);
+				if (is_array($todecline) && !empty($todecline)) {
+					print dolGetButtonAction($langs->trans('DeclineLinkedHelp'), $langs->trans('DeclineLinked'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=declinelinked&token='.newToken(), '', true);
+				}
 			}
 
 			// Unlock (Released or Obsolete -> Draft); Declined is final

@@ -311,7 +311,10 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
   flagged `needs_approval` (the customer decides on them) and children another draft/in-review parent outside the
   decline still pins. Cloning keeps links to a declined child (context `keepdeclinedpin`), pinning its newest draft/
   in-review revision instead when one exists, and cloning a declined revision moves draft parents' pins to the new one,
-  so new revisions can be made in any order; the fix is "New revision from this one", which keeps the declined revision's ECO
+  so new revisions can be made in any order. On a revision already Declined (declined before the cascade, or whose
+  children went back in review) "Decline linked revisions" on its card (release right; shown only when something would
+  be declined, with a confirmation listing it: a dry run, `$dryRun`) or `POST staff/revisions/{revid}/decline-linked`
+  (`dry_run`) runs the cascade again; the fix is "New revision from this one", which keeps the declined revision's ECO
   while that ECO is open (so the next ECO round is decided on it). A Released proof stays Released. A change request opens a ticket
   linked to the revision (default), a draft ECO or nothing (`DESIGNTRACE_PROOF_CHANGES_ACTION`).
 - **Reorder** (`class/reorder.class.php`): delivered orders with delivered released revisions

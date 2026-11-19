@@ -479,6 +479,37 @@ class ApprovalsTest extends DesignTraceTestCase
 		}
 	}
 
+	public function testTheCascadeCanBeRunAgainOnARevisionAlreadyDeclined()
+	{
+		list($customer, $r) = $this->proofTree();
+		// Declined before the cascade existed: only the proof itself
+		$this->assertSame(1, ComponentRevision::markDeclined($this->db, (int) $r['proof']->id));
+
+		// Not on a revision that isn't declined
+		$this->assertSame(array(), ComponentRevision::declineWithChildren($this->db, $this->user, (int) $r['other']->id, 0, true));
+
+		// A dry run says what would be declined and changes nothing
+		$preview = ComponentRevision::declineWithChildren($this->db, $this->user, (int) $r['proof']->id, 0, true);
+		$this->assertEqualsCanonicalizing(array($r['p']->ref, $r['asm']->ref, $r['deep']->ref), array_values($preview));
+		$r['p']->fetch($r['p']->id);
+		$this->assertSame(ComponentRevision::STATUS_INREVIEW, (int) $r['p']->status);
+		$this->assertSame(0, $this->countRows("SELECT COUNT(*) as nb FROM ".MAIN_DB_PREFIX."actioncomm WHERE code = 'AC_DESIGNTRACE_REVISION_DECLINED' AND fk_element = ".((int) $r['p']->id)));
+
+		// Running it declines them, the same ones as a decline would have
+		$done = ComponentRevision::declineWithChildren($this->db, $this->user, (int) $r['proof']->id);
+		$this->assertSame(array_keys($preview), array_keys($done));
+		foreach (array('p', 'asm', 'deep') as $name) {
+			$r[$name]->fetch($r[$name]->id);
+			$this->assertSame(ComponentRevision::STATUS_DECLINED, (int) $r[$name]->status, $name);
+		}
+		foreach (array('flagged', 'shared') as $name) {
+			$r[$name]->fetch($r[$name]->id);
+			$this->assertSame(ComponentRevision::STATUS_INREVIEW, (int) $r[$name]->status, $name);
+		}
+		// Again: nothing left
+		$this->assertSame(array(), ComponentRevision::declineWithChildren($this->db, $this->user, (int) $r['proof']->id));
+	}
+
 	public function testNewRevisionsAfterADeclineArePinnedWhicheverIsMadeFirst()
 	{
 		$A = DesignTraceApprovals::class;

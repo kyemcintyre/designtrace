@@ -770,18 +770,21 @@ class ComponentRevision extends CommonObject
 	 *	another draft or in-review parent outside this decline still pins. Each one declined gets an event,
 	 *	and goes under the ECO of the request (when it has none and the ECO is open), so its new revision does.
 	 *	Nothing cascades when the revision itself was not declined (a Released proof stays Released).
+	 *	Run again on a revision already Declined (one declined before the cascade existed, or whose
+	 *	children were put back in review since) it declines what is still In review below it.
 	 *
 	 *	@param	DoliDB	$db			Database handler
 	 *	@param	User	$user		Author of the events
 	 *	@param	int		$revid		Revision the customer declined
 	 *	@param	int		$ecoid		ECO the request opened or reopened (0: the revision's own, if any)
-	 *	@return	int[]|int			Ids of the revisions declined with it, -1 if KO
+	 *	@param	bool	$dryRun		Only say what would be declined (the revision must already be Declined)
+	 *	@return	array<int,string>|int	Revisions declined with it (would be, for a dry run), id => ref; -1 if KO
 	 */
-	public static function declineWithChildren($db, $user, $revid, $ecoid = 0)
+	public static function declineWithChildren($db, $user, $revid, $ecoid = 0, $dryRun = false)
 	{
 		global $langs;
 
-		if (self::markDeclined($db, $revid) < 0) {
+		if (!$dryRun && self::markDeclined($db, $revid) < 0) {
 			return -1;
 		}
 		$resql = $db->query("SELECT ref, status, fk_eco FROM ".$db->prefix()."designtrace_componentrevision WHERE rowid = ".((int) $revid));
@@ -791,7 +794,7 @@ class ComponentRevision extends CommonObject
 		}
 		$eco = null;
 		$ecoid = ((int) $ecoid > 0 ? (int) $ecoid : (int) $root->fk_eco);
-		if ($ecoid > 0) {
+		if ($ecoid > 0 && !$dryRun) {
 			dol_include_once('/designtrace/class/changeorder.class.php');
 			$eco = new ChangeOrder($db);
 			if ($eco->fetch($ecoid) <= 0 || !$eco->isOpen()) {
@@ -833,12 +836,15 @@ class ComponentRevision extends CommonObject
 				if ($db->num_rows($resql) > 0) {
 					continue;
 				}
+				$declined[$childid] = true;
+				$children[$childid] = (string) $child->ref;
+				$queue[] = $childid;
+				if ($dryRun) {
+					continue;
+				}
 				if (self::markDeclined($db, $childid) < 0) {
 					return -1;
 				}
-				$declined[$childid] = true;
-				$children[] = $childid;
-				$queue[] = $childid;
 
 				if ($eco && empty($child->fk_eco)) {
 					if (!$db->query("UPDATE ".$db->prefix()."designtrace_componentrevision SET fk_eco = ".((int) $eco->id)." WHERE rowid = ".$childid)) {
