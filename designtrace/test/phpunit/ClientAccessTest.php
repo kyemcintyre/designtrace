@@ -76,6 +76,26 @@ class ClientAccessTest extends DesignTraceTestCase
 		$this->assertCount(1, $CA::fetchVisibleFiles($this->db, $customer->id, 'ticket'));
 	}
 
+	public function testFileHeadersNameTheRevisionById()
+	{
+		$CA = DesignTraceClientAccess::class;
+		$customer = $this->newCustomer();
+		$part = $this->newComponent($this->newDesign(array('fk_soc' => $customer->id)));
+		$a = $this->newRevision($part);
+		$pdf = $this->addFile($a, 'plate.pdf', '%PDF a', RevisionFile::ROLE_PRESENTATION, RevisionFile::VISIBILITY_NOW);
+		$quote = $this->newQuote($customer->id, false);
+		$this->linkDoc($a, 'propal', $quote->id);
+		$quote->valid($this->user);
+
+		$row = $CA::getDownloadableFile($this->db, $customer->id, $pdf->id);
+		$this->assertNotNull($row);
+		$headers = $CA::fileHeaders($row);
+		$this->assertSame((string) $a->id, $headers['X-DesignTrace-Revision-Id'], 'The revision by id, for the portal');
+		$this->assertSame((string) $a->ref, $headers['X-DesignTrace-Revision'], 'And by ref, as before');
+		$this->assertSame((string) $pdf->id, $headers['X-DesignTrace-File-Id']);
+		$this->assertSame((string) $pdf->sha256, $headers['X-Content-SHA256']);
+	}
+
 	public function testDeliveredOrdersAreLockedAndUpdatedExplicitly()
 	{
 		$CA = DesignTraceClientAccess::class;

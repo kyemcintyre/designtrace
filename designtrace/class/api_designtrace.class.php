@@ -356,12 +356,7 @@ class DesignTrace extends DolibarrApi
 			throw new RestException(503, 'Error logging the download');
 		}
 		// Restler would encode a return value: send the file ourselves and end the request
-		DesignTraceClientAccess::sendFile($fullpath, $row->filename, !empty($inline), array(
-			'X-Content-SHA256' => (string) $row->sha256,
-			'X-DesignTrace-File-Id' => (string) ((int) $row->file_id),
-			'X-DesignTrace-Revision' => (string) $row->rev_ref,
-			'X-DesignTrace-Revision-Id' => (string) ((int) $row->rev_id),
-		));
+		DesignTraceClientAccess::sendFile($fullpath, $row->filename, !empty($inline), DesignTraceClientAccess::fileHeaders($row));
 	}
 
 	/**
@@ -1851,12 +1846,7 @@ class DesignTrace extends DolibarrApi
 		if (DesignTraceClientAccess::logDownload($this->db, $row, (int) $row->fk_soc, DesignTraceClientAccess::CHANNEL_ADMIN_PREVIEW, 'api:'.DolibarrApiAccess::$user->login) < 0) {
 			throw new RestException(503, 'Error logging the download');
 		}
-		DesignTraceClientAccess::sendFile($fullpath, $row->filename, !empty($inline), array(
-			'X-Content-SHA256' => (string) $row->sha256,
-			'X-DesignTrace-File-Id' => (string) ((int) $row->file_id),
-			'X-DesignTrace-Revision' => (string) $row->rev_ref,
-			'X-DesignTrace-Revision-Id' => (string) ((int) $row->rev_id),
-		));
+		DesignTraceClientAccess::sendFile($fullpath, $row->filename, !empty($inline), DesignTraceClientAccess::fileHeaders($row));
 	}
 
 	/**
