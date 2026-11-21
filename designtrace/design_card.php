@@ -99,6 +99,7 @@ dol_include_once('/designtrace/lib/designtrace_design.lib.php');
 dol_include_once('/designtrace/lib/designtrace_links.lib.php');
 dol_include_once('/designtrace/lib/designtrace_portfolio.lib.php');
 dol_include_once('/designtrace/lib/designtrace_grants.lib.php');
+dol_include_once('/designtrace/lib/designtrace_credits.lib.php');
 dol_include_once('/designtrace/lib/designtrace_cadtime.lib.php');
 
 // Load translation files required by the page
@@ -245,6 +246,7 @@ if (empty($reshook)) {
 	// Record the customer's portfolio consent
 	designtraceDoConsentActions($object, $action);
 	designtraceDoGrantActions($object, $action);
+	designtraceDoCreditActions($object, $action);
 
 	// Actions when linking object each other
 	include DOL_DOCUMENT_ROOT.'/core/actions_dellink.inc.php';
@@ -720,6 +722,7 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 		designtracePrintCadTime($object);
 
 		designtracePrintGrants($object);
+		designtracePrintCredits($object);
 
 		designtracePrintConsentBox($object);
 

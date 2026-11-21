@@ -96,6 +96,7 @@ include_once DOL_DOCUMENT_ROOT.'/core/class/html.formprojet.class.php';
 dol_include_once('/designtrace/class/changeorder.class.php');
 dol_include_once('/designtrace/lib/designtrace_changeorder.lib.php');
 dol_include_once('/designtrace/lib/designtrace_cadtime.lib.php');
+dol_include_once('/designtrace/lib/designtrace_credits.lib.php');
 
 // Load translation files required by the page
 $langs->loadLangs(array("designtrace@designtrace", "other"));
@@ -206,6 +207,7 @@ if (empty($reshook)) {
 	$triggermodname = $object->TRIGGER_PREFIX.'_MODIFY'; // Name of trigger action code to execute when we modify record. Used in actions_addupdatedelete.inc.php
 
 	// Workflow and affected components (redirect when handled)
+	designtraceDoCreditActions($object, $action);
 	$action = designtraceDoEcoActions($action, $object, $user);
 	$action = designtraceDoEcoSharingActions($action, $object, $user);
 
@@ -570,6 +572,7 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 		print '</div><div class="fichehalfright">';
 
 		designtracePrintEcoCustomerRequest($object);
+		designtracePrintEcoCredit($object);
 
 		designtracePrintCadTime($object);
 

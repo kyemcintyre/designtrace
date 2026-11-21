@@ -30,6 +30,7 @@ dol_include_once('/designtrace/class/licensing.class.php');
 dol_include_once('/designtrace/class/componentlink.class.php');
 dol_include_once('/designtrace/class/changerequests.class.php');
 dol_include_once('/designtrace/class/design.class.php');
+dol_include_once('/designtrace/class/credits.class.php');
 
 /**
  * Staff view of customer work
@@ -72,6 +73,7 @@ class DesignTraceStaff
 		while ($resql && ($obj = $db->fetch_object($resql))) {
 			$ids[] = (int) $obj->rowid;
 		}
+		$creditdecisions = 0;
 		$next = array(ChangeOrder::STATUS_DRAFT => 'approve', ChangeOrder::STATUS_APPROVED => 'implement', ChangeOrder::STATUS_IMPLEMENTED => 'close');
 		foreach ($ids as $id) {
 			$eco = new ChangeOrder($db);
@@ -82,7 +84,11 @@ class DesignTraceStaff
 			$ecos[] = array('id' => (int) $eco->id, 'ref' => $eco->ref, 'summary' => (string) $eco->label, 'status' => (int) $eco->status, 'next_action' => $next[(int) $eco->status],
 				'customer_request' => ((int) $info->request_type > 0), 'type' => array(0 => '', 1 => 'problem', 2 => 'change')[(int) $info->request_type], 'socid' => (int) $eco->fk_soc,
 				'requested_by' => (string) $info->requested_by, 'round' => (int) $info->round, 'shareable' => ((int) $info->shareable === 1), 'ticket_id' => (int) $info->fk_ticket,
-				'quote_id' => (int) $info->fk_propal, 'waiting_for_quote' => !$eco->isQuoteSettled(), 'date_creation' => (int) $eco->date_creation);
+				'quote_id' => (int) $info->fk_propal, 'waiting_for_quote' => !$eco->isQuoteSettled(), 'date_creation' => (int) $eco->date_creation,
+				'credit_decision' => ((int) $eco->status === ChangeOrder::STATUS_DRAFT && ($creditctx = DesignTraceCredits::getEcoContext($eco)) !== null && $creditctx['outcome'] === DesignTraceCredits::OUTCOME_NONE));
+			if (!empty($ecos[count($ecos) - 1]['credit_decision'])) {
+				$creditdecisions++;
+			}
 		}
 		usort($ecos, function ($a, $b) {
 			return ($b['customer_request'] <=> $a['customer_request']) ?: ($a['date_creation'] <=> $b['date_creation']);
@@ -133,13 +139,26 @@ class DesignTraceStaff
 				'declined_with' => ($obj->customer_approval_by === null || $obj->customer_approval_by === '' ? ($obj->declined_with !== null ? (string) $obj->declined_with : null) : null));
 		}
 
+		// Grants running out within 30 days with credits left
+		$creditsexpiring = array();
+		$sql = "SELECT g.rowid, g.fk_design, g.date_expiry, d.ref as design_ref, d.fk_soc, s.nom as socname FROM ".$db->prefix()."designtrace_creditgrant as g INNER JOIN ".$db->prefix()."designtrace_design as d ON d.rowid = g.fk_design LEFT JOIN ".$db->prefix()."societe as s ON s.rowid = d.fk_soc";
+		$sql .= " WHERE g.status = ".((int) DesignTraceCredits::STATUS_ACTIVE)." AND g.date_expiry IS NOT NULL AND g.date_expiry <= '".$db->idate(dol_now() + 30 * 86400)."'".$hiddensql." ORDER BY g.date_expiry";
+		$resql = $db->query($sql);
+		while ($resql && ($obj = $db->fetch_object($resql))) {
+			$left = DesignTraceCredits::grantRemaining($db, (int) $obj->rowid);
+			if ($left > 0) {
+				$creditsexpiring[] = array('grant_id' => (int) $obj->rowid, 'design_id' => (int) $obj->fk_design, 'design_ref' => $obj->design_ref, 'socid' => (int) $obj->fk_soc, 'customer' => (string) $obj->socname, 'credits' => $left, 'date_expiry' => (int) $db->jdate($obj->date_expiry));
+			}
+		}
+
 		return array(
 			'approvals' => $approvals,
 			'declined' => $declined,
 			'ecos' => $ecos,
 			'licences' => $licences,
 			'needs_update' => $needsupdate,
-			'counts' => array('approvals' => count($approvals), 'ecos' => count($ecos), 'licences' => count($licences), 'needs_update' => count($needsupdate), 'declined' => count($declined)),
+			'credits_expiring' => $creditsexpiring,
+			'counts' => array('approvals' => count($approvals), 'ecos' => count($ecos), 'licences' => count($licences), 'needs_update' => count($needsupdate), 'declined' => count($declined), 'credit_decisions' => $creditdecisions, 'credits_expiring' => count($creditsexpiring)),
 		);
 	}
 
@@ -421,7 +440,22 @@ class DesignTraceStaff
 			}
 			return $rows;
 		};
-		return array('from' => (int) $from, 'to' => (int) $to, 'approval_turnaround' => $turnaround, 'eco_cycle_time' => $cycle,
+		// Revision credits in the period: granted, used, expired and billed overages by type, and credits outstanding now
+		$credits = array('granted' => 0, 'used' => 0, 'expired' => 0, 'waived' => 0, 'billed' => 0, 'outstanding' => 0);
+		$sql = "SELECT l.type, SUM(l.amount) as total, COUNT(*) as n FROM ".$db->prefix()."designtrace_creditledger as l INNER JOIN ".$db->prefix()."designtrace_design as d ON d.rowid = l.fk_design";
+		$sql .= " WHERE l.date_creation >= ".$fromsql." AND l.date_creation <= ".$tosql.(empty($hidden) ? '' : " AND d.rowid NOT IN (".$db->sanitize(implode(',', array_map('intval', $hidden))).")")." GROUP BY l.type";
+		$resql = $db->query($sql);
+		while ($resql && ($obj = $db->fetch_object($resql))) {
+			$map = array('grant' => 'granted', 'use' => 'used', 'expire' => 'expired', 'waive' => 'waived', 'overage' => 'billed');
+			if (isset($map[$obj->type])) {
+				$credits[$map[$obj->type]] = ($obj->type === 'grant' || $obj->type === 'waive' || $obj->type === 'overage') ? (int) ($obj->type === 'grant' ? $obj->total : $obj->n) : abs((int) $obj->total);
+			}
+		}
+		$resql = $db->query("SELECT SUM(l.amount) as total FROM ".$db->prefix()."designtrace_creditledger as l INNER JOIN ".$db->prefix()."designtrace_design as d ON d.rowid = l.fk_design".(empty($hidden) ? '' : " WHERE d.rowid NOT IN (".$db->sanitize(implode(',', array_map('intval', $hidden))).")"));
+		$obj = $resql ? $db->fetch_object($resql) : null;
+		$credits['outstanding'] = $obj ? (int) $obj->total : 0;
+
+		return array('from' => (int) $from, 'to' => (int) $to, 'credits' => $credits, 'approval_turnaround' => $turnaround, 'eco_cycle_time' => $cycle,
 			'designs_delivered_per_month' => $permonth($delivered), 'revisions_released_per_month' => $permonth($released), 'cad_hours_per_design' => $hours);
 	}
 

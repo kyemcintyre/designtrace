@@ -439,6 +439,28 @@ no automated emails). Reference for the Go side: `designtrace/API.md`.
   needs-approval are ordinary card fields. A customer's reference file is saved on the ECO and copied to the ticket's
   Documents tab. Moving a pin to another revision is done through the staff API only.
 
+## Revision credits (issue #21)
+
+A per-design allowance of small post-delivery changes, a client-visible ledger. `class/credits.class.php`
+(`DesignTraceCredits`), tables `llx_designtrace_creditgrant` and `_creditledger`, `design.cad_tier`, ECO columns
+`credit_*`, UI in `lib/designtrace_credits.lib.php`.
+
+- **Dormant until first delivery** (`DesignTraceLibrary::getDeliveredRevisionIds`): `sync()` activates grants, writes the
+  `grant` ledger row, expires past-due grants (`expire` row). Balance is the sum of the ledger. Idempotent.
+- **In the scheme** when the design has a `cad_tier` or any grant (`isEnabled`). Other ECOs approve as before.
+- **The ECO is the transaction.** Approving a customer request on a delivered revision needs a decision (`decide()`):
+  use (minor, balance >= 1, soonest-expiring first), bill (hourly at the tier's CAD rate) or waive (public reason).
+  Staff may reclassify the size with a public reason. Problems are free unless staff mark them billable. One credit per
+  ECO; later rounds are free unless `charge-round`. Staff pick the design on a multi-design ECO. Cancel or back to Draft
+  from Approved refunds.
+- **Customer request** (`report()`): `size` and `rate_ack` are required for a change after delivery (`size_required`,
+  `bad_size`, `rate_ack_required` when it would be billed).
+- **Grants**: default per tier on design validation, extra from order lines (product extrafields `designtrace_credits`,
+  `designtrace_credit_months`) on ORDER_CLOSE; ORDER_CANCEL and a credit note reverse only the unused part. Expiry 0/1/3/6/12
+  months from activation, date editable. Manual adjustments need a public reason; notes are public or internal (staff only).
+- Rights `credit read/write/adjust`; settings `DESIGNTRACE_CREDITS_DEFAULT_*` and `DESIGNTRACE_CREDIT_RATE_PRODUCT_1/2`
+  (Dolibarr services whose price is shown). No migration: existing designs get adjustments by hand.
+
 ## Module Builder pitfalls (24.0.2)
 
 New objects can be generated without the GUI by POSTing Module Builder's `initobject` form

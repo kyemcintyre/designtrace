@@ -26,6 +26,7 @@
 // Put here all includes required by your class file
 require_once DOL_DOCUMENT_ROOT.'/core/class/commonobject.class.php';
 dol_include_once('/designtrace/class/componentrevision.class.php');
+dol_include_once('/designtrace/class/credits.class.php');
 
 /**
  * Class for ChangeOrder
@@ -88,6 +89,9 @@ class ChangeOrder extends CommonObject
 	/**
 	 * Reasons for a change
 	 */
+	/** @var string Credit code (see DesignTraceCredits::decide()) when approve() was refused over revision credits */
+	public $credit_error = '';
+
 	const REQUEST_NONE = 0;			// Raised by staff
 	const REQUEST_PROBLEM = 1;		// Customer reported a defect
 	const REQUEST_CHANGE = 2;		// Customer asked for a change
@@ -276,11 +280,12 @@ class ChangeOrder extends CommonObject
 	/**
 	 * What the ECO knows about a customer request and its sharing (columns outside the Module Builder fields)
 	 *
-	 * @return	stdClass|null	shareable, request_type, requested_by, fk_revision_source, fk_ticket, fk_order_source, fk_propal, round
+	 * @return	stdClass|null	shareable, request_type, requested_by, fk_revision_source, fk_ticket, fk_order_source, fk_propal, round,
+	 *									credit_size_requested, credit_size, credit_outcome, fk_credit_design, credit_rate_label, credit_rate_amount
 	 */
 	public function getRequestInfo()
 	{
-		$resql = $this->db->query("SELECT shareable, request_type, requested_by, fk_revision_source, fk_ticket, fk_order_source, fk_propal, round FROM ".$this->db->prefix().$this->table_element." WHERE rowid = ".((int) $this->id));
+		$resql = $this->db->query("SELECT shareable, request_type, requested_by, fk_revision_source, fk_ticket, fk_order_source, fk_propal, round, credit_size_requested, credit_size, credit_outcome, fk_credit_design, credit_rate_label, credit_rate_amount FROM ".$this->db->prefix().$this->table_element." WHERE rowid = ".((int) $this->id));
 		$obj = $resql ? $this->db->fetch_object($resql) : null;
 		return $obj ?: null;
 	}
@@ -306,6 +311,25 @@ class ChangeOrder extends CommonObject
 		// The opening entry of the timeline is the customer's, not the service user's
 		$this->db->query("UPDATE ".$this->db->prefix()."designtrace_changeorder_event SET actor = '".$this->db->escape(dol_trunc($actor, 128, 'right', 'UTF-8', 1))."' WHERE fk_eco = ".((int) $this->id)." AND type = 'opened'");
 		return 1;
+	}
+
+	/**
+	 * Keep what the customer was shown and agreed to when asking for a post-delivery change: the size they
+	 * chose and the CAD rate they acknowledged (a snapshot, so a later rate change does not rewrite it)
+	 *
+	 * @param	int				$size			DesignTraceCredits::SIZE_*
+	 * @param	array|null		$rate			label and amount_excl_tax of the rate shown, null = none
+	 * @param	bool			$acknowledged	The customer ticked the rate
+	 * @param	int				$designid		Design whose allowance applies
+	 * @return	int							>0 if OK, <0 if KO
+	 */
+	public function setCreditRequest($size, $rate, $acknowledged, $designid)
+	{
+		$sql = "UPDATE ".$this->db->prefix().$this->table_element." SET credit_size_requested = ".((int) $size).", fk_credit_design = ".((int) $designid > 0 ? (int) $designid : 'NULL');
+		$sql .= ", credit_rate_label = ".(!empty($rate['label']) ? "'".$this->db->escape(dol_trunc($rate['label'], 64, 'right', 'UTF-8', 1))."'" : 'NULL');
+		$sql .= ", credit_rate_amount = ".(isset($rate['amount_excl_tax']) && $rate['amount_excl_tax'] !== null ? (float) $rate['amount_excl_tax'] : 'NULL');
+		$sql .= ", credit_rate_ack_date = ".($acknowledged ? "'".$this->db->idate(dol_now())."'" : 'NULL')." WHERE rowid = ".((int) $this->id);
+		return $this->db->query($sql) ? 1 : $this->setErrorAndFail($this->db->lasterror());
 	}
 
 	/**
@@ -769,9 +793,10 @@ class ChangeOrder extends CommonObject
 	 *
 	 * @param	User		$user		User approving
 	 * @param	int<0,1>	$notrigger	1=Does not execute triggers
-	 * @return	int						<0 if KO, 0 if nothing done, >0 if OK
+	 * @param	array|null	$credit		Revision credit decision (see DesignTraceCredits::decide()); needed for a post-delivery customer change
+	 * @return	int						<0 if KO (credit_error holds the credit code when that was the reason), 0 if nothing done, >0 if OK
 	 */
-	public function approve($user, $notrigger = 0)
+	public function approve($user, $notrigger = 0, $credit = null)
 	{
 		global $langs;
 
@@ -789,6 +814,13 @@ class ChangeOrder extends CommonObject
 			return $this->setErrorAndFail($langs->trans('ErrorEcoWaitsForQuote', $this->ref));
 		}
 		$this->db->begin();
+		// A post-delivery customer change is where a revision credit is used, waived or billed
+		$creditError = '';
+		if (DesignTraceCredits::decide($this, 'staff:'.$user->login, $credit, $creditError) < 0) {
+			$this->db->rollback();
+			$this->credit_error = $creditError;
+			return $this->setErrorAndFail($langs->trans('ErrorEcoCredit_'.$creditError));
+		}
 		$now = dol_now();
 		$sql = "UPDATE ".$this->db->prefix().$this->table_element." SET fk_user_approve = ".((int) $user->id).", date_approve = '".$this->db->idate($now)."'";
 		$sql .= " WHERE rowid = ".((int) $this->id);
@@ -822,6 +854,7 @@ class ChangeOrder extends CommonObject
 		if (!in_array((int) $this->status, array(self::STATUS_APPROVED, self::STATUS_CANCELED), true)) {
 			return 0;
 		}
+		$wasStatus = (int) $this->status;
 		$released = $this->fetchRevisions(array(ComponentRevision::STATUS_RELEASED));
 		if ((int) $this->status === self::STATUS_APPROVED && !empty($released)) {
 			return $this->setErrorAndFail($langs->trans('ErrorEcoHasReleasedRevisions', $this->ref, implode(', ', array_map(function ($r) {
@@ -835,7 +868,7 @@ class ChangeOrder extends CommonObject
 			return $this->setErrorAndFail($this->db->lasterror());
 		}
 		$result = $this->setStatusCommon($user, self::STATUS_DRAFT, $notrigger, 'DESIGNTRACE_CHANGEORDER_UNVALIDATE');
-		if ($result <= 0) {
+		if ($result <= 0 || ((int) $wasStatus === self::STATUS_APPROVED && DesignTraceCredits::refundForEco($this, 'staff:'.$user->login) < 0)) {
 			$this->db->rollback();
 			return -1;
 		}
@@ -901,7 +934,17 @@ class ChangeOrder extends CommonObject
 				return $r->ref;
 			}, $released))));
 		}
-		return $this->setStatusCommon($user, self::STATUS_CANCELED, $notrigger, 'DESIGNTRACE_CHANGEORDER_CANCEL');
+		$this->db->begin();
+		$result = $this->setStatusCommon($user, self::STATUS_CANCELED, $notrigger, 'DESIGNTRACE_CHANGEORDER_CANCEL');
+		if ($result > 0 && DesignTraceCredits::refundForEco($this, 'staff:'.$user->login) < 0) {
+			$result = -1;
+		}
+		if ($result <= 0) {
+			$this->db->rollback();
+			return $result;
+		}
+		$this->db->commit();
+		return $result;
 	}
 
 	/**

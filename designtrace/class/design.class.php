@@ -959,6 +959,15 @@ class Design extends CommonObject
 			$this->status = self::STATUS_VALIDATED;
 		}
 
+		// A design with a customer gets its default revision credits (dormant until it is first delivered)
+		if (!$error) {
+			dol_include_once('/designtrace/class/credits.class.php');
+			if (DesignTraceCredits::createDefaultGrant($this->db, (int) $this->id, (int) $user->id) < 0) {
+				$this->error = $this->db->lasterror();
+				$error++;
+			}
+		}
+
 		if (!$error) {
 			$this->db->commit();
 			return 1;

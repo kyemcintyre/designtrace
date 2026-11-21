@@ -144,7 +144,7 @@ function designtraceDoEcoActions($action, $object, $user)
 		list($method, $allowed, $message) = $steps[$action];
 		if (!$allowed) {
 			setEventMessages($langs->trans('NotEnoughPermissions'), null, 'errors');
-		} elseif ($object->$method($user) > 0) {
+		} elseif (($action === 'eco_approve' ? $object->approve($user, 0, (GETPOST('credit_outcome', 'aZ09') !== '' ? designtraceCreditFromPost() : null)) : $object->$method($user)) > 0) {
 			setEventMessages($langs->trans($message, $object->ref), null, 'mesgs');
 		} elseif (!empty($object->error) || !empty($object->errors)) {
 			setEventMessages($object->error, $object->errors, 'errors');

@@ -219,6 +219,31 @@ design the user cannot see is `404`. Nothing here emails a customer.
 | `POST staff/licences/force-reacceptance` | licence write | Body `design_id`, `socid` (0 = every customer). Records and PDFs stay. |
 | `GET staff/metrics[?from&to]` | design + revision read | Default last 12 months: `approval_turnaround` and `eco_cycle_time` (`count`, `average_seconds`, `average_days`), `designs_delivered_per_month`, `revisions_released_per_month`, `cad_hours_per_design`. Turnaround counts revisions that went to review, and cycle time ECOs that were closed, since the module began stamping those dates. |
 
+## Revision credits
+
+A design with a CAD rate (`cad_tier`) or any credit grant has a per-design allowance of small changes after
+first delivery (a closed linked order or a grant). Credits are dormant until then. The ledger is client-visible.
+
+| Call | Notes |
+|---|---|
+| `GET customers/{socid}/designs/{designid}/credits` | `{ enabled: false }` when the design is outside the scheme, else `design_id`, `tier` (`hobby`/`commercial`), `rate` (`label`, `amount_excl_tax`, `unit`, `currency`), `balance`, `waiting_for_delivery`, `next_expiry`, `grants` and `ledger` (newest first; each row `type`, `amount`, `balance_after`, `eco_ref`, public `note`). Internal notes never appear. Library items also carry a `credits` summary. |
+| `POST customers/{socid}/design-requests` | A change to a delivered design takes `size` (`minor`/`major`) and `rate_ack` (true once the customer has seen the CAD rate). `400` `size_required`, `bad_size`, `rate_ack_required` (when it would be billed). ECO details carry `credit` (`size_requested`, `size`, `outcome`: `none`/`credit`/`waived`/`billed`, `public_note`, `rate`). |
+
+Staff (own key; rights `credit read/write/adjust`):
+
+| Call | Right | Notes |
+|---|---|---|
+| `POST staff/ecos/{id}/approve` | changeorder approve | A customer request on a delivered design needs body `credit`: `outcome` (`use`/`bill`/`waive`; problems also `none`), `size`, `design_id` (multi-design ECOs), `public_note`, `internal_note`. `409` with `credit_decision_required`, `credit_insufficient`, `credit_major_not_allowed`, `credit_reason_required` (waive, reclassify) or `credit_design_invalid` as the message prefix. |
+| `POST staff/ecos/{id}/charge-round` | changeorder approve | Body `public_note`, `internal_note`: charge another credit (or bill) for a later round. |
+| `GET staff/designs/{id}/credits` | credit read | As the customer's, plus internal notes, actors and grant origins. |
+| `POST staff/designs/{id}/credits/grants` | credit write | `credits`, `expiry_months` (0, 1, 3, 6 or 12), `public_note`, `internal_note`. |
+| `POST staff/credits/grants/{id}/expiry` | credit write | `expiry` (unix timestamp or empty for never), notes. |
+| `POST staff/credits/grants/{id}/allocate` | credit write | Give order credits awaiting a design to this design's customer design. |
+| `POST staff/designs/{id}/credits/adjust` | credit adjust | `amount` (negative to remove), `expiry_months`, `public_note` (required), `internal_note`. |
+| `PUT staff/designs/{id}/tier` | credit write | `tier`: `none`, `hobby`, `commercial`. |
+
+Triage counts gain `credit_decisions` and `credits_expiring`; metrics gain a `credits` block.
+
 ## A customer page in My workshop
 
 1. `GET customers/{socid}/documents`: render each document; badge it with `todo`.
