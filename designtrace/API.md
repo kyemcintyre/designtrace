@@ -227,7 +227,7 @@ first delivery (a closed linked order or a grant). Credits are dormant until the
 | Call | Notes |
 |---|---|
 | `GET customers/{socid}/designs/{designid}/credits` | `{ enabled: false }` when the design is outside the scheme, else `design_id`, `tier` (`hobby`/`commercial`), `rate` (`label`, `amount_excl_tax`, `unit`, `currency`), `balance`, `waiting_for_delivery`, `next_expiry`, `grants` and `ledger` (newest first; each row `type`, `amount`, `balance_after`, `eco_ref`, public `note`). Internal notes never appear. Library items also carry a `credits` summary. |
-| `POST customers/{socid}/design-requests` | A change to a delivered design takes `size` (`minor`/`major`) and `rate_ack` (true once the customer has seen the CAD rate). `400` `size_required`, `bad_size`, `rate_ack_required` (when it would be billed). ECO details carry `credit` (`size_requested`, `size`, `outcome`: `none`/`credit`/`waived`/`billed`, `public_note`, `rate`). |
+| `POST customers/{socid}/change-requests` | A change to a delivered design takes `size` (`minor`/`major`) and `rate_ack` (true once the customer has seen the CAD rate). `400` `size_required`, `bad_size`, `rate_ack_required` (when it would be billed). ECO details carry `credit` (`size_requested`, `size`, `outcome`: `none`/`credit`/`waived`/`billed`, `public_note`, `rate`). |
 
 Staff (own key; rights `credit read/write/adjust`):
 
