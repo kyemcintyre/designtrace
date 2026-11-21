@@ -539,6 +539,46 @@ class DesignTraceCredits
 	}
 
 	/**
+	 * What staff need to decide an ECO's credit: the design whose allowance it would use (and the other designs of the
+	 * same customer it touches, to pick one), balances, the CAD rate and what the customer chose
+	 *
+	 * @param	ChangeOrder	$eco	Change order
+	 * @return	array<string,mixed>|null	null when credits do not apply to the ECO (see getEcoContext)
+	 */
+	public static function getDecisionContext($eco)
+	{
+		$db = $eco->db;
+		$ctx = self::getEcoContext($eco);
+		if (!$ctx) {
+			return null;
+		}
+		$ids = array((int) $ctx['design_id'] => true, (int) $ctx['source_design_id'] => true);
+		$resql = $db->query("SELECT DISTINCT c.fk_design FROM ".$db->prefix()."designtrace_changeorder_component as ec INNER JOIN ".$db->prefix()."designtrace_component as c ON c.rowid = ec.fk_component WHERE ec.fk_eco = ".((int) $eco->id));
+		while ($resql && ($obj = $db->fetch_object($resql))) {
+			$ids[(int) $obj->fk_design] = true;
+		}
+		$sizeNames = array(self::SIZE_MINOR => 'minor', self::SIZE_MAJOR => 'major');
+		$designs = array();
+		foreach (array_keys($ids) as $id) {
+			$res = $db->query("SELECT rowid, ref, label, fk_soc, cad_tier FROM ".$db->prefix()."designtrace_design WHERE rowid = ".((int) $id));
+			$d = $res ? $db->fetch_object($res) : null;
+			if (!$d || (int) $d->fk_soc !== (int) $ctx['socid'] || !self::isEnabled($db, (int) $id)) {
+				continue;
+			}
+			self::sync($db, (int) $id);
+			$designs[] = array('id' => (int) $d->rowid, 'ref' => (string) $d->ref, 'label' => (string) $d->label, 'balance' => self::getBalance($db, (int) $id),
+				'tier' => self::tierCode($d->cad_tier), 'rate' => self::getRate($db, (int) $d->cad_tier));
+		}
+		return array(
+			'design_id' => (int) $ctx['design_id'],
+			'type' => $ctx['type'],
+			'size_requested' => $sizeNames[(int) $ctx['size_requested']] ?? '',
+			'outcome' => $ctx['outcome'],
+			'designs' => $designs,
+		);
+	}
+
+	/**
 	 * What the form should offer: the outcome the rules lead to for a change of this size
 	 *
 	 * @param	DoliDB	$db			Database handler

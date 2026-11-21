@@ -242,7 +242,7 @@ Staff (own key; rights `credit read/write/adjust`):
 | `POST staff/designs/{id}/credits/adjust` | credit adjust | `amount` (negative to remove), `expiry_months`, `public_note` (required), `internal_note`. |
 | `PUT staff/designs/{id}/tier` | credit write | `tier`: `none`, `hobby`, `commercial`. |
 
-Triage counts gain `credit_decisions` and `credits_expiring`; metrics gain a `credits` block.
+Triage counts gain `credit_decisions` and `credits_expiring`; metrics gain a `credits` block. A triage ECO row carries `credit_decision` and, while one is pending, `credit`: `design_id` (whose allowance it would use), `type`, `size_requested`, `outcome` and `designs` (that design and the customer's other enabled designs the ECO touches: `id`, `ref`, `label`, `balance`, `tier`, `rate`) for the decision form.
 
 ## A customer page in My workshop
 

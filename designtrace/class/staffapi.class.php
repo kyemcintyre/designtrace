@@ -85,7 +85,11 @@ class DesignTraceStaff
 				'customer_request' => ((int) $info->request_type > 0), 'type' => array(0 => '', 1 => 'problem', 2 => 'change')[(int) $info->request_type], 'socid' => (int) $eco->fk_soc,
 				'requested_by' => (string) $info->requested_by, 'round' => (int) $info->round, 'shareable' => ((int) $info->shareable === 1), 'ticket_id' => (int) $info->fk_ticket,
 				'quote_id' => (int) $info->fk_propal, 'waiting_for_quote' => !$eco->isQuoteSettled(), 'date_creation' => (int) $eco->date_creation,
-				'credit_decision' => ((int) $eco->status === ChangeOrder::STATUS_DRAFT && ($creditctx = DesignTraceCredits::getEcoContext($eco)) !== null && $creditctx['outcome'] === DesignTraceCredits::OUTCOME_NONE));
+				'credit_decision' => false, 'credit' => null);
+			if ((int) $eco->status === ChangeOrder::STATUS_DRAFT && ($creditctx = DesignTraceCredits::getDecisionContext($eco)) !== null && $creditctx['outcome'] === DesignTraceCredits::OUTCOME_NONE) {
+				$ecos[count($ecos) - 1]['credit_decision'] = true;
+				$ecos[count($ecos) - 1]['credit'] = $creditctx;
+			}
 			if (!empty($ecos[count($ecos) - 1]['credit_decision'])) {
 				$creditdecisions++;
 			}
