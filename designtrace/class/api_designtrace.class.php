@@ -48,6 +48,7 @@ dol_include_once('/designtrace/class/approvals.class.php');
 dol_include_once('/designtrace/class/changerequests.class.php');
 dol_include_once('/designtrace/class/staffapi.class.php');
 dol_include_once('/designtrace/class/doclinks.class.php');
+dol_include_once('/designtrace/class/credits.class.php');
 
 /**
  * API class for DesignTrace customer files (named DesignTrace so the endpoints are /designtrace/...)
@@ -1421,6 +1422,8 @@ class DesignTrace extends DolibarrApi
 	 * @param	int		$order_id		Problems only: an order that delivered the revision {@from body}
 	 * @param	string	$actor			Who asks, for the log {@from body}
 	 * @param	string	$client_ip		Customer's IP address as seen by the calling backend, recorded on the ticket {@from body}
+	 * @param	string	$size			minor (a small adjustment or fit change) or major: needed for a change to a design already delivered that is under revision credits {@from body}
+	 * @param	bool	$rate_ack		The customer ticked the CAD rate shown: needed when the change would be billed (major, or no credit left) {@from body}
 	 * @return	array					eco_id, eco_ref, ticket_id, ticket_ref
 	 * @phan-return array<string,mixed>
 	 * @phpstan-return array<string,mixed>
@@ -1428,15 +1431,16 @@ class DesignTrace extends DolibarrApi
 	 * @url	POST customers/{socid}/change-requests
 	 *
 	 * @throws RestException 403 Not allowed
+	 * @throws RestException 400 size_required, bad_size or rate_ack_required (revision credits)
 	 * @throws RestException 409 Not possible (revision not held, bad type, order did not deliver it...)
 	 */
-	public function reportChangeRequest($socid, $revision_id, $type, $summary, $text, $order_id = 0, $actor = '', $client_ip = '')
+	public function reportChangeRequest($socid, $revision_id, $type, $summary, $text, $order_id = 0, $actor = '', $client_ip = '', $size = '', $rate_ack = false)
 	{
 		$socid = $this->checkCustomer($socid);
 		$error = '';
-		$res = DesignTraceChangeRequests::report($this->db, DolibarrApiAccess::$user, $socid, (string) $type, (int) $revision_id, (string) $summary, (string) $text, (int) $order_id, $this->getActor($actor), $error, (string) $client_ip);
+		$res = DesignTraceChangeRequests::report($this->db, DolibarrApiAccess::$user, $socid, (string) $type, (int) $revision_id, (string) $summary, (string) $text, (int) $order_id, $this->getActor($actor), $error, (string) $client_ip, (string) $size, filter_var($rate_ack, FILTER_VALIDATE_BOOLEAN));
 		if (!is_array($res)) {
-			throw new RestException(409, $error);
+			throw new RestException(in_array($error, array('size_required', 'bad_size', 'rate_ack_required'), true) ? 400 : 409, $error);
 		}
 		return $res;
 	}
@@ -2300,7 +2304,16 @@ class DesignTrace extends DolibarrApi
 	/**
 	 * Approve an ECO (needs the right to approve change orders). Refused while its linked quote is not accepted.
 	 *
+	 * A customer's change to a design already delivered that is under revision credits needs a decision in
+	 * `credit`: outcome use (one credit, minor changes only), bill (hourly at the design's CAD rate) or waive
+	 * (free, public_note required), optionally size (minor or major: reclassifying needs a public_note),
+	 * design_id (whose allowance, default the design of the revision) and internal_note. A problem is free unless
+	 * outcome is bill. Without a needed decision it is refused with 409 `credit_decision_required`.
+	 *
 	 * @param	int		$ecoid		ECO id
+	 * @param	array	$request_data	Optional: credit (design_id, outcome, size, public_note, internal_note)
+	 * @phan-param ?array<string,mixed> $request_data
+	 * @phpstan-param ?array<string,mixed> $request_data
 	 * @return	array				status
 	 * @phan-return array<string,int>
 	 * @phpstan-return array<string,int>
@@ -2309,13 +2322,276 @@ class DesignTrace extends DolibarrApi
 	 *
 	 * @throws RestException 403 Needs the right to approve change orders
 	 * @throws RestException 404 ECO not found
-	 * @throws RestException 409 Refused, with the reason
+	 * @throws RestException 409 Refused, with the reason (credit codes first: credit_decision_required, credit_insufficient, credit_major_not_allowed, credit_reason_required, credit_design_invalid)
 	 */
-	public function approveStaffEco($ecoid)
+	public function approveStaffEco($ecoid, $request_data = null)
 	{
 		$this->checkStaff('changeorder', 'approve');
-		return $this->staffEcoAction($ecoid, 'approve');
+		// A single optional body field would receive the whole body in Restler: read it from the array
+		$credit = (is_array($request_data) && isset($request_data['credit']) && is_array($request_data['credit'])) ? $request_data['credit'] : null;
+		$eco = $this->getStaffEco($ecoid);
+		$res = $eco->approve(DolibarrApiAccess::$user, 0, $credit);
+		if ($res <= 0) {
+			throw new RestException(409, ($eco->credit_error !== '' ? $eco->credit_error.': ' : '').($eco->error ?: 'Not possible in the ECO\'s current status'));
+		}
+		return array('status' => (int) $eco->status);
 	}
+
+	/**
+	 * Charge another round of an ECO: a credit if the design has one, else it is billed. For a customer who
+	 * asks for changes again after the first round, which is otherwise free.
+	 *
+	 * @param	int		$ecoid			ECO id
+	 * @param	string	$public_note	Note the customer sees {@from body}
+	 * @param	string	$internal_note	Staff-only note {@from body}
+	 * @return	array					outcome (credit or billed)
+	 * @phan-return array<string,string>
+	 * @phpstan-return array<string,string>
+	 *
+	 * @url	POST staff/ecos/{ecoid}/charge-round
+	 *
+	 * @throws RestException 403 Needs the right to approve change orders
+	 * @throws RestException 404 ECO not found
+	 * @throws RestException 409 The ECO is not a post-delivery customer request under revision credits
+	 */
+	public function chargeStaffEcoRound($ecoid, $public_note = '', $internal_note = '')
+	{
+		$this->checkStaff('changeorder', 'approve');
+		$eco = $this->getStaffEco($ecoid);
+		$error = '';
+		$outcome = DesignTraceCredits::chargeRound($eco, 'staff:'.DolibarrApiAccess::$user->login, (string) $public_note, (string) $internal_note, $error);
+		if ($outcome === false) {
+			throw new RestException(409, $error);
+		}
+		return array('outcome' => $outcome);
+	}
+
+	/**
+	 * Revision credits of a design as a customer sees them (tier, rate, balance, grants, ledger), for a design they reach.
+	 * `enabled` is false when credits do not apply to the design.
+	 *
+	 * @param	int		$socid		Customer (third party) id
+	 * @param	int		$designid	Design id
+	 * @return	array				enabled and, when true: design_id, tier (hobby, commercial or empty), rate (label, amount_excl_tax, unit, currency), balance,
+	 *								waiting_for_delivery, next_expiry (date, credits), grants (id, credits, remaining, source, status, expiry_months,
+	 *								date_activated, date_expiry, note), ledger (id, date, type, amount, balance_after, eco_id, eco_ref, note, actor; newest first)
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET customers/{socid}/designs/{designid}/credits
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Design not found for this customer
+	 */
+	public function getDesignCredits($socid, $designid)
+	{
+		$socid = $this->checkCustomer($socid);
+		$access = DesignTraceLibrary::fetchAccess($this->db, $socid);
+		if (!isset($access[(int) $designid])) {
+			throw new RestException(404, 'Design not found for this customer');
+		}
+		$design = $this->loadDesign($designid);
+		if (!$design || (int) $design->fk_soc !== $socid || !DesignTraceCredits::isEnabled($this->db, (int) $designid)) {
+			return array('enabled' => false);
+		}
+		return array('enabled' => true) + DesignTraceCredits::fetchCredits($this->db, (int) $designid, false);
+	}
+
+	/**
+	 * Revision credits of a design for staff: as the customer sees them plus internal notes, real actors and where each grant came from
+	 *
+	 * @param	int		$id		Design id
+	 * @return	array			As the customer's, with staff-only fields (internal_note, actor, grant_id, origin_element, origin_line)
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET staff/designs/{id}/credits
+	 *
+	 * @throws RestException 403 Needs the right to read credits
+	 * @throws RestException 404 Design not found, or it has no customer
+	 */
+	public function getStaffDesignCredits($id)
+	{
+		$this->checkStaff('credit', 'read');
+		$this->getStaffDesign($id);
+		$credits = DesignTraceCredits::fetchCredits($this->db, (int) $id, true, false);
+		if (!$credits) {
+			throw new RestException(404, 'The design has no customer');
+		}
+		return array('enabled' => DesignTraceCredits::isEnabled($this->db, (int) $id)) + $credits;
+	}
+
+	/**
+	 * Grant revision credits on a design (dormant until it is first delivered)
+	 *
+	 * @param	int		$id				Design id
+	 * @param	int		$credits		Whole credits, more than 0 {@from body}
+	 * @param	int		$months			Months from first delivery until they expire: 1, 3, 6, 12 or 0 for never {@from body}
+	 * @param	string	$public_note	Note the customer sees {@from body}
+	 * @param	string	$internal_note	Staff-only note {@from body}
+	 * @return	array					grant_id
+	 * @phan-return array<string,int>
+	 * @phpstan-return array<string,int>
+	 *
+	 * @url	POST staff/designs/{id}/credits/grants
+	 *
+	 * @throws RestException 400 Bad input
+	 * @throws RestException 403 Needs the right to grant credits
+	 * @throws RestException 404 Design not found
+	 * @throws RestException 409 The design has no customer
+	 */
+	public function addStaffCreditGrant($id, $credits, $months = 0, $public_note = '', $internal_note = '')
+	{
+		$this->checkStaff('credit', 'write');
+		$design = $this->getStaffDesign($id);
+		if (!in_array((int) $months, DesignTraceCredits::EXPIRY_CHOICES, true) || (int) $credits <= 0) {
+			throw new RestException(400, 'credits must be more than 0 and months one of 0, 1, 3, 6, 12');
+		}
+		if ((int) $design->fk_soc <= 0) {
+			throw new RestException(409, 'The design has no customer');
+		}
+		$gid = DesignTraceCredits::addGrant($this->db, (int) $id, (int) $design->fk_soc, (int) $credits, (int) $months, DesignTraceCredits::SOURCE_MANUAL, (string) $public_note, (string) $internal_note, (int) DolibarrApiAccess::$user->id);
+		if ($gid <= 0) {
+			throw new RestException(500, 'Error creating the grant');
+		}
+		return array('grant_id' => $gid);
+	}
+
+	/**
+	 * Change when a credit grant runs out (any date, empty = never). A past date ends it now.
+	 *
+	 * @param	int		$grantid		Credit grant id
+	 * @param	string	$expiry			New expiry (date or timestamp), empty = never {@from body}
+	 * @param	string	$public_note	Note the customer sees in the ledger {@from body}
+	 * @param	string	$internal_note	Staff-only note {@from body}
+	 * @return	array					ok
+	 * @phan-return array<string,bool>
+	 * @phpstan-return array<string,bool>
+	 *
+	 * @url	POST staff/credits/grants/{grantid}/expiry
+	 *
+	 * @throws RestException 403 Needs the right to grant credits
+	 * @throws RestException 404 Grant not found
+	 * @throws RestException 409 The grant has ended
+	 */
+	public function setStaffCreditGrantExpiry($grantid, $expiry = '', $public_note = '', $internal_note = '')
+	{
+		$this->checkStaff('credit', 'write');
+		$this->getStaffCreditGrant($grantid);
+		$res = DesignTraceCredits::setExpiry($this->db, (int) $grantid, $this->parseDate($expiry), 'staff:'.DolibarrApiAccess::$user->login, (string) $public_note, (string) $internal_note);
+		if ($res < 0) {
+			throw new RestException($res === -3 ? 409 : 500, $res === -3 ? 'The grant has ended' : 'Error changing the expiry');
+		}
+		return array('ok' => true);
+	}
+
+	/**
+	 * Say which design an order's credits are for, when the order covered several designs
+	 *
+	 * @param	int		$grantid	Credit grant id (waiting: no design yet)
+	 * @param	int		$design_id	Design of the same customer {@from body}
+	 * @return	array				ok
+	 * @phan-return array<string,bool>
+	 * @phpstan-return array<string,bool>
+	 *
+	 * @url	POST staff/credits/grants/{grantid}/allocate
+	 *
+	 * @throws RestException 403 Needs the right to grant credits
+	 * @throws RestException 409 Not waiting for a design, or the design is another customer's
+	 */
+	public function allocateStaffCreditGrant($grantid, $design_id)
+	{
+		$this->checkStaff('credit', 'write');
+		$this->getStaffDesign($design_id);
+		$res = DesignTraceCredits::allocate($this->db, (int) $grantid, (int) $design_id);
+		if ($res < 0) {
+			throw new RestException(409, 'The grant is not waiting for a design, or the design belongs to another customer');
+		}
+		return array('ok' => true);
+	}
+
+	/**
+	 * Adjust the credit balance by hand: positive adds a manual grant (months sets its expiry), negative takes
+	 * credits from the grants that run out first. A public note (the reason) is required.
+	 *
+	 * @param	int		$id				Design id
+	 * @param	int		$amount			Whole credits, not 0 {@from body}
+	 * @param	string	$public_note	Reason the customer sees {@from body}
+	 * @param	int		$months			Expiry of added credits, 1, 3, 6, 12 or 0 for never {@from body}
+	 * @param	string	$internal_note	Staff-only note {@from body}
+	 * @return	array					balance
+	 * @phan-return array<string,int>
+	 * @phpstan-return array<string,int>
+	 *
+	 * @url	POST staff/designs/{id}/credits/adjust
+	 *
+	 * @throws RestException 400 Bad input
+	 * @throws RestException 403 Needs the right to adjust credits
+	 * @throws RestException 409 Not enough credits to take, or the design has no customer
+	 */
+	public function adjustStaffDesignCredits($id, $amount, $public_note, $months = 0, $internal_note = '')
+	{
+		$this->checkStaff('credit', 'adjust');
+		$this->getStaffDesign($id);
+		if (!in_array((int) $months, DesignTraceCredits::EXPIRY_CHOICES, true)) {
+			throw new RestException(400, 'months must be one of 0, 1, 3, 6, 12');
+		}
+		$res = DesignTraceCredits::adjust($this->db, (int) $id, (int) $amount, (int) $months, (string) $public_note, (string) $internal_note, 'staff:'.DolibarrApiAccess::$user->login, (int) DolibarrApiAccess::$user->id);
+		if ($res === -2) {
+			throw new RestException(400, 'An amount other than 0 and a reason for the customer are required');
+		}
+		if ($res < 0) {
+			throw new RestException(409, $res === -3 ? 'The design has fewer credits than that' : 'The design has no customer');
+		}
+		return array('balance' => DesignTraceCredits::getBalance($this->db, (int) $id));
+	}
+
+	/**
+	 * Set which CAD rate applies to a design (hobby, commercial or none)
+	 *
+	 * @param	int		$id		Design id
+	 * @param	string	$tier	hobby, commercial or none {@from body}
+	 * @return	array			tier
+	 * @phan-return array<string,string>
+	 * @phpstan-return array<string,string>
+	 *
+	 * @url	PUT staff/designs/{id}/tier
+	 *
+	 * @throws RestException 400 Bad tier
+	 * @throws RestException 403 Needs the right to grant credits
+	 */
+	public function setStaffDesignTier($id, $tier)
+	{
+		$this->checkStaff('credit', 'write');
+		$this->getStaffDesign($id);
+		$none = (strtolower((string) $tier) === 'none');
+		$value = ($none ? DesignTraceCredits::TIER_NONE : DesignTraceCredits::tierFromCode($tier));
+		if (!$none && $value === DesignTraceCredits::TIER_NONE) {
+			throw new RestException(400, 'tier must be hobby, commercial or none');
+		}
+		if (DesignTraceCredits::setTier($this->db, (int) $id, $value) < 0) {
+			throw new RestException(500, 'Error setting the tier');
+		}
+		return array('tier' => DesignTraceCredits::tierCode($value));
+	}
+
+	/**
+	 * @param	int		$grantid	Credit grant id
+	 * @return	stdClass
+	 */
+	private function getStaffCreditGrant($grantid)
+	{
+		$resql = $this->db->query("SELECT rowid, fk_design FROM ".$this->db->prefix()."designtrace_creditgrant WHERE rowid = ".((int) $grantid));
+		$grant = $resql ? $this->db->fetch_object($resql) : null;
+		if (!$grant) {
+			throw new RestException(404, 'Grant not found');
+		}
+		if ((int) $grant->fk_design > 0) {
+			$this->getStaffDesign((int) $grant->fk_design);
+		}
+		return $grant;
+	}
+
 
 	/**
 	 * Mark an approved ECO implemented

@@ -65,6 +65,10 @@ class InterfaceDesignTraceTriggers extends DolibarrTriggers
 			dol_include_once('/designtrace/class/orderclosing.class.php');
 			return DesignTraceOrderClosing::closePaidOrders($this->db, $user, $object) ? 1 : 0;
 		}
+		// Revision credits: an order's credits start when it closes and are taken back, unused part only, when it is cancelled or its invoice credited
+		if ($action === 'ORDER_CLOSE' || $action === 'ORDER_CANCEL' || $action === 'BILL_VALIDATE') {
+			return $this->runCreditTrigger($action, $object, $user);
+		}
 		if ($action !== 'ORDER_CREATE' && $action !== 'BILL_CREATE') {
 			return 0;
 		}
@@ -101,5 +105,39 @@ class InterfaceDesignTraceTriggers extends DolibarrTriggers
 		}
 
 		return $result > 0 ? 1 : 0;
+	}
+
+	/**
+	 * Revision credits bought on orders (see DesignTraceCredits)
+	 *
+	 * @param	string			$action		ORDER_CLOSE, ORDER_CANCEL or BILL_VALIDATE
+	 * @param	CommonObject	$object		Order, or invoice
+	 * @param	User			$user		User
+	 * @return	int						<0 if KO, 0 if nothing to do, >0 if OK
+	 */
+	private function runCreditTrigger($action, $object, User $user)
+	{
+		dol_include_once('/designtrace/class/credits.class.php');
+		$actor = 'staff:'.$user->login;
+		if ($action === 'ORDER_CLOSE') {
+			$result = DesignTraceCredits::grantFromOrder($this->db, $object, (int) $user->id);
+			return $result < 0 ? -1 : ($result > 0 ? 1 : 0);
+		}
+		$orderids = array();
+		if ($action === 'ORDER_CANCEL') {
+			$orderids[] = (int) $object->id;
+		} elseif ((int) $object->type === 2 && !empty($object->fk_facture_source)) {
+			// A credit note against an invoice made from orders
+			$resql = $this->db->query("SELECT fk_source FROM ".$this->db->prefix()."element_element WHERE sourcetype = 'commande' AND targettype = 'facture' AND fk_target = ".((int) $object->fk_facture_source));
+			while ($resql && ($obj = $this->db->fetch_object($resql))) {
+				$orderids[] = (int) $obj->fk_source;
+			}
+		}
+		foreach ($orderids as $orderid) {
+			if (DesignTraceCredits::reverseForOrder($this->db, $orderid, $actor) < 0) {
+				return -1;
+			}
+		}
+		return empty($orderids) ? 0 : 1;
 	}
 }

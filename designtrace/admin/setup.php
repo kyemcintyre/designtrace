@@ -137,6 +137,22 @@ $item->helpText = $langs->trans('DESIGNTRACE_RELEASE_REQUIRES_ECOTooltip');
 $item = $formSetup->newItem('DESIGNTRACE_CLOSE_PAID_DESIGN_ORDERS')->setAsYesNo();
 $item->helpText = $langs->trans('DESIGNTRACE_CLOSE_PAID_DESIGN_ORDERSTooltip');
 
+// Revision credits: defaults for a new design with a customer, and the two CAD rates (Dolibarr services, price per hour)
+$formSetup->newItem('RevisionCreditsSetup')->setAsTitle();
+$item = $formSetup->newItem('DESIGNTRACE_CREDITS_DEFAULT_TIER')->setAsSelect(array('0' => $langs->trans('CreditTierNone'), '1' => $langs->trans('CreditTierHobby'), '2' => $langs->trans('CreditTierCommercial')));
+$item->helpText = $langs->trans('DESIGNTRACE_CREDITS_DEFAULT_TIERTooltip');
+foreach (array('DESIGNTRACE_CREDITS_DEFAULT_HOBBY', 'DESIGNTRACE_CREDITS_DEFAULT_COMMERCIAL') as $key) {
+	$item = $formSetup->newItem($key);
+	$item->fieldAttr['placeholder'] = '0';
+	$item->helpText = $langs->trans($key.'Tooltip');
+}
+$item = $formSetup->newItem('DESIGNTRACE_CREDITS_DEFAULT_MONTHS')->setAsSelect(array('0' => $langs->trans('CreditNeverExpires'), '1' => '1', '3' => '3', '6' => '6', '12' => '12'));
+$item->helpText = $langs->trans('DESIGNTRACE_CREDITS_DEFAULT_MONTHSTooltip');
+foreach (array('DESIGNTRACE_CREDIT_RATE_PRODUCT_1', 'DESIGNTRACE_CREDIT_RATE_PRODUCT_2') as $key) {
+	$item = $formSetup->newItem($key);
+	$item->helpText = $langs->trans($key.'Tooltip');
+}
+
 // Server limit: smallest of upload_max_filesize and post_max_size
 $phplimit = 0;
 foreach (array('upload_max_filesize', 'post_max_size') as $inikey) {

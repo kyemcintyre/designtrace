@@ -33,3 +33,12 @@ ALTER TABLE llx_designtrace_changeorder ADD COLUMN fk_ticket integer;
 ALTER TABLE llx_designtrace_changeorder ADD COLUMN fk_order_source integer;
 ALTER TABLE llx_designtrace_changeorder ADD COLUMN fk_propal integer;
 ALTER TABLE llx_designtrace_changeorder ADD COLUMN date_closed datetime;
+
+-- Revision credits: size asked for and decided, the outcome, the design whose allowance is used, the rate shown and acknowledged
+ALTER TABLE llx_designtrace_changeorder ADD COLUMN credit_size_requested smallint DEFAULT 0 NOT NULL;
+ALTER TABLE llx_designtrace_changeorder ADD COLUMN credit_size smallint DEFAULT 0 NOT NULL;
+ALTER TABLE llx_designtrace_changeorder ADD COLUMN credit_outcome varchar(8) DEFAULT 'none' NOT NULL;
+ALTER TABLE llx_designtrace_changeorder ADD COLUMN fk_credit_design integer;
+ALTER TABLE llx_designtrace_changeorder ADD COLUMN credit_rate_ack_date datetime;
+ALTER TABLE llx_designtrace_changeorder ADD COLUMN credit_rate_label varchar(64);
+ALTER TABLE llx_designtrace_changeorder ADD COLUMN credit_rate_amount double(24,8);

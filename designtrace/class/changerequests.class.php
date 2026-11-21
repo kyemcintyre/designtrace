@@ -32,6 +32,7 @@ require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
 dol_include_once('/designtrace/class/changeorder.class.php');
 dol_include_once('/designtrace/class/clientaccess.class.php');
 dol_include_once('/designtrace/class/componentrevision.class.php');
+dol_include_once('/designtrace/class/credits.class.php');
 dol_include_once('/designtrace/class/designlibrary.class.php');
 dol_include_once('/designtrace/class/proofapproval.class.php');
 dol_include_once('/designtrace/class/revisionfile.class.php');
@@ -84,9 +85,11 @@ class DesignTraceChangeRequests
 	 * @param	string	$actor		Who asks
 	 * @param	string	$error		Error message if KO
 	 * @param	?string	$ip			Customer's IP as seen by a proxying backend (stored on the ticket)
+	 * @param	string	$size		minor or major: needed for a change to a design already delivered under revision credits
+	 * @param	bool	$rateAck	The customer ticked the CAD rate shown (needed when the change would be billed); a refusal sets $error to size_required, bad_size or rate_ack_required
 	 * @return	array{eco_id:int,eco_ref:string,ticket_id:int,ticket_ref:string}|int	-1 if KO
 	 */
-	public static function report($db, $user, $socid, $type, $revid, $summary, $text, $orderid, $actor, &$error, $ip = null)
+	public static function report($db, $user, $socid, $type, $revid, $summary, $text, $orderid, $actor, &$error, $ip = null, $size = '', $rateAck = false)
 	{
 		global $langs;
 
@@ -127,6 +130,12 @@ class DesignTraceChangeRequests
 			}
 		}
 
+		// After delivery a change has a size and, when it would be billed, an acknowledged rate (error is then a code)
+		$credit = DesignTraceCredits::checkRequest($db, $socid, (int) $revision->id, $type, $size, $rateAck, $error);
+		if ($credit === false) {
+			return -1;
+		}
+
 		$db->begin();
 		$ticket = new Ticket($db);
 		$ticket->ref = $ticket->getDefaultRef();
@@ -163,7 +172,8 @@ class DesignTraceChangeRequests
 		$eco->fk_project = (int) $component->fk_project;
 		$eco->description = $text;
 		$eco->linked_objects = array('ticket' => $ticket->id);		// Links the ticket and adds the component of the revision
-		if ($eco->create($user) <= 0 || $eco->markCustomerRequest($types[$type][0], $actor, (int) $revision->id, (int) $ticket->id, $orderid) < 0) {
+		if ($eco->create($user) <= 0 || $eco->markCustomerRequest($types[$type][0], $actor, (int) $revision->id, (int) $ticket->id, $orderid) < 0
+			|| (is_array($credit) && $eco->setCreditRequest($credit['size'], $credit['rate'], !empty($credit['billable']), $credit['design_id']) < 0)) {
 			$error = $eco->error ?: implode(', ', $eco->errors);
 			$db->rollback();
 			return -1;
@@ -337,6 +347,7 @@ class DesignTraceChangeRequests
 		$detail['waiting_for_quote'] = !$eco->isQuoteSettled();
 		$detail['reference_files'] = self::listReferenceFiles($eco);
 		$detail['comments'] = ($ticket ? self::listComments($db, $ticket['id']) : array());
+		$detail['credit'] = DesignTraceCredits::fetchEcoCredit($eco);
 		$detail['can_withdraw'] = ((int) $info->request_type > 0 && (int) $eco->status === ChangeOrder::STATUS_DRAFT);
 		$detail['can_attach'] = ((int) $info->request_type > 0 && $eco->isOpen());
 		return $detail;

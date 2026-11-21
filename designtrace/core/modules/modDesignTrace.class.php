@@ -454,6 +454,23 @@ class modDesignTrace extends DolibarrModules
 		$this->rights[$r][5] = 'unlock';
 		$r++;
 
+		// Revision credits: see the allowance and its ledger, grant credits and set the CAD rate, correct the balance by hand
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (7 * 10) + 0 + 1);
+		$this->rights[$r][1] = 'Read revision credits of DesignTrace';
+		$this->rights[$r][4] = 'credit';
+		$this->rights[$r][5] = 'read';
+		$r++;
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (7 * 10) + 1 + 1);
+		$this->rights[$r][1] = 'Grant revision credits, change expiry and CAD tier of DesignTrace';
+		$this->rights[$r][4] = 'credit';
+		$this->rights[$r][5] = 'write';
+		$r++;
+		$this->rights[$r][0] = $this->numero . sprintf('%02d', (7 * 10) + 2 + 1);
+		$this->rights[$r][1] = 'Adjust the revision credit balance of DesignTrace (add or remove credits by hand)';
+		$this->rights[$r][4] = 'credit';
+		$this->rights[$r][5] = 'adjust';
+		$r++;
+
 
 		// Main menu entries to add
 		$this->menu = array();
@@ -893,6 +910,10 @@ class modDesignTrace extends DolibarrModules
 		include_once DOL_DOCUMENT_ROOT.'/core/class/extrafields.class.php';
 		$extrafields = new ExtraFields($this->db);
 		$extrafields->addExtraField('designtrace_approvers', 'DesignTraceApprovers', 'select', 100, '', 'thirdparty', 0, 0, '0', array('options' => array('0' => 'DesignTraceApproversAny', '1' => 'DesignTraceApproversAdmins')), 1, '', '-1', 'DesignTraceApproversHelp', '', '', 'designtrace@designtrace', 'isModEnabled("designtrace")');
+
+		// Revision credits a product grants per unit sold, and how long they last (months, 0 = never; empty = the setup's default)
+		$extrafields->addExtraField('designtrace_credits', 'DesignTraceCreditsPerUnit', 'int', 101, '10', 'product', 0, 0, '', '', 1, '', '1', 'DesignTraceCreditsPerUnitHelp', '', '', 'designtrace@designtrace', 'isModEnabled("designtrace")');
+		$extrafields->addExtraField('designtrace_credit_months', 'DesignTraceCreditMonths', 'int', 102, '10', 'product', 0, 0, '', '', 1, '', '1', 'DesignTraceCreditMonthsHelp', '', '', 'designtrace@designtrace', 'isModEnabled("designtrace")');
 
 		// Create extrafields during init
 		//include_once DOL_DOCUMENT_ROOT.'/core/class/extrafields.class.php';

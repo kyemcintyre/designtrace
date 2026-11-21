@@ -39,6 +39,7 @@ dol_include_once('/designtrace/class/licensing.class.php');
 dol_include_once('/designtrace/class/componentlink.class.php');
 dol_include_once('/designtrace/class/proofapproval.class.php');
 dol_include_once('/designtrace/class/portfolio.class.php');
+dol_include_once('/designtrace/class/credits.class.php');
 
 /**
  * Customer design library
@@ -381,6 +382,7 @@ class DesignTraceLibrary
 				'components' => $counts,
 				'flags' => $flags,
 				'needs_action' => $needs,
+				'credits' => ($ended ? null : DesignTraceCredits::fetchSummary($db, $id)),
 			);
 		}
 		usort($items, function ($a, $b) {
