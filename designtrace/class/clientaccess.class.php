@@ -367,6 +367,25 @@ class DesignTraceClientAccess
 	}
 
 	/**
+	 * Headers a file is sent with through the API: its hash, its id and its revision's ref and id
+	 *
+	 * The portal backend checks the hash and reads the revision id to tell whether the customer
+	 * holds that revision as delivered.
+	 *
+	 * @param	stdClass	$row	Row from fetchVisibleFiles() (or the staff file query)
+	 * @return	array<string,string>	Header name => value
+	 */
+	public static function fileHeaders($row)
+	{
+		return array(
+			'X-Content-SHA256' => (string) $row->sha256,
+			'X-DesignTrace-File-Id' => (string) ((int) $row->file_id),
+			'X-DesignTrace-Revision' => (string) $row->rev_ref,
+			'X-DesignTrace-Revision-Id' => (string) ((int) $row->rev_id),
+		);
+	}
+
+	/**
 	 * Send a file to the browser and stop
 	 *
 	 * @param	string	$fullpath	Full path on disk
