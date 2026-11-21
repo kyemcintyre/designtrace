@@ -985,12 +985,14 @@ class DesignTraceCredits
 	 * @param	int		$designid	Design
 	 * @return	array<string,mixed>|null	balance, next_expiry (date, credits | null), waiting_for_delivery; null when credits do not apply
 	 */
-	public static function fetchSummary($db, $designid)
+	public static function fetchSummary($db, $designid, $sync = true)
 	{
 		if (!self::isEnabled($db, (int) $designid)) {
 			return null;
 		}
-		self::sync($db, (int) $designid);
+		if ($sync) {
+			self::sync($db, (int) $designid);
+		}
 		$next = null;
 		foreach (self::activeGrantsBySoonest($db, (int) $designid) as $grant) {
 			if ($grant['date_expiry'] !== null) {
@@ -1020,7 +1022,7 @@ class DesignTraceCredits
 		if ($sync) {
 			self::sync($db, (int) $designid);
 		}
-		$summary = self::fetchSummary($db, (int) $designid);
+		$summary = self::fetchSummary($db, (int) $designid, $sync);
 		$statusNames = array(self::STATUS_DORMANT => 'dormant', self::STATUS_ACTIVE => 'active', self::STATUS_ENDED => 'ended');
 		$sourceNames = array(self::SOURCE_DEFAULT => 'default', self::SOURCE_ORDER => 'order', self::SOURCE_MANUAL => 'manual');
 
