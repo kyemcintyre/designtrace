@@ -93,6 +93,17 @@ class CreditsTest extends DesignTraceTestCase
 		$this->assertStringContainsString('secret internal', $staffView);
 	}
 
+	public function testStaffReadWithoutSyncWritesNothing()
+	{
+		list($customer, $design) = $this->deliveredDesign(2);
+		$count = "SELECT COUNT(*) as nb FROM ".MAIN_DB_PREFIX."designtrace_creditledger WHERE fk_design = ".((int) $design->id);
+		$before = $this->countRows($count);
+		DesignTraceCredits::fetchCredits($this->db, $design->id, true, false);
+		$this->assertSame($before, $this->countRows($count), 'A read without sync leaves the ledger as it was');
+		DesignTraceCredits::fetchCredits($this->db, $design->id, false);
+		$this->assertGreaterThan($before, $this->countRows($count), 'The customer read still activates the grants');
+	}
+
 	public function testExpiredGrantsEndAndLeaveTheBalance()
 	{
 		list($customer, $design) = $this->deliveredDesign(2);

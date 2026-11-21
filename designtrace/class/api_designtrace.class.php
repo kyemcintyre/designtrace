@@ -2414,7 +2414,7 @@ class DesignTrace extends DolibarrApi
 	{
 		$this->checkStaff('credit', 'read');
 		$this->getStaffDesign($id);
-		$credits = DesignTraceCredits::fetchCredits($this->db, (int) $id, true);
+		$credits = DesignTraceCredits::fetchCredits($this->db, (int) $id, true, false);
 		if (!$credits) {
 			throw new RestException(404, 'The design has no customer');
 		}

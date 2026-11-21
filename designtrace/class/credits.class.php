@@ -1008,15 +1008,18 @@ class DesignTraceCredits
 	 * @param	DoliDB	$db			Database handler
 	 * @param	int		$designid	Design
 	 * @param	bool	$staff		Include staff-only notes and the real actors
+	 * @param	bool	$sync		Activate and expire grants first (a write); the staff read passes false so it only needs read rights
 	 * @return	array<string,mixed>|null	null when the design has no customer
 	 */
-	public static function fetchCredits($db, $designid, $staff = false)
+	public static function fetchCredits($db, $designid, $staff = false, $sync = true)
 	{
 		$design = self::loadDesign($db, $designid);
 		if (!$design || (int) $design->fk_soc <= 0) {
 			return null;
 		}
-		self::sync($db, (int) $designid);
+		if ($sync) {
+			self::sync($db, (int) $designid);
+		}
 		$summary = self::fetchSummary($db, (int) $designid);
 		$statusNames = array(self::STATUS_DORMANT => 'dormant', self::STATUS_ACTIVE => 'active', self::STATUS_ENDED => 'ended');
 		$sourceNames = array(self::SOURCE_DEFAULT => 'default', self::SOURCE_ORDER => 'order', self::SOURCE_MANUAL => 'manual');
