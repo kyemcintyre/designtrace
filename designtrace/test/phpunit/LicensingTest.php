@@ -192,6 +192,25 @@ class LicensingTest extends DesignTraceTestCase
 		$this->assertFileExists(DesignTraceLicensing::getAcceptancePdfPath($this->db, DesignTraceLicensing::getAcceptance($this->db, $customer->id, $design->id)));
 		$this->assertSame($id2, DesignTraceLicensing::acceptDesign($this->db, $customer->id, $design->id, $current->id, 'api', 'zz', $err), 'Idempotent');
 
+		// The quote card shows this design-level acceptance: its PDF link points into the design's folder, not the quote's
+		$designAcc = DesignTraceLicensing::getAcceptance($this->db, $customer->id, $design->id);
+		$link = DesignTraceLicensing::getAcceptancePdfLink($this->db, $designAcc);
+		$this->assertNotNull($link);
+		$this->assertSame('designtrace', $link['modulepart']);
+		$this->assertSame('design/'.dol_sanitizeFileName($design->ref).'/'.$designAcc->filename, $link['file']);
+		$this->assertStringNotContainsString(dol_sanitizeFileName($quote->ref), $link['file']);
+		$this->assertFileExists($conf->designtrace->multidir_output[$conf->entity].'/'.$link['file']);
+
+		// An acceptance made through the quote links into the quote's folder
+		$quoteLink = DesignTraceLicensing::getAcceptancePdfLink($this->db, $acc);
+		$this->assertSame('propal', $quoteLink['modulepart']);
+		$this->assertSame(dol_sanitizeFileName($quote->ref).'/'.$acc->filename, $quoteLink['file']);
+
+		// A missing PDF gives no link instead of a dead one
+		$gone = clone $designAcc;
+		$gone->filename = 'zz-missing.pdf';
+		$this->assertNull(DesignTraceLicensing::getAcceptancePdfLink($this->db, $gone));
+
 		$this->assertLessThan(0, $licence->delete($this->user), 'A used template cannot be deleted');
 	}
 }

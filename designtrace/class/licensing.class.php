@@ -311,6 +311,40 @@ class DesignTraceLicensing
 	}
 
 	/**
+	 * Where the PDF copy of an acceptance lives, as the parts of a document.php URL
+	 *
+	 * An acceptance is anchored to design + customer, so the one shown on a quote or order may have been made
+	 * through another document or for the design itself: the PDF is in that folder, not the shown document's.
+	 *
+	 * @param	DoliDB		$db		Database handler
+	 * @param	stdClass	$acc	Row of llx_designtrace_licenceaccept
+	 * @return	array{modulepart:string,entity:int,file:string}|null	Null if the PDF is not on disk
+	 */
+	public static function getAcceptancePdfLink($db, $acc)
+	{
+		global $conf;
+
+		if (self::getAcceptancePdfPath($db, $acc) === '') {
+			return null;
+		}
+		$entity = (empty($acc->entity) ? (int) $conf->entity : (int) $acc->entity);
+		$types = self::getDocumentTypes();
+		if (isset($types[$acc->element])) {
+			$doc = self::fetchDocument($db, $acc->element, (int) $acc->fk_element);
+			if (!$doc) {
+				return null;
+			}
+			return array('modulepart' => $types[$acc->element]['dir'], 'entity' => $entity, 'file' => dol_sanitizeFileName($doc->ref).'/'.$acc->filename);
+		}
+		$resql = $db->query("SELECT ref FROM ".$db->prefix()."designtrace_design WHERE rowid = ".((int) $acc->fk_design));
+		$obj = $resql ? $db->fetch_object($resql) : null;
+		if (!$obj) {
+			return null;
+		}
+		return array('modulepart' => 'designtrace', 'entity' => $entity, 'file' => 'design/'.dol_sanitizeFileName($obj->ref).'/'.$acc->filename);
+	}
+
+	/**
 	 * Licences of every design on a document: the template (override or design's), the version
 	 * that counts and the acceptance
 	 *

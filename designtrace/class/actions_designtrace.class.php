@@ -367,7 +367,12 @@ class ActionsDesignTrace extends CommonHookActions
 					$acc = $info['acceptance'];
 					$line .= '<br>'.img_picto('', 'fa-check-circle', 'class="pictofixedwidth" style="color: green"').$langs->trans('LicenceAcceptedOn', $info['version']->ref, dol_print_date($acc->date_accept, 'dayhour'), dol_escape_htmltag((string) $acc->actor));
 					if (!empty($acc->filename)) {
-						$line .= ' <a href="'.DOL_URL_ROOT.'/document.php?modulepart='.$modulepart.'&entity='.((int) $entity).'&file='.urlencode(dol_sanitizeFileName($object->ref).'/'.$acc->filename).'">'.img_mime($acc->filename).'</a>';
+						$pdflink = DesignTraceLicensing::getAcceptancePdfLink($this->db, $acc);
+						if ($pdflink) {
+							$line .= ' <a href="'.DOL_URL_ROOT.'/document.php?modulepart='.urlencode($pdflink['modulepart']).'&entity='.((int) $pdflink['entity']).'&file='.urlencode($pdflink['file']).'">'.img_mime($acc->filename).'</a>';
+						} else {
+							$line .= ' <span class="opacitymedium" title="'.dol_escape_htmltag($acc->filename).'">'.img_mime($acc->filename).' '.$langs->trans('LicencePdfMissing').'</span>';
+						}
 					}
 				} else {
 					$line .= '<br><span class="opacitymedium">'.$langs->trans('LicenceNotAcceptedYet', $info['version']->ref).'</span>';
