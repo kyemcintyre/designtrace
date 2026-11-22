@@ -1817,7 +1817,7 @@ class DesignTrace extends DolibarrApi
 
 	/**
 	 * Any file of a design, whoever it is shared with, streamed as GET customers/{socid}/files/{fileid}/content
-	 * (headers X-Content-SHA256, X-DesignTrace-File-Id, X-DesignTrace-Revision). Production and source files
+	 * (headers X-Content-SHA256, X-DesignTrace-File-Id, X-DesignTrace-Revision and X-DesignTrace-Revision-Id). Production and source files
 	 * too: the staff user's right to read designs is the only gate. Logged on the staff-preview channel, which
 	 * the customer's download log and history never show.
 	 *
