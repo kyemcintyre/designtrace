@@ -229,7 +229,9 @@ All three objects have `entity` (multicompany) and extrafields, and ref unique p
     Same access as `/link` (`checkCustomer()` then `getDownloadableFile()`); JSON errors before any
     data (400 bad type or inline on a non-3D file, 403, 404 not visible or missing on disk); the
     response is the raw file via `sendFile()` (exits, so Restler never encodes it) with
-    `X-Content-SHA256`, `X-DesignTrace-File-Id`, `X-DesignTrace-Revision`. Logged with channel
+    `X-Content-SHA256`, `X-DesignTrace-File-Id`, `X-DesignTrace-Revision` (the ref) and
+    `X-DesignTrace-Revision-Id` (the rowid, which the portal backend uses to tell whether the customer
+    holds that revision as delivered; built in `DesignTraceClientAccess::fileHeaders()`). Logged with channel
     `apidirect` ("API (direct)"); `client_ip` (checked with `FILTER_VALIDATE_IP`) and `user_agent`
     (255 chars) go to the log only, falling back to the caller's. Signed links, view links and
     `DESIGNTRACE_VIEWER_ORIGINS` stay for installs whose Dolibarr is public.
