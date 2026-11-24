@@ -360,6 +360,205 @@ class DesignTraceStaff
 	}
 
 	/**
+	 * Every design, whoever it belongs to (a customer's, the workshop's own or shared), filtered and paged.
+	 * Unlike a customer's library this is not limited to what one customer reaches: a design with no
+	 * customer at all is listed too.
+	 *
+	 * @param	DoliDB	$db			Database handler
+	 * @param	User	$user		Staff user (confidential designs they cannot see are left out)
+	 * @param	array	$filters	q (id, ref, label, customer name, component ref or label), customer ('none' = no customer,
+	 *								else a third party id), ownership (customer|workshop|shared), status (draft|active|archived),
+	 *								needs (approval|declined|eco|needs_update|licence|any), element (propal|commande|ticket|project, as
+	 *								DesignTraceClientAccess::normaliseElement() gives) with docid, project (id), designer (user id), sort (updated|created|ref|label|customer)
+	 * @param	int		$page		Page, from 0
+	 * @param	int		$limit		Page size (1-200)
+	 * @return	array<string,mixed>	total, page, limit, items: [{id, ref, label, status, ownership, confidential, socid, customer, project_id,
+	 *								project_ref, designer_id, designer, licence_id, parts, assemblies, drawings, revisions, released,
+	 *								date_creation, date_modification, needs {approval, declined, eco, needs_update, licence}, needs_action}]
+	 *								(needs.licence is null unless the licence check was asked for with needs=licence or needs=any:
+	 *								it reads every customer's library)
+	 */
+	public static function fetchDesignList($db, $user, $filters = array(), $page = 0, $limit = 25)
+	{
+		$limit = max(1, min(200, (int) $limit));
+		$page = max(0, (int) $page);
+		$p = $db->prefix();
+		$hidden = Design::getHiddenDesignIds($db, $user);
+
+		$needs = (string) ($filters['needs'] ?? '');
+		$sets = self::fetchDesignNeeds($db, $hidden, in_array($needs, array('licence', 'any'), true));
+
+		$where = array("d.entity IN (".getEntity('design').")");
+		if (!empty($hidden)) {
+			$where[] = "d.rowid NOT IN (".$db->sanitize(implode(',', array_map('intval', $hidden))).")";
+		}
+
+		$q = trim((string) ($filters['q'] ?? ''));
+		if ($q !== '') {
+			$like = "'%".$db->escape($db->escapeforlike($q))."%'";
+			$or = array("d.ref LIKE ".$like, "d.label LIKE ".$like, "s.nom LIKE ".$like,
+				"EXISTS (SELECT 1 FROM ".$p."designtrace_component as qc WHERE qc.fk_design = d.rowid AND (qc.ref LIKE ".$like." OR qc.label LIKE ".$like."))");
+			if (ctype_digit($q) && strlen($q) <= 9) {
+				$or[] = "d.rowid = ".((int) $q);
+			}
+			$where[] = "(".implode(" OR ", $or).")";
+		}
+
+		$customer = (string) ($filters['customer'] ?? '');
+		if ($customer === 'none') {
+			$where[] = "(d.fk_soc IS NULL OR d.fk_soc = 0)";
+		} elseif ($customer !== '') {
+			$where[] = "d.fk_soc = ".((int) $customer);
+		}
+		$ownership = array('customer' => Design::OWNERSHIP_CUSTOMER, 'workshop' => Design::OWNERSHIP_WORKSHOP, 'shared' => Design::OWNERSHIP_SHARED);
+		if (!empty($filters['ownership']) && isset($ownership[$filters['ownership']])) {
+			$where[] = "d.ownership = ".((int) $ownership[$filters['ownership']]);
+		}
+		$statuses = array('draft' => Design::STATUS_DRAFT, 'active' => Design::STATUS_VALIDATED, 'archived' => Design::STATUS_CANCELED);
+		if (!empty($filters['status']) && isset($statuses[$filters['status']])) {
+			$where[] = "d.status = ".((int) $statuses[$filters['status']]);
+		}
+		if (!empty($filters['project'])) {
+			$where[] = "d.fk_project = ".((int) $filters['project']);
+		}
+		if (!empty($filters['designer'])) {
+			$where[] = "d.fk_user_designer = ".((int) $filters['designer']);
+		}
+
+		// Linked to a document: the design itself (design-level link) or one of its revisions
+		if (in_array($filters['element'] ?? '', array('propal', 'commande', 'ticket', 'project'), true) && (int) ($filters['docid'] ?? 0) > 0) {
+			$type = $filters['element'];
+			$docid = (int) $filters['docid'];
+			$linked = "EXISTS (SELECT 1 FROM ".$p."element_element as ee WHERE ee.sourcetype = '".$db->escape($type)."' AND ee.fk_source = ".$docid;
+			$linked .= " AND ee.targettype = 'designtrace_design' AND ee.fk_target = d.rowid)";
+			$linked .= " OR EXISTS (SELECT 1 FROM ".$p."element_element as ee INNER JOIN ".$p."designtrace_componentrevision as lr ON lr.rowid = ee.fk_target";
+			$linked .= " INNER JOIN ".$p."designtrace_component as lc ON lc.rowid = lr.fk_component WHERE ee.sourcetype = '".$db->escape($type)."' AND ee.fk_source = ".$docid;
+			$linked .= " AND ee.targettype = 'designtrace_componentrevision' AND lc.fk_design = d.rowid)";
+			if ($type === 'project') {
+				$linked .= " OR d.fk_project = ".$docid;
+			}
+			$where[] = "(".$linked.")";
+		}
+
+		if ($needs !== '') {
+			$ids = array();
+			foreach ($sets as $key => $set) {
+				if ($set !== null && ($needs === 'any' || $needs === $key)) {
+					$ids += $set;
+				}
+			}
+			$where[] = (empty($ids) ? "1 = 0" : "d.rowid IN (".$db->sanitize(implode(',', array_map('intval', array_keys($ids)))).")");
+		}
+
+		$orders = array('updated' => 'd.tms DESC', 'created' => 'd.date_creation DESC', 'ref' => 'd.ref ASC', 'label' => 'd.label ASC', 'customer' => 's.nom ASC');
+		$order = $orders[$filters['sort'] ?? ''] ?? $orders['updated'];
+
+		$from = " FROM ".$p."designtrace_design as d LEFT JOIN ".$p."societe as s ON s.rowid = d.fk_soc";
+		$from .= " LEFT JOIN ".$p."projet as pr ON pr.rowid = d.fk_project LEFT JOIN ".$p."user as u ON u.rowid = d.fk_user_designer";
+		$from .= " WHERE ".implode(" AND ", $where);
+
+		$total = 0;
+		$resql = $db->query("SELECT COUNT(*) as n".$from);
+		if ($resql && ($obj = $db->fetch_object($resql))) {
+			$total = (int) $obj->n;
+		}
+
+		$count = function ($type) use ($p) {
+			return "(SELECT COUNT(*) FROM ".$p."designtrace_component as kc WHERE kc.fk_design = d.rowid AND kc.type = ".((int) $type).")";
+		};
+		$revs = function ($released) use ($p) {
+			return "(SELECT COUNT(*) FROM ".$p."designtrace_componentrevision as kr INNER JOIN ".$p."designtrace_component as kk ON kk.rowid = kr.fk_component WHERE kk.fk_design = d.rowid".($released ? " AND kr.status = ".((int) ComponentRevision::STATUS_RELEASED) : "").")";
+		};
+		$sql = "SELECT d.rowid, d.ref, d.label, d.status, d.ownership, d.confidential, d.fk_soc, s.nom as socname, d.fk_project, pr.ref as project_ref,";
+		$sql .= " d.fk_user_designer, u.firstname, u.lastname, u.login, d.fk_licence, d.date_creation, d.tms,";
+		$sql .= " ".$count(Component::TYPE_PART)." as parts, ".$count(Component::TYPE_ASSEMBLY)." as assemblies, ".$count(Component::TYPE_DRAWING)." as drawings,";
+		$sql .= " ".$revs(false)." as revisions, ".$revs(true)." as released";
+		$sql .= $from." ORDER BY ".$order.", d.rowid DESC".$db->plimit($limit, $page * $limit);
+
+		$items = array();
+		$resql = $db->query($sql);
+		while ($resql && ($obj = $db->fetch_object($resql))) {
+			$id = (int) $obj->rowid;
+			$flags = array();
+			foreach ($sets as $key => $set) {
+				$flags[$key] = ($set === null ? null : isset($set[$id]));
+			}
+			$designer = trim($obj->firstname.' '.$obj->lastname);
+			$items[] = array(
+				'id' => $id, 'ref' => $obj->ref, 'label' => (string) $obj->label,
+				'status' => array_search((int) $obj->status, $statuses, true) ?: 'draft',
+				'ownership' => array_search((int) $obj->ownership, $ownership, true) ?: 'workshop',
+				'confidential' => !empty($obj->confidential),
+				'socid' => (int) $obj->fk_soc, 'customer' => (string) $obj->socname,
+				'project_id' => (int) $obj->fk_project, 'project_ref' => (string) $obj->project_ref,
+				'designer_id' => (int) $obj->fk_user_designer, 'designer' => ($designer !== '' ? $designer : (string) $obj->login),
+				'licence_id' => (int) $obj->fk_licence,
+				'parts' => (int) $obj->parts, 'assemblies' => (int) $obj->assemblies, 'drawings' => (int) $obj->drawings,
+				'revisions' => (int) $obj->revisions, 'released' => (int) $obj->released,
+				'date_creation' => $db->jdate($obj->date_creation), 'date_modification' => $db->jdate($obj->tms),
+				'needs' => $flags,
+				'needs_action' => in_array(true, $flags, true),
+			);
+		}
+		return array('total' => $total, 'page' => $page, 'limit' => $limit, 'items' => $items);
+	}
+
+	/**
+	 * Designs that need the workshop's attention, by reason (the same reasons as the triage queue)
+	 *
+	 * @param	DoliDB	$db			Database handler
+	 * @param	int[]	$hidden		Design ids the caller cannot see (Design::getHiddenDesignIds())
+	 * @param	bool	$licences	Also work out designs whose licence is not accepted (reads every customer's library)
+	 * @return	array<string,array<int,bool>|null>	approval, declined, eco, needs_update, licence: design id => true (licence is null if not asked for)
+	 */
+	private static function fetchDesignNeeds($db, $hidden, $licences)
+	{
+		$p = $db->prefix();
+		$sets = array('approval' => array(), 'declined' => array(), 'eco' => array(), 'needs_update' => array(), 'licence' => null);
+		$collect = function ($sql, $column = 'design_id') use ($db) {
+			$ids = array();
+			$resql = $db->query($sql);
+			while ($resql && ($obj = $db->fetch_object($resql))) {
+				if ((int) $obj->$column > 0) {
+					$ids[(int) $obj->$column] = true;
+				}
+			}
+			return $ids;
+		};
+		$revisions = " FROM ".$p."designtrace_componentrevision as r INNER JOIN ".$p."designtrace_component as c ON c.rowid = r.fk_component";
+
+		$sets['approval'] = $collect("SELECT DISTINCT c.fk_design as design_id".$revisions." WHERE r.needs_approval = 1 AND r.status = ".((int) ComponentRevision::STATUS_INREVIEW)." AND r.customer_approval <> 1");
+		$sets['declined'] = $collect("SELECT DISTINCT c.fk_design as design_id".$revisions." WHERE r.status = ".((int) ComponentRevision::STATUS_DECLINED)
+			." AND NOT EXISTS (SELECT 1 FROM ".$p."designtrace_componentrevision as n WHERE n.fk_component = r.fk_component AND n.rowid > r.rowid)");
+		$open = "e.status IN (".ChangeOrder::STATUS_DRAFT.", ".ChangeOrder::STATUS_APPROVED.", ".ChangeOrder::STATUS_IMPLEMENTED.")";
+		$sets['eco'] = $collect("SELECT DISTINCT c.fk_design as design_id FROM ".$p."designtrace_changeorder as e INNER JOIN ".$p."designtrace_changeorder_component as ac ON ac.fk_eco = e.rowid"
+			." INNER JOIN ".$p."designtrace_component as c ON c.rowid = ac.fk_component WHERE ".$open);
+		$sets['eco'] += $collect("SELECT DISTINCT c.fk_design as design_id FROM ".$p."designtrace_changeorder as e INNER JOIN ".$p."designtrace_componentrevision as r ON r.rowid = e.fk_revision_source"
+			." INNER JOIN ".$p."designtrace_component as c ON c.rowid = r.fk_component WHERE ".$open);
+		foreach (ComponentLink::fetchFlagged($db) as $row) {
+			$sets['needs_update'][(int) $row->design_id] = true;
+			$sets['needs_update'][(int) $row->parent_design_id] = true;
+		}
+
+		if ($licences) {
+			$sets['licence'] = array();
+			foreach (self::getCustomersWithAccess($db) as $socid) {
+				$page = 0;
+				do {
+					$library = DesignTraceLibrary::fetchLibrary($db, $socid, array(), $page, 200);
+					foreach ($library['items'] as $item) {
+						if ($item['flags']['licence'] && !$item['archived']) {
+							$sets['licence'][(int) $item['id']] = true;
+						}
+					}
+					$page++;
+				} while ($library['total'] > $page * 200);
+			}
+		}
+		return $sets;
+	}
+
+	/**
 	 * Metrics for a period
 	 *
 	 * @param	DoliDB	$db		Database handler
