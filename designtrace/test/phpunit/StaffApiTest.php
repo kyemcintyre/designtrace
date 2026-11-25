@@ -193,6 +193,15 @@ class StaffApiTest extends DesignTraceTestCase
 		$this->assertContains($owned->id, array_column($this->api->getStaffDesigns((string) $owned->id)['items'], 'id'), 'Found by id');
 		$this->assertSame(1, count($this->api->getStaffDesigns('ZZ List', '', '', '', '', '', 0, 0, 0, 'ref', 0, 1)['items']));
 
+		$sealed = array_column($this->api->getStaffDesigns('ZZ List', '', '', '', '', '', 0, 0, 0, 'updated', 0, 25, 'yes')['items'], 'id');
+		$this->assertSame(array($secret->id), $sealed, 'Only confidential designs');
+		$open = array_column($this->api->getStaffDesigns('ZZ List', '', '', '', '', '', 0, 0, 0, 'updated', 0, 25, 'no')['items'], 'id');
+		$this->assertNotContains($secret->id, $open);
+		$this->assertContains($owned->id, $open);
+
+		$this->expectCode(400, function () {
+			$this->api->getStaffDesigns('', '', '', '', '', '', 0, 0, 0, 'updated', 0, 25, 'maybe');
+		});
 		$this->expectCode(400, function () {
 			$this->api->getStaffDesigns('', 'abc');
 		});

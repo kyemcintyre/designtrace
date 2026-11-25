@@ -369,7 +369,7 @@ class DesignTraceStaff
 	 * @param	array	$filters	q (id, ref, label, customer name, component ref or label), customer ('none' = no customer,
 	 *								else a third party id), ownership (customer|workshop|shared), status (draft|active|archived),
 	 *								needs (approval|declined|eco|needs_update|licence|any), element (propal|commande|ticket|project, as
-	 *								DesignTraceClientAccess::normaliseElement() gives) with docid, project (id), designer (user id), sort (updated|created|ref|label|customer)
+	 *								DesignTraceClientAccess::normaliseElement() gives) with docid, project (id), designer (user id), sort (updated|created|ref|label|customer), confidential (yes = only confidential, no = none)
 	 * @param	int		$page		Page, from 0
 	 * @param	int		$limit		Page size (1-200)
 	 * @return	array<string,mixed>	total, page, limit, items: [{id, ref, label, status, ownership, confidential, socid, customer, project_id,
@@ -417,6 +417,11 @@ class DesignTraceStaff
 		$statuses = array('draft' => Design::STATUS_DRAFT, 'active' => Design::STATUS_VALIDATED, 'archived' => Design::STATUS_CANCELED);
 		if (!empty($filters['status']) && isset($statuses[$filters['status']])) {
 			$where[] = "d.status = ".((int) $statuses[$filters['status']]);
+		}
+		if (($filters['confidential'] ?? '') === 'yes') {
+			$where[] = "d.confidential = 1";
+		} elseif (($filters['confidential'] ?? '') === 'no') {
+			$where[] = "(d.confidential = 0 OR d.confidential IS NULL)";
 		}
 		if (!empty($filters['project'])) {
 			$where[] = "d.fk_project = ".((int) $filters['project']);

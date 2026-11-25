@@ -1645,6 +1645,7 @@ class DesignTrace extends DolibarrApi
 	 * @param	string	$sort		updated, created, ref, label or customer
 	 * @param	int		$page		Page, from 0
 	 * @param	int		$limit		Page size (1-200)
+	 * @param	string	$confidential	yes = only confidential designs, no = leave them out (the ones the staff user cannot see are never listed)
 	 * @return	array				total, page, limit, items: id, ref, label, status, ownership, confidential, socid, customer, project_id, project_ref, designer_id, designer, licence_id, parts, assemblies, drawings, revisions, released, date_creation, date_modification, needs, needs_action
 	 * @phan-return array<string,mixed>
 	 * @phpstan-return array<string,mixed>
@@ -1654,7 +1655,7 @@ class DesignTrace extends DolibarrApi
 	 * @throws RestException 400 A filter is not valid
 	 * @throws RestException 403 Needs the right to read designs
 	 */
-	public function getStaffDesigns($q = '', $socid = '', $ownership = '', $status = '', $needs = '', $element = '', $docid = 0, $project = 0, $designer = 0, $sort = 'updated', $page = 0, $limit = 25)
+	public function getStaffDesigns($q = '', $socid = '', $ownership = '', $status = '', $needs = '', $element = '', $docid = 0, $project = 0, $designer = 0, $sort = 'updated', $page = 0, $limit = 25, $confidential = '')
 	{
 		$this->checkStaff('design', 'read');
 		$socid = trim((string) $socid);
@@ -1666,6 +1667,7 @@ class DesignTrace extends DolibarrApi
 			'status' => array($status, array('draft', 'active', 'archived')),
 			'needs' => array($needs, array('approval', 'declined', 'eco', 'needs_update', 'licence', 'any')),
 			'sort' => array($sort, array('updated', 'created', 'ref', 'label', 'customer')),
+			'confidential' => array($confidential, array('yes', 'no')),
 		);
 		foreach ($choices as $name => $choice) {
 			if ((string) $choice[0] !== '' && !in_array($choice[0], $choice[1], true)) {
@@ -1681,7 +1683,7 @@ class DesignTrace extends DolibarrApi
 		}
 		return DesignTraceStaff::fetchDesignList($this->db, DolibarrApiAccess::$user, array(
 			'q' => $q, 'customer' => $socid, 'ownership' => $ownership, 'status' => $status, 'needs' => $needs,
-			'element' => $type, 'docid' => (int) $docid, 'project' => (int) $project, 'designer' => (int) $designer, 'sort' => $sort,
+			'element' => $type, 'docid' => (int) $docid, 'project' => (int) $project, 'designer' => (int) $designer, 'sort' => $sort, 'confidential' => $confidential,
 		), (int) $page, (int) $limit);
 	}
 
