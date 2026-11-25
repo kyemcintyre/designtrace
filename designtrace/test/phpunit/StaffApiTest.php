@@ -162,6 +162,67 @@ class StaffApiTest extends DesignTraceTestCase
 		unset($ok);
 	}
 
+	public function testDesignList()
+	{
+		$customer = $this->newCustomer();
+		$owned = $this->newDesign(array('fk_soc' => $customer->id, 'label' => 'ZZ List customer design'), true);
+		$mine = $this->newDesign(array('label' => 'ZZ List workshop design', 'ownership' => Design::OWNERSHIP_WORKSHOP), true);
+		$secret = $this->newDesign(array('label' => 'ZZ List secret', 'confidential' => 1), true);
+		$rev = $this->newRevision($this->newComponent($owned, Component::TYPE_PART, 'ZZ list part'));
+		$this->db->query("UPDATE ".MAIN_DB_PREFIX."designtrace_componentrevision SET needs_approval = 1 WHERE rowid = ".((int) $rev->id));
+		$this->inReview($rev);
+
+		$all = $this->api->getStaffDesigns('ZZ List');
+		$byid = array_column($all['items'], null, 'id');
+		$this->assertArrayHasKey($owned->id, $byid);
+		$this->assertArrayHasKey($mine->id, $byid, 'A design with no customer is listed');
+		$this->assertSame(0, $byid[$mine->id]['socid']);
+		$this->assertSame('workshop', $byid[$mine->id]['ownership']);
+		$this->assertSame(1, $byid[$owned->id]['parts']);
+		$this->assertTrue($byid[$owned->id]['needs']['approval']);
+		$this->assertTrue($byid[$owned->id]['needs_action']);
+		$this->assertFalse($byid[$mine->id]['needs_action']);
+
+		$none = array_column($this->api->getStaffDesigns('ZZ List', 'none')['items'], 'id');
+		$this->assertContains($mine->id, $none);
+		$this->assertNotContains($owned->id, $none);
+		$of = array_column($this->api->getStaffDesigns('ZZ List', (string) $customer->id)['items'], 'id');
+		$this->assertSame(array($owned->id), $of);
+		$needs = array_column($this->api->getStaffDesigns('ZZ List', '', '', '', 'approval')['items'], 'id');
+		$this->assertSame(array($owned->id), $needs);
+		$this->assertContains($owned->id, array_column($this->api->getStaffDesigns((string) $owned->id)['items'], 'id'), 'Found by id');
+		$this->assertSame(1, count($this->api->getStaffDesigns('ZZ List', '', '', '', '', '', 0, 0, 0, 'ref', 0, 1)['items']));
+
+		$sealed = array_column($this->api->getStaffDesigns('ZZ List', '', '', '', '', '', 0, 0, 0, 'updated', 0, 25, 'yes')['items'], 'id');
+		$this->assertSame(array($secret->id), $sealed, 'Only confidential designs');
+		$open = array_column($this->api->getStaffDesigns('ZZ List', '', '', '', '', '', 0, 0, 0, 'updated', 0, 25, 'no')['items'], 'id');
+		$this->assertNotContains($secret->id, $open);
+		$this->assertContains($owned->id, $open);
+
+		$this->expectCode(400, function () {
+			$this->api->getStaffDesigns('', '', '', '', '', '', 0, 0, 0, 'updated', 0, 25, 'maybe');
+		});
+		$this->expectCode(400, function () {
+			$this->api->getStaffDesigns('', 'abc');
+		});
+		$this->expectCode(400, function () {
+			$this->api->getStaffDesigns('', '', '', 'nope');
+		});
+		$this->expectCode(400, function () {
+			$this->api->getStaffDesigns('', '', '', '', '', 'quote', 0);
+		});
+
+		// A staff user who cannot see confidential designs does not get them
+		$this->assertArrayHasKey($secret->id, array_column($this->api->getStaffDesigns('ZZ List secret')['items'], null, 'id'));
+		$reader = $this->newUser(array('design/read'));
+		$this->asUser($reader);
+		$this->assertArrayNotHasKey($secret->id, array_column($this->api->getStaffDesigns('ZZ List secret')['items'], null, 'id'));
+		$this->asUser($this->newUser());
+		$this->expectCode(403, function () {
+			$this->api->getStaffDesigns();
+		});
+	}
+
 	public function testGrantsFileVisibilityAndCustomerView()
 	{
 		$customer = $this->newCustomer();

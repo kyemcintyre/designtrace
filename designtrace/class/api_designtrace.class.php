@@ -1630,6 +1630,64 @@ class DesignTrace extends DolibarrApi
 	}
 
 	/**
+	 * Every design, whoever it belongs to: a customer's, the workshop's own (no customer) or shared.
+	 * Filtered and paged; confidential designs the staff user cannot see are left out.
+	 *
+	 * @param	string	$q			Search: id, ref, label, customer name, component ref or label
+	 * @param	string	$socid		'none' = designs with no customer, or a customer (third party) id
+	 * @param	string	$ownership	customer, workshop or shared
+	 * @param	string	$status		draft, active or archived
+	 * @param	string	$needs		approval, declined, eco, needs_update, licence or any (licence reads every customer's library)
+	 * @param	string	$element	Linked to a quote, order, ticket or project (with docid)
+	 * @param	int		$docid		Id of that record
+	 * @param	int		$project	Project id
+	 * @param	int		$designer	Designer (user id)
+	 * @param	string	$sort		updated, created, ref, label or customer
+	 * @param	int		$page		Page, from 0
+	 * @param	int		$limit		Page size (1-200)
+	 * @param	string	$confidential	yes = only confidential designs, no = leave them out (the ones the staff user cannot see are never listed)
+	 * @return	array				total, page, limit, items: id, ref, label, status, ownership, confidential, socid, customer, project_id, project_ref, designer_id, designer, licence_id, parts, assemblies, drawings, revisions, released, date_creation, date_modification, needs, needs_action
+	 * @phan-return array<string,mixed>
+	 * @phpstan-return array<string,mixed>
+	 *
+	 * @url	GET staff/designs
+	 *
+	 * @throws RestException 400 A filter is not valid
+	 * @throws RestException 403 Needs the right to read designs
+	 */
+	public function getStaffDesigns($q = '', $socid = '', $ownership = '', $status = '', $needs = '', $element = '', $docid = 0, $project = 0, $designer = 0, $sort = 'updated', $page = 0, $limit = 25, $confidential = '')
+	{
+		$this->checkStaff('design', 'read');
+		$socid = trim((string) $socid);
+		if ($socid !== '' && $socid !== 'none' && !(ctype_digit($socid) && (int) $socid > 0)) {
+			throw new RestException(400, 'socid must be "none" or a customer id');
+		}
+		$choices = array(
+			'ownership' => array($ownership, array('customer', 'workshop', 'shared')),
+			'status' => array($status, array('draft', 'active', 'archived')),
+			'needs' => array($needs, array('approval', 'declined', 'eco', 'needs_update', 'licence', 'any')),
+			'sort' => array($sort, array('updated', 'created', 'ref', 'label', 'customer')),
+			'confidential' => array($confidential, array('yes', 'no')),
+		);
+		foreach ($choices as $name => $choice) {
+			if ((string) $choice[0] !== '' && !in_array($choice[0], $choice[1], true)) {
+				throw new RestException(400, $name.' must be one of: '.implode(', ', $choice[1]));
+			}
+		}
+		$type = '';
+		if ((string) $element !== '') {
+			$type = DesignTraceClientAccess::normaliseElement($element);
+			if ($type === '' || $type === 'grant' || (int) $docid <= 0) {
+				throw new RestException(400, 'element must be a quote, order, ticket or project, with docid');
+			}
+		}
+		return DesignTraceStaff::fetchDesignList($this->db, DolibarrApiAccess::$user, array(
+			'q' => $q, 'customer' => $socid, 'ownership' => $ownership, 'status' => $status, 'needs' => $needs,
+			'element' => $type, 'docid' => (int) $docid, 'project' => (int) $project, 'designer' => (int) $designer, 'sort' => $sort, 'confidential' => $confidential,
+		), (int) $page, (int) $limit);
+	}
+
+	/**
 	 * The customer's library, as the customer sees it
 	 *
 	 * @param	int		$socid		Customer (third party) id
